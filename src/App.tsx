@@ -1,24 +1,66 @@
-import { useEffect, useState } from 'react'
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { AppShell } from './components/AppShell'
+import { PlaceholderPage } from './pages/PlaceholderPage'
 
 export default function App() {
-  const [version, setVersion] = useState<string>('')
-
-  useEffect(() => {
-    window.api.getAppVersion().then(setVersion)
-  }, [])
-
-
-  const someFunction = () => {
-    window.api.getSurajLol().then((result) => {
-      console.log(result)
-    })
-  }
-
   return (
-    <div className="flex h-screen flex-col items-center justify-center gap-2 bg-neutral-900 text-neutral-50">
-      <h1 className="text-3xl font-bold">⚡ Electron + React</h1>
-      <p className="text-neutral-400">{version ? `v${version}` : 'Loading…'}</p>
-      <button onClick={someFunction}>haha</button>
-    </div>
+    <HashRouter>
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route
+            path="/dashboard"
+            element={
+              <PlaceholderPage
+                eyebrow="Overview"
+                title="Dashboard"
+                description="Your workflow capture command centre."
+              />
+            }
+          />
+          <Route
+            path="/sessions"
+            element={
+              <PlaceholderPage
+                eyebrow="Recordings"
+                title="Sessions"
+                description="Review captured workflows and their event timelines."
+              />
+            }
+          />
+          <Route
+            path="/sop-library"
+            element={
+              <PlaceholderPage
+                eyebrow="Documentation"
+                title="SOP Library"
+                description="Review, edit and publish generated procedures."
+              />
+            }
+          />
+          <Route
+            path="/analytics"
+            element={
+              <PlaceholderPage
+                eyebrow="Intelligence"
+                title="Analytics"
+                description="Compare workflow paths and identify process friction."
+              />
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <PlaceholderPage
+                eyebrow="Workspace"
+                title="Settings"
+                description="Manage capture preferences, team access and integrations."
+              />
+            }
+          />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Route>
+      </Routes>
+    </HashRouter>
   )
 }
