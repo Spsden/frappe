@@ -1,5 +1,9 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron'
 import { join } from 'path'
+import { RecordingManager } from './recording/RecordingManager'
+import { registerRecordingIpc } from './recording/registerRecordingIpc'
+
+const recordingManager = new RecordingManager()
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -34,6 +38,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   // Example IPC handler — renderer calls window.api.getAppVersion()
   ipcMain.handle('get-app-version', () => app.getVersion())
+  registerRecordingIpc(recordingManager)
 
   createWindow()
 
