@@ -1,9 +1,11 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron'
 import { join } from 'path'
 import { RecordingManager } from './recording/RecordingManager'
+import { RecordingControlsWindow } from './recording/RecordingControlsWindow'
 import { registerRecordingIpc } from './recording/registerRecordingIpc'
 
 const recordingManager = new RecordingManager()
+let recordingControlsWindow: RecordingControlsWindow | null = null
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -39,6 +41,8 @@ app.whenReady().then(() => {
   // Example IPC handler — renderer calls window.api.getAppVersion()
   ipcMain.handle('get-app-version', () => app.getVersion())
   registerRecordingIpc(recordingManager)
+  recordingControlsWindow = new RecordingControlsWindow(process.env['ELECTRON_RENDERER_URL'])
+  recordingManager.on('state-changed', (state) => recordingControlsWindow?.handleState(state))
 
   createWindow()
 
@@ -53,4 +57,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('before-quit', () => {
+  recordingControlsWindow?.destroy()
 })
