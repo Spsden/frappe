@@ -3,8 +3,10 @@ import { EventEmitter } from 'node:events'
 import {
   defaultRecordingOptions,
   type RecordingOptions,
+  type RecordingPlatform,
   type RecordingState
 } from '../../shared/recording'
+import { SessionWriter } from './SessionWriter'
 
 const idleState: RecordingState = {
   status: 'idle',
@@ -19,9 +21,21 @@ const idleState: RecordingState = {
   error: null
 }
 
+function getRecordingPlatform(): RecordingPlatform {
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    return process.platform
+  }
+
+  return 'linux'
+}
+
 export class RecordingManager extends EventEmitter {
   private state: RecordingState = { ...idleState }
   private options: RecordingOptions = { ...defaultRecordingOptions }
+
+  constructor(private readonly sessionWriter: SessionWriter) {
+    super()
+  }
 
   getState(): RecordingState {
     return { ...this.state }
@@ -45,6 +59,22 @@ export class RecordingManager extends EventEmitter {
       startedAt: new Date().toISOString()
     })
 
+    try {
+      const outputPath = await this.sessionWriter.createSession(
+        this.state.sessionId!,
+        this.state.sessionName!,
+        getRecordingPlatform(),
+        this.options
+      )
+      this.updateState({ outputPath })
+    } catch (error) {
+      this.updateState({
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Could not create the recording session.'
+      })
+      throw error
+    }
+
     this.updateState({ status: 'recording' })
     return this.getState()
   }
@@ -55,6 +85,7 @@ export class RecordingManager extends EventEmitter {
       status: 'paused',
       pausedAt: new Date().toISOString()
     })
+    await this.sessionWriter.setStatus('paused')
     return this.getState()
   }
 
@@ -70,6 +101,7 @@ export class RecordingManager extends EventEmitter {
       pausedAt: null,
       accumulatedPausedMs: this.state.accumulatedPausedMs + pausedDuration
     })
+    await this.sessionWriter.setStatus('recording')
     return this.getState()
   }
 
@@ -90,6 +122,7 @@ export class RecordingManager extends EventEmitter {
     })
 
     this.updateState({ status: 'processing' })
+    await this.sessionWriter.setStatus('completed')
     this.updateState({ status: 'completed' })
     return this.getState()
   }
