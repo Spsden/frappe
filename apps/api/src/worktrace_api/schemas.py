@@ -3,13 +3,55 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 SCHEMA_VERSION = "1.0"
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class AccountRole(StrEnum):
+    OWNER = "owner"
+    ADMIN = "admin"
+    MEMBER = "member"
+
+
+class SignUpRequest(StrictModel):
+    company_name: str = Field(min_length=2, max_length=200)
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=10, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return _normalized_email(value)
+
+
+class LoginRequest(StrictModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return _normalized_email(value)
+
+
+class Account(StrictModel):
+    user_id: UUID
+    tenant_id: UUID
+    company_name: str
+    email: str
+    role: AccountRole
+
+
+class AuthSession(StrictModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_at: datetime
+    account: Account
 
 
 class EventType(StrEnum):
@@ -273,3 +315,15 @@ class Screenshot(StrictModel):
     content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     redaction_status: Literal["pending", "not_required", "redacted", "failed"] = "pending"
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+def _normalized_email(value: str) -> str:
+    email = value.strip().lower()
+    if (
+        email.count("@") != 1
+        or email.startswith("@")
+        or email.endswith("@")
+        or "." not in email.rsplit("@", 1)[1]
+    ):
+        raise ValueError("Enter a valid email address")
+    return email

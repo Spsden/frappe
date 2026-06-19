@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WorkTrace API",
-    "description": "Secure single-tenant workflow capture, SOP, onboarding, feedback, analytics, and export API.",
+    "description": "Secure tenant-isolated workflow capture, SOP, onboarding, feedback, analytics, and export API.",
     "version": "0.1.0"
   },
   "paths": {
@@ -31,6 +31,191 @@
         }
       }
     },
+    "/auth/signup": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Signup",
+        "operationId": "signup_auth_signup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignUpRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSession"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSession"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Current Account",
+        "operationId": "current_account_auth_me_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Logout",
+        "operationId": "logout_auth_logout_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recordings": {
       "post": {
         "tags": [
@@ -38,24 +223,27 @@
         ],
         "summary": "Create Recording",
         "operationId": "create_recording_recordings_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -100,6 +288,11 @@
         ],
         "summary": "Upload Recording Chunk",
         "operationId": "upload_recording_chunk_recordings__recording_id__chunks__chunk_index__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "recording_id",
@@ -124,20 +317,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -182,6 +373,11 @@
         ],
         "summary": "Complete Recording",
         "operationId": "complete_recording_recordings__recording_id__complete_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "recording_id",
@@ -196,20 +392,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -254,6 +448,11 @@
         ],
         "summary": "Recording Status",
         "operationId": "recording_status_recordings__recording_id__status_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "recording_id",
@@ -268,20 +467,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -316,6 +513,11 @@
         ],
         "summary": "Delete Recording",
         "operationId": "delete_recording_recordings__recording_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "recording_id",
@@ -330,20 +532,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -371,24 +571,27 @@
         ],
         "summary": "Create Session",
         "operationId": "create_session_sessions_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -431,6 +634,11 @@
         ],
         "summary": "List Sessions",
         "operationId": "list_sessions_sessions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "workflow_name",
@@ -475,20 +683,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -527,6 +733,11 @@
         ],
         "summary": "Get Session",
         "operationId": "get_session_sessions__session_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -541,20 +752,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -587,6 +796,11 @@
         ],
         "summary": "Delete Session",
         "operationId": "delete_session_sessions__session_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -601,20 +815,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -642,6 +854,11 @@
         ],
         "summary": "Preview External Ai",
         "operationId": "preview_external_ai_sessions__session_id__ai_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -656,20 +873,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -704,6 +919,11 @@
         ],
         "summary": "Set External Ai Approval",
         "operationId": "set_external_ai_approval_sessions__session_id__ai_approval_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -718,20 +938,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -776,6 +994,11 @@
         ],
         "summary": "Create Sop",
         "operationId": "create_sop_sessions__session_id__sops_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -790,20 +1013,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -838,6 +1059,11 @@
         ],
         "summary": "Get Sop",
         "operationId": "get_sop_sops__sop_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "sop_id",
@@ -852,20 +1078,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -900,6 +1124,11 @@
         ],
         "summary": "Get Walkthrough",
         "operationId": "get_walkthrough_walkthroughs__sop_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "sop_id",
@@ -914,20 +1143,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -962,6 +1189,11 @@
         ],
         "summary": "Approve Sop",
         "operationId": "approve_sop_sops__sop_id__approval_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "sop_id",
@@ -976,20 +1208,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -1034,24 +1264,27 @@
         ],
         "summary": "Create Feedback",
         "operationId": "create_feedback_feedback_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -1096,6 +1329,11 @@
         ],
         "summary": "Export Session",
         "operationId": "export_session_exports__session_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "session_id",
@@ -1110,20 +1348,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -1158,6 +1394,11 @@
         ],
         "summary": "Workflow Analytics",
         "operationId": "workflow_analytics_analytics__workflow_name__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "workflow_name",
@@ -1188,20 +1429,18 @@
           {
             "name": "X-Tenant-ID",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "X-Tenant-Id"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
             }
           }
         ],
@@ -1232,6 +1471,50 @@
   },
   "components": {
     "schemas": {
+      "Account": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Tenant Id"
+          },
+          "company_name": {
+            "type": "string",
+            "title": "Company Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AccountRole"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id",
+          "tenant_id",
+          "company_name",
+          "email",
+          "role"
+        ],
+        "title": "Account"
+      },
+      "AccountRole": {
+        "type": "string",
+        "enum": [
+          "owner",
+          "admin",
+          "member"
+        ],
+        "title": "AccountRole"
+      },
       "AnalyticsSummary": {
         "properties": {
           "schema_version": {
@@ -1306,6 +1589,36 @@
           "executive_summary"
         ],
         "title": "AnalyticsSummary"
+      },
+      "AuthSession": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "const": "bearer",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "account": {
+            "$ref": "#/components/schemas/Account"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "access_token",
+          "expires_at",
+          "account"
+        ],
+        "title": "AuthSession"
       },
       "Body_upload_recording_chunk_recordings__recording_id__chunks__chunk_index__put": {
         "properties": {
@@ -1676,6 +1989,29 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest"
       },
       "Recording": {
         "properties": {
@@ -2284,6 +2620,36 @@
         ],
         "title": "SessionStatus"
       },
+      "SignUpRequest": {
+        "properties": {
+          "company_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 2,
+            "title": "Company Name"
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 10,
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "company_name",
+          "email",
+          "password"
+        ],
+        "title": "SignUpRequest"
+      },
       "TargetBounds": {
         "properties": {
           "x": {
@@ -2588,12 +2954,22 @@
         ],
         "title": "WorkflowSessionCreate"
       }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
     }
   },
   "tags": [
     {
       "name": "system",
       "description": "Runtime health."
+    },
+    {
+      "name": "auth",
+      "description": "Tenant signup and user sessions."
     },
     {
       "name": "sessions",

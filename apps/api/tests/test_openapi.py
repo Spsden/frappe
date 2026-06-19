@@ -16,6 +16,7 @@ def test_openapi_exposes_expected_endpoint_groups():
     tags = {tag["name"] for tag in document["tags"]}
     assert tags == {
         "analytics",
+        "auth",
         "exports",
         "feedback",
         "recordings",

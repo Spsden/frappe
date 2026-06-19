@@ -1,8 +1,8 @@
 import json
 from collections.abc import Generator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from hmac import compare_digest
 from uuid import UUID
 
 from fastapi import (
@@ -19,8 +19,17 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from worktrace_api.auth import (
+    AuthenticationError,
+    EmailAlreadyRegisteredError,
+    authenticate,
+    log_in,
+    log_out,
+    sign_up,
+)
 from worktrace_api.database import create_tables
 from worktrace_api.privacy import sanitize_session
 from worktrace_api.processing import RecordingProcessor
@@ -28,7 +37,9 @@ from worktrace_api.recordings import ChunkStorage
 from worktrace_api.repository import Repository, get_db
 from worktrace_api.schemas import (
     SOP,
+    Account,
     AnalyticsSummary,
+    AuthSession,
     ChunkContentType,
     ChunkReceipt,
     ExportBundle,
@@ -36,11 +47,13 @@ from worktrace_api.schemas import (
     ExternalAIPayloadPreview,
     Feedback,
     FeedbackCreate,
+    LoginRequest,
     Recording,
     RecordingComplete,
     RecordingCreate,
     RecordingStatus,
     RecordingStatusResponse,
+    SignUpRequest,
     SOPApproval,
     SOPStatus,
     WorkflowSession,
@@ -66,12 +79,13 @@ app = FastAPI(
     title="WorkTrace API",
     version="0.1.0",
     description=(
-        "Secure single-tenant workflow capture, SOP, onboarding, feedback, "
+        "Secure tenant-isolated workflow capture, SOP, onboarding, feedback, "
         "analytics, and export API."
     ),
     lifespan=lifespan,
     openapi_tags=[
         {"name": "system", "description": "Runtime health."},
+        {"name": "auth", "description": "Tenant signup and user sessions."},
         {"name": "sessions", "description": "Workflow ingestion and privacy controls."},
         {"name": "recordings", "description": "Resumable raw recording ingestion."},
         {"name": "sops", "description": "SOP generation, review, and approval."},
@@ -101,24 +115,43 @@ processing_stages = [
     RecordingStatus.READY_FOR_REVIEW,
     RecordingStatus.COMPLETED,
 ]
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def authenticated_tenant(
-    x_tenant_id: UUID = Header(alias="X-Tenant-ID"),
-    authorization: str = Header(alias="Authorization"),
-) -> UUID:
-    expected = f"Bearer {settings.api_token.get_secret_value()}"
-    if x_tenant_id != settings.tenant_id or not compare_digest(authorization, expected):
+@dataclass(frozen=True)
+class AuthContext:
+    account: Account
+    access_token: str
+
+
+def authenticated_account(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    x_tenant_id: UUID | None = Header(default=None, alias="X-Tenant-ID"),
+    db: Session = Depends(get_db),
+) -> AuthContext:
+    if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid tenant credentials"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    return settings.tenant_id
+    try:
+        account = authenticate(db, credentials.credentials)
+    except AuthenticationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    if x_tenant_id and x_tenant_id != account.tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant mismatch")
+    return AuthContext(account=account, access_token=credentials.credentials)
 
 
 def repository(
-    tenant_id: UUID = Depends(authenticated_tenant), db: Session = Depends(get_db)
+    auth: AuthContext = Depends(authenticated_account), db: Session = Depends(get_db)
 ) -> Generator[Repository, None, None]:
-    yield Repository(db, tenant_id)
+    yield Repository(db, auth.account.tenant_id)
 
 
 def require_session(repo: Repository, session_id: UUID) -> WorkflowSession:
@@ -131,6 +164,44 @@ def require_session(repo: Repository, session_id: UUID) -> WorkflowSession:
 @app.get("/health", tags=["system"])
 def health() -> dict[str, str]:
     return {"status": "ok", "environment": settings.env}
+
+
+@app.post(
+    "/auth/signup",
+    response_model=AuthSession,
+    status_code=status.HTTP_201_CREATED,
+    tags=["auth"],
+)
+def signup(payload: SignUpRequest, db: Session = Depends(get_db)) -> AuthSession:
+    try:
+        return sign_up(db, payload, settings.access_token_ttl_hours)
+    except EmailAlreadyRegisteredError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@app.post("/auth/login", response_model=AuthSession, tags=["auth"])
+def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthSession:
+    try:
+        return log_in(db, payload, settings.access_token_ttl_hours)
+    except AuthenticationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+
+@app.get("/auth/me", response_model=Account, tags=["auth"])
+def current_account(auth: AuthContext = Depends(authenticated_account)) -> Account:
+    return auth.account
+
+
+@app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["auth"])
+def logout(
+    auth: AuthContext = Depends(authenticated_account), db: Session = Depends(get_db)
+) -> Response:
+    log_out(db, auth.access_token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post(

@@ -8,6 +8,5 @@ def test_production_rejects_development_security_defaults():
     with pytest.raises(ValidationError):
         Settings(
             env="production",
-            api_token="development-only-token",
             allowed_domains=[],
         )

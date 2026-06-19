@@ -1,9 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
-from uuid import UUID
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -14,8 +13,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/worktrace.sqlite3"
     recording_storage_path: Path = Path("./data/recordings")
     max_chunk_bytes: int = 10 * 1024 * 1024
-    tenant_id: UUID = UUID("00000000-0000-0000-0000-000000000001")
-    api_token: SecretStr = SecretStr("development-only-token")
+    access_token_ttl_hours: int = Field(default=24 * 30, ge=1, le=24 * 365)
     allowed_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
     allowed_domains: Annotated[list[str], NoDecode] = []
     ai_provider: str = "local"
@@ -31,11 +29,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def production_settings_are_fail_closed(self) -> "Settings":
-        if self.env != "development":
-            if self.api_token.get_secret_value() == "development-only-token":
-                raise ValueError("Production requires a non-default API token")
-            if not self.allowed_domains:
-                raise ValueError("Production requires an explicit recording-domain allowlist")
+        if self.env != "development" and not self.allowed_domains:
+            raise ValueError("Production requires an explicit recording-domain allowlist")
         return self
 
     def ensure_local_directories(self) -> None:

@@ -31,12 +31,16 @@ Swagger UI is available at `http://localhost:8000/docs`. The checked-in
 .\.venv\Scripts\python apps/api/scripts/export_openapi.py
 ```
 
-Every request except `/health` requires the configured `X-Tenant-ID` and a
-Bearer token. The token is a prototype single-tenant control; replace it with
-OIDC/JWT verification before any shared or production deployment.
+Create the first company owner with `/auth/signup`, then use the returned
+opaque Bearer token for protected requests. Tokens are stored hashed in the
+database and can be revoked with `/auth/logout`. The API derives tenant scope
+from the authenticated token. `X-Tenant-ID` is optional and, when supplied,
+must match the token tenant.
 
 ## Endpoint Groups
 
+- `/auth`: create a tenant owner account, log in, inspect the current account,
+  and revoke the active access token.
 - `/recordings`: create recording drafts, upload idempotent chunks, complete
   ingestion, and poll read-only processing status.
 - `/sessions`: ingest, list, inspect, delete, preview AI payloads, approve AI
@@ -59,4 +63,5 @@ OIDC/JWT verification before any shared or production deployment.
   external-AI calls.
 - Slow work currently runs synchronously; its service boundary is ready to move
   behind Redis/RQ without changing route contracts.
-- Authentication and production migrations are required before production use.
+- Email verification, password reset, account invitations, rate limiting, and
+  production migrations remain required before a public deployment.
