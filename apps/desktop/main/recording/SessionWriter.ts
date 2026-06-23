@@ -11,8 +11,21 @@ import type {
 export class SessionWriter {
   private manifest: RecordingSessionManifest | null = null
   private sessionPath: string | null = null
+  private queue: Promise<void> = Promise.resolve()
 
   constructor(private readonly recordingsPath: string) {}
+
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.queue = this.queue.finally(async () => {
+        try {
+          resolve(await task())
+        } catch (error) {
+          reject(error)
+        }
+      })
+    })
+  }
 
   async createSession(
     id: string,
@@ -20,52 +33,60 @@ export class SessionWriter {
     platform: RecordingPlatform,
     options: RecordingOptions
   ): Promise<string> {
-    this.sessionPath = join(this.recordingsPath, id)
-    await mkdir(join(this.sessionPath, 'screenshots'), { recursive: true })
+    return this.enqueue(async () => {
+      this.sessionPath = join(this.recordingsPath, id)
+      await mkdir(join(this.sessionPath, 'screenshots'), { recursive: true })
 
-    this.manifest = {
-      schemaVersion: 1,
-      id,
-      name,
-      platform,
-      startedAt: new Date().toISOString(),
-      endedAt: null,
-      status: 'recording',
-      options,
-      eventCount: 0,
-      screenshotCount: 0
-    }
+      this.manifest = {
+        schemaVersion: 1,
+        id,
+        name,
+        platform,
+        startedAt: new Date().toISOString(),
+        endedAt: null,
+        status: 'recording',
+        options,
+        eventCount: 0,
+        screenshotCount: 0
+      }
 
-    await this.writeManifest()
-    await writeFile(join(this.sessionPath, 'events.jsonl'), '')
-    await writeFile(join(this.sessionPath, 'screenshots.jsonl'), '')
-    return this.sessionPath
+      await this.writeManifest()
+      await writeFile(join(this.sessionPath, 'events.jsonl'), '')
+      await writeFile(join(this.sessionPath, 'screenshots.jsonl'), '')
+      return this.sessionPath
+    })
   }
 
   async setStatus(status: RecordingSessionManifest['status']): Promise<void> {
-    const { manifest } = this.requireSession()
-    manifest.status = status
+    return this.enqueue(async () => {
+      const { manifest } = this.requireSession()
+      manifest.status = status
 
-    if (status === 'completed' || status === 'interrupted' || status === 'error') {
-      manifest.endedAt = new Date().toISOString()
-    }
+      if (status === 'completed' || status === 'interrupted' || status === 'error') {
+        manifest.endedAt = new Date().toISOString()
+      }
 
-    await this.writeManifest()
+      await this.writeManifest()
+    })
   }
 
   async appendEvent(event: RecordedEvent): Promise<void> {
-    const { manifest, sessionPath } = this.requireSession()
-    await appendFile(join(sessionPath, 'events.jsonl'), `${JSON.stringify(event)}\n`)
-    manifest.eventCount += 1
-    await this.writeManifest()
+    return this.enqueue(async () => {
+      const { manifest, sessionPath } = this.requireSession()
+      await appendFile(join(sessionPath, 'events.jsonl'), `${JSON.stringify(event)}\n`)
+      manifest.eventCount += 1
+      await this.writeManifest()
+    })
   }
 
   async appendScreenshot(record: ScreenshotRecord, png: Uint8Array): Promise<void> {
-    const { manifest, sessionPath } = this.requireSession()
-    await writeFile(join(sessionPath, 'screenshots', record.filename), png)
-    await appendFile(join(sessionPath, 'screenshots.jsonl'), `${JSON.stringify(record)}\n`)
-    manifest.screenshotCount += 1
-    await this.writeManifest()
+    return this.enqueue(async () => {
+      const { manifest, sessionPath } = this.requireSession()
+      await writeFile(join(sessionPath, 'screenshots', record.filename), png)
+      await appendFile(join(sessionPath, 'screenshots.jsonl'), `${JSON.stringify(record)}\n`)
+      manifest.screenshotCount += 1
+      await this.writeManifest()
+    })
   }
 
   getSessionPath(): string | null {

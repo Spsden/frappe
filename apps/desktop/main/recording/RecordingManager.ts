@@ -105,6 +105,8 @@ export class RecordingManager extends EventEmitter {
             error: error.message
           })
           void this.sessionWriter.setStatus('error')
+          void this.inputEvents.stop().catch(() => {})
+          void this.screenCapture.stop().catch(() => {})
         }
       })
     } catch (error) {
@@ -127,6 +129,8 @@ export class RecordingManager extends EventEmitter {
         onError: (error) => {
           this.updateState({ status: 'error', error: error.message })
           void this.sessionWriter.setStatus('error')
+          void this.inputEvents.stop().catch(() => {})
+          void this.screenCapture.stop().catch(() => {})
         }
       })
     } catch (error) {
