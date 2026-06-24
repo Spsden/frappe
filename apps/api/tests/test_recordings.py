@@ -307,6 +307,37 @@ def test_failed_processing_is_visible_in_recording_status(client):
     )
 
 
+def test_status_marks_recording_failed_when_uploaded_files_are_missing(client):
+    recording = create_recording(client, has_audio=False)
+    uploaded = upload_chunk(
+        client,
+        recording["id"],
+        0,
+        b'{"type":"click","data":{"x":1,"y":2}}\n',
+        content_type="events",
+        media_type="application/x-ndjson",
+    )
+    assert uploaded.status_code == 200
+
+    stored_chunk = (
+        Path(__file__).parent
+        / "data"
+        / "recordings"
+        / TEST_TENANT_ID
+        / recording["id"]
+        / "00000000-events.jsonl"
+    )
+    stored_chunk.unlink()
+
+    current = client.get(f"/recordings/{recording['id']}/status", headers=auth_headers())
+
+    assert current.status_code == 200
+    assert current.json()["recording"]["status"] == "failed"
+    assert current.json()["recording"]["error_message"] == (
+        "Recording evidence files are missing for 1 uploaded chunk(s)."
+    )
+
+
 def test_rejects_invalid_index_and_declared_size(client):
     recording = create_recording(client)
     negative = upload_chunk(client, recording["id"], -1)

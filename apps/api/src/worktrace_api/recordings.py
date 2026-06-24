@@ -57,11 +57,17 @@ class ChunkStorage:
         directory.rmdir()
 
     def read(self, storage_key: str) -> bytes:
+        return self.resolve_storage_key(storage_key).read_bytes()
+
+    def exists(self, storage_key: str) -> bool:
+        return self.resolve_storage_key(storage_key).exists()
+
+    def resolve_storage_key(self, storage_key: str) -> Path:
         path = (self.root / storage_key).resolve()
         root = self.root.resolve()
         if root not in path.parents:
             raise ValueError("Chunk storage key escapes the recording root")
-        return path.read_bytes()
+        return path
 
     def assemble(
         self,

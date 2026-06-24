@@ -324,6 +324,17 @@ def recording_status(
     recording = repo.get_recording(recording_id)
     if not recording:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+    missing_chunks = [
+        chunk.storage_key
+        for chunk in repo.list_recording_chunks(recording_id)
+        if not chunk_storage.exists(chunk.storage_key)
+    ]
+    if missing_chunks:
+        recording = repo.set_recording_status(
+            recording_id,
+            RecordingStatus.FAILED,
+            f"Recording evidence files are missing for {len(missing_chunks)} uploaded chunk(s).",
+        ) or recording
     stages = [
         stage
         for stage in processing_stages
