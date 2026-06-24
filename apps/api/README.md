@@ -31,6 +31,18 @@ Swagger UI is available at `http://localhost:8000/docs`. The checked-in
 .\.venv\Scripts\python apps/api/scripts/export_openapi.py
 ```
 
+Run database migrations from the repository root with:
+
+```bash
+./.venv/bin/python -m alembic -c apps/api/alembic.ini upgrade head
+```
+
+Create future migrations after editing the SQLAlchemy models with:
+
+```bash
+./.venv/bin/python -m alembic -c apps/api/alembic.ini revision --autogenerate -m "describe change"
+```
+
 Create the first company owner with `/auth/signup`, then use the returned
 opaque Bearer token for protected requests. Tokens are stored hashed in the
 database and can be revoked with `/auth/logout`. The API derives tenant scope
