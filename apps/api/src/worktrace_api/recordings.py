@@ -16,6 +16,7 @@ class ChunkStorage:
         recording_id: UUID,
         chunk_index: int,
         content_type: ChunkContentType,
+        media_type: str,
         payload: bytes,
         expected_checksum: str,
     ) -> tuple[str, int]:
@@ -23,7 +24,9 @@ class ChunkStorage:
 
         directory = self.root / str(tenant_id) / str(recording_id)
         directory.mkdir(parents=True, exist_ok=True)
-        destination = directory / f"{chunk_index:08d}-{content_type.value}.bin"
+        destination = directory / (
+            f"{chunk_index:08d}-{content_type.value}{chunk_extension(content_type, media_type)}"
+        )
         temporary = destination.with_suffix(".tmp")
         temporary.write_bytes(payload)
         temporary.replace(destination)
@@ -54,3 +57,32 @@ class ChunkStorage:
         if root not in path.parents:
             raise ValueError("Chunk storage key escapes the recording root")
         return path.read_bytes()
+
+
+def chunk_extension(content_type: ChunkContentType, media_type: str) -> str:
+    normalized = media_type.split(";", 1)[0].strip().lower()
+
+    if content_type == ChunkContentType.SCREENSHOTS:
+        if normalized == "image/jpeg":
+            return ".jpg"
+        if normalized == "image/webp":
+            return ".webp"
+        return ".png"
+
+    if content_type == ChunkContentType.EVENTS:
+        if normalized == "application/json":
+            return ".json"
+        return ".jsonl"
+
+    if content_type == ChunkContentType.AUDIO:
+        return {
+            "audio/mpeg": ".mp3",
+            "audio/mp3": ".mp3",
+            "audio/wav": ".wav",
+            "audio/x-wav": ".wav",
+            "audio/webm": ".webm",
+            "audio/ogg": ".ogg",
+            "audio/mp4": ".m4a",
+        }.get(normalized, ".audio")
+
+    return ".bin"

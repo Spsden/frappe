@@ -1,7 +1,9 @@
 import hashlib
 import json
+from pathlib import Path
 from uuid import uuid4
 
+from conftest import TEST_TENANT_ID
 from test_api import auth_headers
 
 
@@ -311,6 +313,48 @@ def test_rejects_invalid_index_and_declared_size(client):
         files={"file": ("chunk.bin", b"chunk", "application/octet-stream")},
     )
     assert wrong_size.status_code == 409
+
+
+def test_uploaded_chunks_keep_readable_file_extensions(client):
+    recording = create_recording(client, has_audio=True)
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + b"\x00\x00\x00\x10\x00\x00\x00\x10"
+    events = b'{"type":"click","data":{"x":1,"y":2}}\n'
+
+    screenshot = upload_chunk(
+        client,
+        recording["id"],
+        0,
+        png,
+        content_type="screenshots",
+        media_type="image/png",
+    )
+    event = upload_chunk(
+        client,
+        recording["id"],
+        1,
+        events,
+        content_type="events",
+        media_type="application/x-ndjson",
+    )
+    audio = upload_chunk(
+        client,
+        recording["id"],
+        2,
+        b"audio-bytes",
+        content_type="audio",
+        media_type="audio/webm",
+    )
+
+    assert screenshot.status_code == 200
+    assert event.status_code == 200
+    assert audio.status_code == 200
+
+    recording_dir = (
+        Path(__file__).parent / "data" / "recordings" / TEST_TENANT_ID / recording["id"]
+    )
+    assert (recording_dir / "00000000-screenshots.png").exists()
+    assert (recording_dir / "00000001-events.jsonl").exists()
+    assert (recording_dir / "00000002-audio.webm").exists()
 
 
 def test_rejects_conflicting_duplicate(client):

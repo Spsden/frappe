@@ -273,6 +273,7 @@ async def upload_recording_chunk(
             recording_id,
             chunk_index,
             content_type,
+            file.content_type or "application/octet-stream",
             payload,
             checksum_sha256,
         )
