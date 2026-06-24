@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import type {
   BackendRecordingStatus,
+  RecordingState,
   RecordedSessionSummary
 } from '../../shared/recording'
+import { useRecording } from '../features/recording/useRecording'
 
 const stageLabels: Record<BackendRecordingStatus, string> = {
   recording: 'Recording',
@@ -49,6 +51,44 @@ function formatDuration(durationMs: number | null) {
   return `${minutes}m ${seconds.toString().padStart(2, '0')}s`
 }
 
+function activeRecordingSummary(state: RecordingState): RecordedSessionSummary | null {
+  if (
+    !state.sessionId ||
+    !state.outputPath ||
+    !state.startedAt ||
+    state.status === 'idle' ||
+    state.status === 'completed'
+  ) {
+    return null
+  }
+
+  return {
+    id: state.sessionId,
+    name: state.sessionName || 'Untitled workflow',
+    platform:
+      navigator.platform.toLowerCase().includes('win')
+        ? 'win32'
+        : navigator.platform.toLowerCase().includes('mac')
+          ? 'darwin'
+          : 'linux',
+    startedAt: state.startedAt,
+    endedAt: null,
+    durationMs: Math.max(0, Date.now() - new Date(state.startedAt).getTime()),
+    localStatus: state.status,
+    eventCount: state.eventCount,
+    screenshotCount: state.screenshotCount,
+    audioChunkCount: state.audioChunkCount,
+    outputPath: state.outputPath,
+    remoteRecordingId: state.remoteRecordingId,
+    remoteSessionId: state.remoteSessionId,
+    remoteStatus: null,
+    uploadedAt: null,
+    uploadError: state.error,
+    backend: null,
+    backendError: null
+  }
+}
+
 function statusForSession(session: RecordedSessionSummary): BackendRecordingStatus | 'local' {
   if (session.backend?.recording.status) {
     return session.backend.recording.status
@@ -62,69 +102,101 @@ function statusForSession(session: RecordedSessionSummary): BackendRecordingStat
 function statusLabel(session: RecordedSessionSummary) {
   const status = statusForSession(session)
   if (status === 'local') {
-    return session.uploadError ? 'Upload failed' : 'Local only'
+    if (session.uploadError || session.localStatus === 'error') {
+      return 'Upload failed'
+    }
+    if (session.localStatus === 'awaiting-save') {
+      return 'Waiting to save'
+    }
+    if (session.localStatus === 'paused') {
+      return 'Paused'
+    }
+    if (session.localStatus === 'uploading') {
+      return 'Uploading'
+    }
+    if (session.localStatus === 'processing') {
+      return 'Processing'
+    }
+    return 'Local only'
   }
   return stageLabels[status] ?? status
 }
 
 function statusDot(session: RecordedSessionSummary) {
   const status = statusForSession(session)
-  if (status === 'failed' || session.uploadError) {
+  if (status === 'failed' || session.uploadError || session.localStatus === 'error') {
     return 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.55)]'
   }
   if (status === 'ready_for_review' || status === 'completed') {
     return 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.55)]'
   }
   if (status === 'local') {
+    if (
+      session.localStatus === 'recording' ||
+      session.localStatus === 'paused' ||
+      session.localStatus === 'stopping' ||
+      session.localStatus === 'awaiting-save' ||
+      session.localStatus === 'uploading' ||
+      session.localStatus === 'processing'
+    ) {
+      return 'animate-pulse bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.45)]'
+    }
     return 'bg-white/35'
   }
   return 'animate-pulse bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.45)]'
 }
 
-function orderedStages(session: RecordedSessionSummary): BackendRecordingStatus[] {
-  if (session.backend?.stages.length) {
-    return session.backend.stages
+function statusDescriptionForSession(session: RecordedSessionSummary) {
+  const status = statusForSession(session)
+  if (session.uploadError) {
+    return session.uploadError
   }
-  return session.audioChunkCount > 0
-    ? [
-        'recording',
-        'uploading',
-        'validating',
-        'transcribing_audio',
-        'processing_screenshots',
-        'aligning_evidence',
-        'generating_sop',
-        'ready_for_review'
-      ]
-    : [
-        'recording',
-        'uploading',
-        'validating',
-        'processing_screenshots',
-        'aligning_evidence',
-        'generating_sop',
-        'ready_for_review'
-      ]
+  if (session.backend?.recording.error_message) {
+    return session.backend.recording.error_message
+  }
+  if (session.backendError) {
+    return session.backendError
+  }
+  if (status !== 'local') {
+    return stageDescriptions[status] ?? 'Backend is processing this recording.'
+  }
+  if (session.localStatus === 'awaiting-save') {
+    return 'Recording is captured locally. Save it to start backend processing.'
+  }
+  if (session.localStatus === 'uploading') {
+    return 'Electron is uploading raw events, screenshots and audio chunks.'
+  }
+  if (session.localStatus === 'processing') {
+    return 'Backend processing has been requested and status will sync shortly.'
+  }
+  if (session.localStatus === 'recording' || session.localStatus === 'paused') {
+    return 'Desktop app is still capturing local evidence.'
+  }
+  return 'This recording is saved locally and has not been uploaded yet.'
 }
 
-function stageState(stage: BackendRecordingStatus, session: RecordedSessionSummary) {
-  const current = statusForSession(session)
-  if (current === 'local') {
-    return 'pending'
-  }
-  if (current === 'failed') {
-    return stage === 'failed' ? 'failed' : 'done'
-  }
-  const stages = orderedStages(session)
-  const currentIndex = stages.indexOf(current)
-  const stageIndex = stages.indexOf(stage)
-  if (stageIndex < currentIndex) {
-    return 'done'
-  }
-  if (stageIndex === currentIndex) {
-    return current === 'ready_for_review' || current === 'completed' ? 'done' : 'active'
-  }
-  return 'pending'
+function isFinished(session: RecordedSessionSummary) {
+  const status = statusForSession(session)
+  return status === 'ready_for_review' || status === 'completed'
+}
+
+function isFailed(session: RecordedSessionSummary) {
+  return (
+    statusForSession(session) === 'failed' ||
+    session.localStatus === 'error' ||
+    Boolean(session.uploadError)
+  )
+}
+
+function canDeleteSession(session: RecordedSessionSummary) {
+  return ![
+    'recording',
+    'paused',
+    'stopping',
+    'awaiting-save',
+    'uploading',
+    'processing'
+  ].includes(session.localStatus)
 }
 
 function EmptyState({ onRefresh }: { onRefresh: () => void }) {
@@ -152,59 +224,106 @@ function EmptyState({ onRefresh }: { onRefresh: () => void }) {
   )
 }
 
-function StageTimeline({ session }: { session: RecordedSessionSummary }) {
-  const stages = orderedStages(session)
+function ProcessingStatusCard({ session }: { session: RecordedSessionSummary }) {
+  const failed = isFailed(session)
+  const finished = isFinished(session)
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#090909] p-5">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-white/45">
-            Backend pipeline
-          </p>
-          <h3 className="mt-2 text-xl font-black tracking-[-0.03em]">
-            {statusLabel(session)}
-          </h3>
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#090909]">
+      <div className="relative min-h-72 p-6">
+        <div
+          className={[
+            'absolute left-1/2 top-1/2 size-52 -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl',
+            failed
+              ? 'bg-red-500/12'
+              : finished
+                ? 'bg-emerald-400/12'
+                : 'bg-blue-500/12'
+          ].join(' ')}
+        />
+
+        <div className="relative flex items-start justify-between gap-4">
+          <div>
+            <p className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-white/45">
+              Processing status
+            </p>
+            <h3 className="mt-2 text-2xl font-black tracking-[-0.035em]">
+              {statusLabel(session)}
+            </h3>
+          </div>
+          <span className={`size-3 rounded-full ${statusDot(session)}`} />
         </div>
-        <span className={`size-3 rounded-full ${statusDot(session)}`} />
-      </div>
 
-      <div className="mt-6 space-y-4">
-        {stages.map((stage, index) => {
-          const state = stageState(stage, session)
-          return (
-            <div key={stage} className="grid grid-cols-[24px_minmax(0,1fr)] gap-3">
-              <div className="flex flex-col items-center">
-                <span
-                  className={[
-                    'grid size-6 place-items-center rounded-full border text-[10px] font-black',
-                    state === 'done'
-                      ? 'border-emerald-400 bg-emerald-400 text-black'
-                      : state === 'active'
-                        ? 'border-amber-300 bg-amber-300 text-black shadow-[0_0_18px_rgba(251,191,36,0.35)]'
-                        : state === 'failed'
-                          ? 'border-red-500 bg-red-500 text-white'
-                          : 'border-white/15 bg-white/[0.03] text-white/35'
-                  ].join(' ')}
-                >
-                  {state === 'done' ? '✓' : index + 1}
-                </span>
-                {index < stages.length - 1 && <span className="mt-2 h-8 w-px bg-white/10" />}
-              </div>
-              <div className="pb-3">
-                <p className="text-sm font-bold">{stageLabels[stage]}</p>
-                <p className="mt-1 text-xs leading-5 text-white/45">{stageDescriptions[stage]}</p>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+        <div className="relative mt-8 grid place-items-center">
+          <div className="relative grid size-36 place-items-center">
+            <span
+              className={[
+                'absolute inset-0 rounded-full border',
+                failed
+                  ? 'border-red-500/35'
+                  : finished
+                    ? 'border-emerald-400/35'
+                    : 'animate-ping border-blue-400/25'
+              ].join(' ')}
+            />
+            <span
+              className={[
+                'absolute inset-4 rounded-full border border-dashed',
+                failed
+                  ? 'border-red-400/30'
+                  : finished
+                    ? 'border-emerald-300/30'
+                    : 'animate-spin border-white/25'
+              ].join(' ')}
+            />
+            <span
+              className={[
+                'grid size-20 place-items-center rounded-full border text-2xl shadow-[0_0_40px_rgba(255,255,255,0.08)]',
+                failed
+                  ? 'border-red-400/40 bg-red-500/12 text-red-300'
+                  : finished
+                    ? 'border-emerald-300/40 bg-emerald-400/12 text-emerald-300'
+                    : 'border-white/20 bg-white/[0.04] text-white'
+              ].join(' ')}
+            >
+              {failed ? '!' : finished ? '✓' : '●'}
+            </span>
+          </div>
+        </div>
 
-      {(session.backendError || session.uploadError || session.backend?.recording.error_message) && (
-        <p className="mt-5 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-xs leading-5 text-red-300">
-          {session.uploadError || session.backend?.recording.error_message || session.backendError}
+        <p className="relative mx-auto mt-7 max-w-md text-center text-sm leading-6 text-white/55">
+          {statusDescriptionForSession(session)}
         </p>
-      )}
+
+        {!failed && !finished && (
+          <div className="relative mx-auto mt-6 flex w-max items-center gap-2">
+            {[0, 1, 2].map((dot) => (
+              <span
+                key={dot}
+                className="size-2 animate-pulse rounded-full bg-white/45"
+                style={{ animationDelay: `${dot * 180}ms` }}
+              />
+            ))}
+          </div>
+        )}
+
+        <div className="relative mt-7 grid gap-3 rounded-xl border border-white/10 bg-black/20 p-4 sm:grid-cols-2">
+        <div>
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">
+            Backend status
+          </p>
+          <p className="mt-2 font-mono text-xs text-white/65">
+            {session.backend?.recording.status ?? session.remoteStatus ?? 'not uploaded'}
+          </p>
+        </div>
+        <div>
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">
+            Local status
+          </p>
+          <p className="mt-2 font-mono text-xs text-white/65">{session.localStatus}</p>
+        </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -227,6 +346,7 @@ function EvidenceMetric({
 }
 
 export function SessionsPage() {
+  const { state: recordingState } = useRecording()
   const [sessions, setSessions] = useState<RecordedSessionSummary[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -234,12 +354,35 @@ export function SessionsPage() {
   const [error, setError] = useState<string | null>(null)
 
   const selected = useMemo(
-    () => sessions.find((session) => session.id === selectedId) ?? sessions[0] ?? null,
-    [selectedId, sessions]
+    () => {
+      const active = activeRecordingSummary(recordingState)
+      const merged =
+        active && !sessions.some((session) => session.id === active.id)
+          ? [active, ...sessions]
+          : sessions.map((session) => (active?.id === session.id ? active : session))
+
+      return merged.find((session) => session.id === selectedId) ?? merged[0] ?? null
+    },
+    [recordingState, selectedId, sessions]
   )
 
-  const refresh = async () => {
-    setIsLoading(true)
+  const displaySessions = useMemo(() => {
+    const active = activeRecordingSummary(recordingState)
+    if (!active) {
+      return sessions
+    }
+
+    if (!sessions.some((session) => session.id === active.id)) {
+      return [active, ...sessions]
+    }
+
+    return sessions.map((session) => (session.id === active.id ? active : session))
+  }, [recordingState, sessions])
+
+  const refresh = async (showLoading = false) => {
+    if (showLoading) {
+      setIsLoading(true)
+    }
     setError(null)
     try {
       const nextSessions = await window.api.recording.listSessions()
@@ -247,7 +390,7 @@ export function SessionsPage() {
       setSelectedId((current) =>
         current && nextSessions.some((session) => session.id === current)
           ? current
-          : nextSessions[0]?.id ?? null
+          : activeRecordingSummary(recordingState)?.id ?? nextSessions[0]?.id ?? null
       )
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not load recorded sessions.')
@@ -279,12 +422,12 @@ export function SessionsPage() {
   }
 
   useEffect(() => {
-    void refresh()
-    const timer = window.setInterval(() => void refresh(), 8000)
+    void refresh(true)
+    const timer = window.setInterval(() => void refresh(false), 3000)
     return () => window.clearInterval(timer)
   }, [])
 
-  if (!isLoading && sessions.length === 0) {
+  if (!isLoading && displaySessions.length === 0) {
     return <EmptyState onRefresh={() => void refresh()} />
   }
 
@@ -322,8 +465,9 @@ export function SessionsPage() {
 
       <div className="mt-8 grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)]">
         <div className="min-h-0 space-y-3 overflow-y-auto pr-2 [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
-          {sessions.map((session) => {
+          {displaySessions.map((session) => {
             const isSelected = selected?.id === session.id
+            const canDelete = canDeleteSession(session)
             return (
               <article
                 key={session.id}
@@ -383,9 +527,9 @@ export function SessionsPage() {
 
                   <button
                     type="button"
-                    disabled={deletingId === session.id}
+                    disabled={!canDelete || deletingId === session.id}
                     onClick={() => void deleteSession(session)}
-                    className="shrink-0 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-black text-red-300 transition hover:bg-red-500/18 disabled:cursor-wait disabled:opacity-50"
+                    className="shrink-0 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-black text-red-300 transition hover:bg-red-500/18 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {deletingId === session.id ? 'Deleting' : 'Delete'}
                   </button>
@@ -442,7 +586,7 @@ export function SessionsPage() {
               </div>
             </div>
 
-            <StageTimeline session={selected} />
+            <ProcessingStatusCard session={selected} />
           </aside>
         )}
       </div>
