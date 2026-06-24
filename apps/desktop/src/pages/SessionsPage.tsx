@@ -230,6 +230,7 @@ export function SessionsPage() {
   const [sessions, setSessions] = useState<RecordedSessionSummary[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const selected = useMemo(
@@ -252,6 +253,28 @@ export function SessionsPage() {
       setError(caught instanceof Error ? caught.message : 'Could not load recorded sessions.')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const deleteSession = async (session: RecordedSessionSummary) => {
+    const confirmed = window.confirm(
+      `Delete "${session.name}"? This removes the local recording and attempts to remove the backend recording too.`
+    )
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingId(session.id)
+    setError(null)
+    try {
+      await window.api.recording.deleteSession(session.id)
+      setSessions((current) => current.filter((item) => item.id !== session.id))
+      setSelectedId((current) => (current === session.id ? null : current))
+      void refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not delete recorded session.')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -302,10 +325,8 @@ export function SessionsPage() {
           {sessions.map((session) => {
             const isSelected = selected?.id === session.id
             return (
-              <button
+              <article
                 key={session.id}
-                type="button"
-                onClick={() => setSelectedId(session.id)}
                 className={[
                   'w-full rounded-2xl border p-5 text-left transition',
                   isSelected
@@ -313,44 +334,63 @@ export function SessionsPage() {
                     : 'border-white/10 bg-[#0b0b0b] hover:border-white/20 hover:bg-white/[0.05]'
                 ].join(' ')}
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-3">
-                      <span className={`size-2.5 shrink-0 rounded-full ${statusDot(session)}`} />
-                      <p className="truncate text-lg font-black tracking-[-0.03em]">
-                        {session.name}
-                      </p>
+                <div className="flex items-start gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(session.id)}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={`size-2.5 shrink-0 rounded-full ${statusDot(session)}`}
+                          />
+                          <p className="truncate text-lg font-black tracking-[-0.03em]">
+                            {session.name}
+                          </p>
+                        </div>
+                        <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.18em] text-white/35">
+                          {formatDate(session.startedAt)} · {formatDuration(session.durationMs)}
+                        </p>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/60">
+                        {statusLabel(session)}
+                      </span>
                     </div>
-                    <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.18em] text-white/35">
-                      {formatDate(session.startedAt)} · {formatDuration(session.durationMs)}
-                    </p>
-                  </div>
-                  <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/60">
-                    {statusLabel(session)}
-                  </span>
-                </div>
 
-                <div className="mt-5 grid grid-cols-3 gap-2 text-center">
-                  <div className="rounded-lg bg-white/[0.04] py-3">
-                    <p className="text-lg font-black">{session.eventCount}</p>
-                    <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em] text-white/35">
-                      events
-                    </p>
-                  </div>
-                  <div className="rounded-lg bg-white/[0.04] py-3">
-                    <p className="text-lg font-black">{session.screenshotCount}</p>
-                    <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em] text-white/35">
-                      shots
-                    </p>
-                  </div>
-                  <div className="rounded-lg bg-white/[0.04] py-3">
-                    <p className="text-lg font-black">{session.audioChunkCount}</p>
-                    <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em] text-white/35">
-                      audio
-                    </p>
-                  </div>
+                    <div className="mt-5 grid grid-cols-3 gap-2 text-center">
+                      <div className="rounded-lg bg-white/[0.04] py-3">
+                        <p className="text-lg font-black">{session.eventCount}</p>
+                        <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em] text-white/35">
+                          events
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-white/[0.04] py-3">
+                        <p className="text-lg font-black">{session.screenshotCount}</p>
+                        <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em] text-white/35">
+                          shots
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-white/[0.04] py-3">
+                        <p className="text-lg font-black">{session.audioChunkCount}</p>
+                        <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em] text-white/35">
+                          audio
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={deletingId === session.id}
+                    onClick={() => void deleteSession(session)}
+                    className="shrink-0 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-black text-red-300 transition hover:bg-red-500/18 disabled:cursor-wait disabled:opacity-50"
+                  >
+                    {deletingId === session.id ? 'Deleting' : 'Delete'}
+                  </button>
                 </div>
-              </button>
+              </article>
             )
           })}
         </div>

@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { RecordedSessionSummary, RecordingSessionManifest } from '../../shared/recording'
 import { WorkTraceApiClient } from '../api/WorkTraceApiClient'
@@ -18,6 +18,20 @@ export class RecordingLibraryService {
       .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime())
   }
 
+  async deleteSession(sessionId: string): Promise<void> {
+    const sessionPath = join(this.recordingsPath, sessionId)
+    const manifest = await this.readManifest(sessionPath)
+    if (manifest?.remoteRecordingId) {
+      try {
+        await this.apiClient.deleteRecording(manifest.remoteRecordingId)
+      } catch {
+        // Keep deletion usable offline; local evidence is still removed.
+      }
+    }
+
+    await rm(sessionPath, { force: true, recursive: true })
+  }
+
   private async readSessionDirectories(): Promise<string[]> {
     try {
       const entries = await readdir(this.recordingsPath, { withFileTypes: true })
@@ -35,9 +49,7 @@ export class RecordingLibraryService {
   private async readSession(sessionPath: string): Promise<RecordedSessionSummary | null> {
     const manifestPath = join(sessionPath, 'manifest.json')
     try {
-      const manifest = JSON.parse(
-        await readFile(manifestPath, 'utf8')
-      ) as Partial<RecordingSessionManifest>
+      const manifest = await this.readManifest(sessionPath)
       if (!manifest.id || !manifest.name || !manifest.startedAt || !manifest.platform) {
         return null
       }
@@ -88,6 +100,12 @@ export class RecordingLibraryService {
         error: error instanceof Error ? error.message : 'Could not sync backend status.'
       }
     }
+  }
+
+  private async readManifest(sessionPath: string): Promise<Partial<RecordingSessionManifest>> {
+    return JSON.parse(await readFile(join(sessionPath, 'manifest.json'), 'utf8')) as Partial<
+      RecordingSessionManifest
+    >
   }
 }
 

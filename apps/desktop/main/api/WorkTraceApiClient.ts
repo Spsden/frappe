@@ -154,6 +154,10 @@ export class WorkTraceApiClient {
     return (await response.json()) as BackendRecordingStatusResponse
   }
 
+  async deleteRecording(recordingId: string): Promise<void> {
+    await this.request(`/recordings/${recordingId}`, { method: 'DELETE' })
+  }
+
   async request(path: string, init: RequestInit = {}): Promise<Response> {
     const connection = await this.settings.resolve()
     const headers = new Headers(init.headers)

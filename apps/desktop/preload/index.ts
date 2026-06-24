@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('api', {
     getState: () => ipcRenderer.invoke(recordingIpc.getState),
     listSessions: () =>
       ipcRenderer.invoke(recordingIpc.listSessions) as Promise<RecordedSessionSummary[]>,
+    deleteSession: (sessionId: string) => ipcRenderer.invoke(recordingIpc.deleteSession, sessionId),
     openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') =>
       ipcRenderer.invoke(recordingIpc.openPermissionSettings, permission),
     onStateChanged: (listener: (state: RecordingState) => void) => {

@@ -29,6 +29,9 @@ export function registerRecordingIpc(
   ipcMain.handle(recordingIpc.discard, () => manager.discard())
   ipcMain.handle(recordingIpc.getState, () => manager.getState())
   ipcMain.handle(recordingIpc.listSessions, () => library.listSessions())
+  ipcMain.handle(recordingIpc.deleteSession, (_event, sessionId: string) =>
+    library.deleteSession(sessionId)
+  )
   ipcMain.handle(
     recordingIpc.openPermissionSettings,
     (_event, permission: 'accessibility' | 'screen' | 'microphone') => {
@@ -58,6 +61,7 @@ export function registerRecordingIpc(
     ipcMain.removeHandler(recordingIpc.discard)
     ipcMain.removeHandler(recordingIpc.getState)
     ipcMain.removeHandler(recordingIpc.listSessions)
+    ipcMain.removeHandler(recordingIpc.deleteSession)
     ipcMain.removeHandler(recordingIpc.openPermissionSettings)
   }
 }

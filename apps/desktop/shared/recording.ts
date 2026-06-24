@@ -140,7 +140,7 @@ export interface RecordedSessionSummary {
   startedAt: string
   endedAt: string | null
   durationMs: number | null
-  localStatus: RecordingSessionManifest['status']
+  localStatus: RecordingStatus | RecordingSessionManifest['status']
   eventCount: number
   screenshotCount: number
   audioChunkCount: number
@@ -217,6 +217,7 @@ export interface RecordingApi {
   discard: () => Promise<RecordingState>
   getState: () => Promise<RecordingState>
   listSessions: () => Promise<RecordedSessionSummary[]>
+  deleteSession: (sessionId: string) => Promise<void>
   openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') => Promise<void>
   onStateChanged: (listener: (state: RecordingState) => void) => () => void
 }
@@ -230,6 +231,7 @@ export const recordingIpc = {
   discard: 'recording:discard',
   getState: 'recording:get-state',
   listSessions: 'recording:list-sessions',
+  deleteSession: 'recording:delete-session',
   openPermissionSettings: 'recording:open-permission-settings',
   stateChanged: 'recording:state-changed',
   frameSample: 'recording:frame-sample',
