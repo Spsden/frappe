@@ -32,6 +32,8 @@ def generate_sop(session: WorkflowSession, version: int = 1) -> SOP:
         }
     ]
     for position, event in enumerate(actionable, start=1):
+        annotation = event.event_data.get("evidenceAnnotation")
+        evidence_annotations = [annotation] if isinstance(annotation, dict) else []
         if event.event_type == EventType.NAVIGATION:
             title = "Open the next page"
             instruction = f"Navigate to {event.page_url.path or '/'}."
@@ -54,6 +56,7 @@ def generate_sop(session: WorkflowSession, version: int = 1) -> SOP:
                 title=title,
                 instruction=instruction,
                 screenshot_reference=event.after_screenshot_id or event.screenshot_reference,
+                evidence_annotations=evidence_annotations,
                 estimated_time_ms=event.duration_ms,
                 warning="Confirm the displayed data before continuing."
                 if event.event_type in {EventType.INPUT, EventType.KEY_BURST}

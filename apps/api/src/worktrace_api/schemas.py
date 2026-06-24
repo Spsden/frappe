@@ -118,6 +118,36 @@ class SessionStatus(StrEnum):
     APPROVED = "approved"
 
 
+class EvidenceAnnotation(StrictModel):
+    type: Literal["click_rectangle", "scroll_focus", "pointer_focus"]
+    event_id: UUID
+    screenshot_reference: UUID | None = None
+    coordinate_space: Literal["screenshot_pixels", "global_screen"]
+    bounds: TargetBounds
+    confidence: float = Field(ge=0, le=1)
+    source: Literal["event_pointer", "fallback_coordinate"] = "event_pointer"
+
+
+class TranscriptSegment(StrictModel):
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=0)
+    text: str = Field(min_length=1, max_length=4000)
+    speaker: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def ordered_segment(self) -> "TranscriptSegment":
+        if self.end_ms < self.start_ms:
+            raise ValueError("Transcript segment end precedes start")
+        return self
+
+
+class RecordingTranscript(StrictModel):
+    status: Literal["not_recorded", "pending_transcription", "completed", "failed"]
+    text: str | None = Field(default=None, max_length=20_000)
+    segments: list[TranscriptSegment] = Field(default_factory=list, max_length=5000)
+    audio_chunk_count: int = Field(default=0, ge=0)
+
+
 class WorkflowSessionCreate(StrictModel):
     schema_version: Literal["1.0"] = SCHEMA_VERSION
     tenant_id: UUID
@@ -128,6 +158,7 @@ class WorkflowSessionCreate(StrictModel):
     consent_actor: str | None = Field(default=None, max_length=200)
     consent_statement_version: str | None = Field(default=None, max_length=50)
     duration_ms: int = Field(default=0, ge=0)
+    transcript: RecordingTranscript | None = None
     events: list[SessionEvent] = Field(min_length=1, max_length=20_000)
 
     @model_validator(mode="after")
@@ -162,6 +193,7 @@ class SOPStep(StrictModel):
     instruction: str = Field(max_length=4000)
     warning: str | None = Field(default=None, max_length=1000)
     screenshot_reference: UUID | None = None
+    evidence_annotations: list[EvidenceAnnotation] = Field(default_factory=list, max_length=20)
     estimated_time_ms: int | None = Field(default=None, ge=0)
     decision_branch: str | None = Field(default=None, max_length=1000)
 

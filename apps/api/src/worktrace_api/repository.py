@@ -62,6 +62,7 @@ class Repository:
             external_ai_approved_at=session.external_ai_approved_at,
             external_ai_payload_hash=session.external_ai_payload_hash,
             duration_ms=session.duration_ms,
+            transcript=session.transcript.model_dump(mode="json") if session.transcript else None,
             events=[event.model_dump(mode="json") for event in session.events],
             created_at=session.created_at,
         )
@@ -499,6 +500,7 @@ class Repository:
                 "external_ai_approved_at": record.external_ai_approved_at,
                 "external_ai_payload_hash": record.external_ai_payload_hash,
                 "duration_ms": record.duration_ms,
+                "transcript": record.transcript,
                 "events": record.events,
                 "created_at": record.created_at,
             }

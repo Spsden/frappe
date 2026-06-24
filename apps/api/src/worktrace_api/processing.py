@@ -12,6 +12,7 @@ from worktrace_api.schemas import (
     ChunkContentType,
     EventType,
     RecordingStatus,
+    RecordingTranscript,
     Screenshot,
     SessionEvent,
     WorkflowSession,
@@ -36,11 +37,19 @@ class RecordingProcessor:
             if not chunks:
                 raise ValueError("Recording contains no evidence chunks")
 
+            transcript = None
+            if recording.has_audio:
+                repo.set_recording_status(recording_id, RecordingStatus.TRANSCRIBING_AUDIO)
+                transcript = self._transcript(chunks)
+
             repo.set_recording_status(recording_id, RecordingStatus.PROCESSING_SCREENSHOTS)
             session_id = uuid5(recording_id, "workflow-session")
-            screenshots, screenshot_ids, after_screenshot_by_event = self._screenshots(
-                recording_id, session_id, chunks
-            )
+            (
+                screenshots,
+                screenshot_ids,
+                after_screenshot_by_event,
+                after_screenshot_metadata_by_event,
+            ) = self._screenshots(recording_id, session_id, chunks)
             if not screenshots:
                 raise ValueError("Recording contains no valid screenshots")
 
@@ -51,6 +60,7 @@ class RecordingProcessor:
                 chunks,
                 screenshot_ids,
                 after_screenshot_by_event,
+                after_screenshot_metadata_by_event,
                 repo.tenant_id,
             )
             if not events:
@@ -65,6 +75,7 @@ class RecordingProcessor:
                     recording_id=recording_id,
                     workflow_name=recording.workflow_name,
                     duration_ms=duration_ms,
+                    transcript=transcript,
                     events=events,
                 ),
                 self.allowed_domains,
@@ -81,12 +92,25 @@ class RecordingProcessor:
             repo.set_recording_status(recording_id, RecordingStatus.FAILED, str(exc))
             raise
 
+    def _transcript(self, chunks: list) -> RecordingTranscript:
+        audio_chunk_count = sum(
+            1 for chunk in chunks if chunk.content_type == ChunkContentType.AUDIO
+        )
+        if audio_chunk_count == 0:
+            return RecordingTranscript(status="not_recorded", audio_chunk_count=0)
+        return RecordingTranscript(
+            status="pending_transcription",
+            audio_chunk_count=audio_chunk_count,
+            segments=[],
+        )
+
     def _screenshots(
         self, recording_id: UUID, session_id: UUID, chunks: list
-    ) -> tuple[list[Screenshot], dict[str, UUID], dict[str, UUID]]:
+    ) -> tuple[list[Screenshot], dict[str, UUID], dict[str, UUID], dict[str, dict[str, Any]]]:
         screenshots: list[Screenshot] = []
         screenshot_ids: dict[str, UUID] = {}
         after_screenshot_by_event: dict[str, UUID] = {}
+        after_screenshot_metadata_by_event: dict[str, dict[str, Any]] = {}
 
         for chunk in chunks:
             if chunk.content_type != ChunkContentType.SCREENSHOTS:
@@ -138,8 +162,14 @@ class RecordingProcessor:
             if isinstance(event_ids, list):
                 for event_id in event_ids:
                     after_screenshot_by_event[str(event_id)] = screenshot_id
+                    after_screenshot_metadata_by_event[str(event_id)] = metadata
 
-        return screenshots, screenshot_ids, after_screenshot_by_event
+        return (
+            screenshots,
+            screenshot_ids,
+            after_screenshot_by_event,
+            after_screenshot_metadata_by_event,
+        )
 
     def _events(
         self,
@@ -148,6 +178,7 @@ class RecordingProcessor:
         chunks: list,
         screenshot_ids: dict[str, UUID],
         after_screenshot_by_event: dict[str, UUID],
+        after_screenshot_metadata_by_event: dict[str, dict[str, Any]],
         tenant_id: UUID,
     ) -> list[SessionEvent]:
         events: list[SessionEvent] = []
@@ -165,6 +196,7 @@ class RecordingProcessor:
                     len(events) + 1,
                     screenshot_ids,
                     after_screenshot_by_event,
+                    after_screenshot_metadata_by_event,
                 )
                 events.append(event)
 
@@ -199,8 +231,9 @@ def _normalize_event(
     fallback_sequence: int,
     screenshot_ids: dict[str, UUID],
     after_screenshot_by_event: dict[str, UUID],
+    after_screenshot_metadata_by_event: dict[str, dict[str, Any]],
 ) -> SessionEvent:
-    data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+    data = dict(raw.get("data")) if isinstance(raw.get("data"), dict) else {}
     raw_type = str(raw.get("type") or raw.get("event_type") or "").replace("-", "_")
     event_type = {
         "key": EventType.KEY_BURST,
@@ -218,6 +251,17 @@ def _normalize_event(
     after_id = _mapped_uuid(
         raw.get("afterScreenshotId") or raw.get("after_screenshot_id"), screenshot_ids
     ) or after_screenshot_by_event.get(str(raw_id))
+    annotation = _pointer_annotation(
+        event_type,
+        event_id,
+        after_id,
+        raw.get("x") if raw.get("x") is not None else data.get("x"),
+        raw.get("y") if raw.get("y") is not None else data.get("y"),
+        data,
+        after_screenshot_metadata_by_event.get(str(raw_id)),
+    )
+    if annotation:
+        data["evidenceAnnotation"] = annotation
 
     page_url = raw.get("page_url") or raw.get("pageUrl") or data.get("url")
     application = (
@@ -257,6 +301,130 @@ def _normalize_event(
         duration_ms=duration_ms,
         event_data=data,
     )
+
+
+def _pointer_annotation(
+    event_type: EventType,
+    event_id: UUID | None,
+    screenshot_id: UUID | None,
+    x_value: Any,
+    y_value: Any,
+    data: dict[str, Any],
+    screenshot_metadata: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if event_type not in {EventType.CLICK, EventType.SCROLL} or event_id is None:
+        return None
+    if x_value is None or y_value is None:
+        return None
+
+    try:
+        center_x = float(x_value)
+        center_y = float(y_value)
+    except (TypeError, ValueError):
+        return None
+
+    image_width: float | None = None
+    image_height: float | None = None
+    coordinate_space = "global_screen"
+    confidence = 0.45
+    source = "fallback_coordinate"
+
+    mapped = _map_pointer_to_screenshot(data.get("pointer"), screenshot_metadata)
+    if mapped:
+        center_x = mapped["x"]
+        center_y = mapped["y"]
+        image_width = mapped["image_width"]
+        image_height = mapped["image_height"]
+        coordinate_space = "screenshot_pixels"
+        confidence = 0.82
+        source = "event_pointer"
+
+    width = 96.0 if event_type == EventType.CLICK else 160.0
+    height = 72.0 if event_type == EventType.CLICK else 110.0
+    bounds = _centered_bounds(center_x, center_y, width, height, image_width, image_height)
+
+    return {
+        "type": "click_rectangle" if event_type == EventType.CLICK else "scroll_focus",
+        "event_id": str(event_id),
+        "screenshot_reference": str(screenshot_id) if screenshot_id else None,
+        "coordinate_space": coordinate_space,
+        "bounds": bounds,
+        "confidence": confidence,
+        "source": source,
+    }
+
+
+def _map_pointer_to_screenshot(
+    pointer: Any, screenshot_metadata: dict[str, Any] | None
+) -> dict[str, float] | None:
+    if not isinstance(pointer, dict) or not isinstance(screenshot_metadata, dict):
+        return None
+
+    capture = screenshot_metadata.get("capture")
+    if not isinstance(capture, dict):
+        return None
+
+    display = capture.get("display")
+    point = pointer.get("pointOnDisplay")
+    image_size = capture.get("imageSize")
+    if (
+        not isinstance(display, dict)
+        or not isinstance(point, dict)
+        or not isinstance(image_size, dict)
+    ):
+        return None
+
+    if str(pointer.get("displayId")) != str(display.get("id")):
+        return None
+
+    display_bounds = display.get("bounds")
+    if not isinstance(display_bounds, dict):
+        return None
+
+    try:
+        display_scale = float(pointer.get("displayScaleFactor") or display.get("scaleFactor") or 1)
+        display_width = float(display_bounds["width"]) * display_scale
+        display_height = float(display_bounds["height"]) * display_scale
+        image_width = float(image_size["width"])
+        image_height = float(image_size["height"])
+        x = float(point["x"]) * display_scale
+        y = float(point["y"]) * display_scale
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    if display_width <= 0 or display_height <= 0 or image_width <= 0 or image_height <= 0:
+        return None
+
+    return {
+        "x": x * (image_width / display_width),
+        "y": y * (image_height / display_height),
+        "image_width": image_width,
+        "image_height": image_height,
+    }
+
+
+def _centered_bounds(
+    center_x: float,
+    center_y: float,
+    width: float,
+    height: float,
+    image_width: float | None,
+    image_height: float | None,
+) -> dict[str, float]:
+    x = center_x - width / 2
+    y = center_y - height / 2
+
+    if image_width is not None:
+        x = min(max(0, x), max(0, image_width - width))
+    if image_height is not None:
+        y = min(max(0, y), max(0, image_height - height))
+
+    return {
+        "x": round(x, 2),
+        "y": round(y, 2),
+        "width": width,
+        "height": height,
+    }
 
 
 def _mapped_uuid(value: Any, mapping: dict[str, UUID]) -> UUID | None:

@@ -1743,6 +1743,72 @@
         ],
         "title": "EventType"
       },
+      "EvidenceAnnotation": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "click_rectangle",
+              "scroll_focus",
+              "pointer_focus"
+            ],
+            "title": "Type"
+          },
+          "event_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Event Id"
+          },
+          "screenshot_reference": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Screenshot Reference"
+          },
+          "coordinate_space": {
+            "type": "string",
+            "enum": [
+              "screenshot_pixels",
+              "global_screen"
+            ],
+            "title": "Coordinate Space"
+          },
+          "bounds": {
+            "$ref": "#/components/schemas/TargetBounds"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "event_pointer",
+              "fallback_coordinate"
+            ],
+            "title": "Source",
+            "default": "event_pointer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "event_id",
+          "coordinate_space",
+          "bounds",
+          "confidence"
+        ],
+        "title": "EvidenceAnnotation"
+      },
       "ExportBundle": {
         "properties": {
           "schema_version": {
@@ -2200,6 +2266,52 @@
         ],
         "title": "RecordingStatusResponse"
       },
+      "RecordingTranscript": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "not_recorded",
+              "pending_transcription",
+              "completed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptSegment"
+            },
+            "type": "array",
+            "maxItems": 5000,
+            "title": "Segments"
+          },
+          "audio_chunk_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Audio Chunk Count",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "RecordingTranscript"
+      },
       "SOP": {
         "properties": {
           "schema_version": {
@@ -2331,6 +2443,14 @@
               }
             ],
             "title": "Screenshot Reference"
+          },
+          "evidence_annotations": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceAnnotation"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Evidence Annotations"
           },
           "estimated_time_ms": {
             "anyOf": [
@@ -2681,6 +2801,46 @@
         ],
         "title": "TargetBounds"
       },
+      "TranscriptSegment": {
+        "properties": {
+          "start_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "End Ms"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "speaker": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start_ms",
+          "end_ms",
+          "text"
+        ],
+        "title": "TranscriptSegment"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -2790,6 +2950,16 @@
             "minimum": 0.0,
             "title": "Duration Ms",
             "default": 0
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordingTranscript"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "events": {
             "items": {
@@ -2934,6 +3104,16 @@
             "minimum": 0.0,
             "title": "Duration Ms",
             "default": 0
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordingTranscript"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "events": {
             "items": {

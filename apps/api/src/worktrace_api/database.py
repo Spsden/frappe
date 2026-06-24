@@ -91,6 +91,7 @@ class WorkflowSessionRecord(TenantRecord, Base):
     )
     external_ai_payload_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer)
+    transcript: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     events: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)

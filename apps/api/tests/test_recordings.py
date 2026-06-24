@@ -164,6 +164,10 @@ def test_resumable_chunk_upload_and_status_pipeline(client):
     assert event["event_type"] == "click"
     assert event["before_screenshot_id"] == before_screenshot_id
     assert event["after_screenshot_id"] == after_screenshot_id
+    annotation = event["event_data"]["evidenceAnnotation"]
+    assert annotation["type"] == "click_rectangle"
+    assert annotation["coordinate_space"] == "global_screen"
+    assert annotation["bounds"] == {"x": 432.0, "y": 284.0, "width": 96.0, "height": 72.0}
 
     export = client.get(
         f"/exports/{completed_recording['session_id']}", headers=auth_headers()
@@ -172,6 +176,80 @@ def test_resumable_chunk_upload_and_status_pipeline(client):
     assert len(export.json()["sops"]) == 1
     assert export.json()["sops"][0]["status"] == "draft"
     assert export.json()["sops"][0]["steps"][0]["screenshot_reference"] == after_screenshot_id
+    assert export.json()["sops"][0]["steps"][0]["evidence_annotations"][0]["event_id"] == event_id
+
+
+def test_audio_recording_keeps_transcript_placeholder(client):
+    recording = create_recording(client, has_audio=True)
+    screenshot_id = str(uuid4())
+    event_id = str(uuid4())
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + b"\x00\x00\x05\x00\x00\x00\x02\xd0"
+    event_payload = json.dumps(
+        {
+            "id": event_id,
+            "sequence": 1,
+            "timestamp": "2026-06-19T10:00:00Z",
+            "type": "click",
+            "data": {"x": 320, "y": 240, "button": "left"},
+        }
+    ).encode()
+
+    assert (
+        upload_chunk(
+            client,
+            recording["id"],
+            0,
+            b"audio-bytes",
+            content_type="audio",
+            media_type="audio/webm",
+        ).status_code
+        == 200
+    )
+    assert (
+        upload_chunk(
+            client,
+            recording["id"],
+            1,
+            event_payload,
+            content_type="events",
+            media_type="application/x-ndjson",
+        ).status_code
+        == 200
+    )
+    assert (
+        upload_chunk(
+            client,
+            recording["id"],
+            2,
+            png,
+            content_type="screenshots",
+            metadata={
+                "id": screenshot_id,
+                "sequence": 1,
+                "capturedAt": "2026-06-19T10:00:01Z",
+                "eventIds": [event_id],
+            },
+            media_type="image/png",
+        ).status_code
+        == 200
+    )
+
+    completed = client.post(
+        f"/recordings/{recording['id']}/complete",
+        headers=auth_headers(),
+        json={"expected_chunk_count": 3},
+    )
+
+    assert completed.status_code == 200
+    current = client.get(f"/recordings/{recording['id']}/status", headers=auth_headers())
+    assert "transcribing_audio" in current.json()["stages"]
+    session = client.get(f"/sessions/{completed.json()['session_id']}", headers=auth_headers())
+    assert session.json()["transcript"] == {
+        "status": "pending_transcription",
+        "text": None,
+        "segments": [],
+        "audio_chunk_count": 1,
+    }
 
 
 def test_rejects_checksum_mismatch_and_missing_chunks(client):
