@@ -85,9 +85,15 @@ class RecordingProcessor:
 
             repo.set_recording_status(recording_id, RecordingStatus.GENERATING_SOP)
             repo.save_sop(generate_sop(session, repo.next_sop_version(session.id)))
-            return repo.link_recording_session(
+            recording_result = repo.link_recording_session(
                 recording_id, session.id, RecordingStatus.READY_FOR_REVIEW
             )
+
+            # Trigger the Celery orchestration pipeline AFTER the session is linked
+            from worktrace_api.tasks.pipeline import process_recording
+            process_recording.delay(str(recording_id), str(session.id), str(repo.tenant_id))
+
+            return recording_result
         except Exception as exc:
             repo.set_recording_status(recording_id, RecordingStatus.FAILED, str(exc))
             raise

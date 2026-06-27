@@ -33,7 +33,7 @@ def _draw_annotation_box(image_bytes: bytes, bounds: dict) -> bytes:
 
 
 @celery_app.task(bind=True, max_retries=3)
-def annotate_screenshots(self, recording_id: str, tenant_id: str) -> None:
+def annotate_screenshots(self, recording_id: str, session_id: str, tenant_id: str) -> None:
     settings = get_settings()
     repo = make_repo(tenant_id)
     storage = ChunkStorage(
@@ -42,11 +42,7 @@ def annotate_screenshots(self, recording_id: str, tenant_id: str) -> None:
     )
 
     try:
-        session = repo.get_recording(UUID(recording_id))
-        if not session or not session.session_id:
-            return
-
-        workflow_session = repo.get_session(session.session_id)
+        workflow_session = repo.get_session(UUID(session_id))
         if not workflow_session:
             return
 
@@ -57,7 +53,7 @@ def annotate_screenshots(self, recording_id: str, tenant_id: str) -> None:
             if screenshot.redaction_status in ("redacted", "not_required"):
                 continue
 
-            # Find the event that references this screenshot
+   
             matching_event = next(
                 (
                     e for e in events
@@ -79,13 +75,11 @@ def annotate_screenshots(self, recording_id: str, tenant_id: str) -> None:
             bounds = annotation["bounds"]
 
             try:
-                # Read original bytes
                 original_bytes = storage.read(screenshot.storage_key)
 
-                # Draw the box
                 annotated_bytes = _draw_annotation_box(original_bytes, bounds)
 
-                # Save annotated bytes directly to the same directory
+ 
                 annotated_key = f"{screenshot.storage_key.rsplit('.', 1)[0]}-annotated.png"
                 annotated_path = storage.resolve_storage_key(annotated_key)
                 annotated_path.parent.mkdir(parents=True, exist_ok=True)
@@ -97,7 +91,6 @@ def annotate_screenshots(self, recording_id: str, tenant_id: str) -> None:
                 repo.update_screenshot_annotation(screenshot.id, annotated_key, "redacted")
 
             except Exception:
-                # E.g. PIL IOError, file missing
                 repo.update_screenshot_annotation(screenshot.id, None, "failed")
 
     except Exception as exc:

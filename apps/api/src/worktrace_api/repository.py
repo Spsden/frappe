@@ -589,3 +589,26 @@ class Repository:
                 "completed_at": record.completed_at,
             }
         )
+
+    @staticmethod
+    def _screenshot_from_record(record: ScreenshotRecord) -> Screenshot:
+        return Screenshot.model_validate(
+            {
+                "schema_version": "1.0",
+                "id": record.id,
+                "tenant_id": record.tenant_id,
+                "recording_id": record.recording_id,
+                "session_id": record.session_id,
+                "sequence": record.sequence,
+                "captured_at": record.captured_at,
+                "storage_key": record.storage_key,
+                "media_type": record.media_type,
+                "width": record.width,
+                "height": record.height,
+                "change_score": record.change_score,
+                "content_hash": record.content_hash,
+                "annotated_storage_key": getattr(record, "annotated_storage_key", None),
+                "redaction_status": record.redaction_status,
+                "created_at": record.created_at,
+            }
+        )

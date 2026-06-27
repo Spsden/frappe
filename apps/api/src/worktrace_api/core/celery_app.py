@@ -25,7 +25,10 @@ def create_celery_app() -> Celery:
             "worktrace_api.tasks.pipeline.*": {"queue": "default"},
         },
     )
-    app.autodiscover_tasks(["worktrace_api.tasks"])
+    app.conf.imports = (
+        "worktrace_api.tasks.annotation",
+        "worktrace_api.tasks.pipeline",
+    )
     return app
 
 
