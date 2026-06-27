@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     env: str = "development"
     database_url: str = "sqlite:///./data/worktrace.sqlite3"
     recording_storage_path: Path = Path("./data/recordings")
+    redis_url: str = "redis://localhost:6379/0"
+    CELERY_TASK_TIME_LIMIT: int = 300
+    CELERY_TASK_SOFT_TIME_LIMIT: int = 250
     max_chunk_bytes: int = 10 * 1024 * 1024
     access_token_ttl_hours: int = Field(default=24 * 30, ge=1, le=24 * 365)
     allowed_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]

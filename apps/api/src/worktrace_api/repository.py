@@ -303,6 +303,26 @@ class Repository:
         self.db.commit()
         return screenshots
 
+    def get_screenshots_for_recording(self, recording_id: UUID) -> list[Screenshot]:
+        records = self.db.scalars(
+            tenant_query(ScreenshotRecord, self.tenant_id)
+            .where(ScreenshotRecord.recording_id == str(recording_id))
+            .order_by(ScreenshotRecord.sequence)
+        ).all()
+        return [self._screenshot_from_record(r) for r in records]
+
+    def update_screenshot_annotation(
+        self, screenshot_id: UUID, annotated_key: str | None, status: str
+    ) -> None:
+        record = self.db.scalar(
+            tenant_query(ScreenshotRecord, self.tenant_id)
+            .where(ScreenshotRecord.id == str(screenshot_id))
+        )
+        if record:
+            record.annotated_storage_key = annotated_key
+            record.redaction_status = status
+            self.db.commit()
+
     def link_recording_session(
         self, recording_id: UUID, session_id: UUID, status: RecordingStatus
     ) -> Recording:

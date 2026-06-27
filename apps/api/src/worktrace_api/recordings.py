@@ -37,7 +37,7 @@ class ChunkStorage:
         temporary = destination.with_suffix(".tmp")
         temporary.write_bytes(payload)
         temporary.replace(destination)
-        return str(destination.relative_to(self.root)), payload_size
+        return destination.relative_to(self.root).as_posix(), payload_size
 
     def validate(self, payload: bytes, expected_checksum: str) -> int:
         if not payload:
@@ -93,8 +93,7 @@ class ChunkStorage:
                 payload_size += len(payload)
 
         temporary.replace(destination)
-        return str(destination.relative_to(self.root)), payload_size, digest.hexdigest()
-
+        return destination.relative_to(self.root).as_posix(), payload_size, digest.hexdigest()
 
 def chunk_extension(
     content_type: ChunkContentType,

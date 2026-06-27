@@ -347,6 +347,7 @@ class Screenshot(StrictModel):
     change_score: float = Field(ge=0, le=1)
     content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     redaction_status: Literal["pending", "not_required", "redacted", "failed"] = "pending"
+    annotated_storage_key: str | None = Field(default=None, max_length=500)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
