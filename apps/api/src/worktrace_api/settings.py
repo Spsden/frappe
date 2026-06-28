@@ -24,18 +24,18 @@ class Settings(BaseSettings):
     external_ai_approval_required: bool = True
     whisper_model_size: str = "tiny"
 
-    # @field_validator("allowed_origins", "allowed_domains", mode="before")
-    # @classmethod
-    # def split_origins(cls, value: object) -> object:
-    #     if isinstance(value, str):
-    #         return [item.strip() for item in value.split(",") if item.strip()]
-    #     return value
+    @field_validator("allowed_origins", "allowed_domains", mode="before")
+    @classmethod
+    def split_origins(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
 
-    # @model_validator(mode="after")
-    # def production_settings_are_fail_closed(self) -> "Settings":
-    #     if self.env != "development" and not self.allowed_domains:
-    #         raise ValueError("Production requires an explicit recording-domain allowlist")
-    #     return self
+    @model_validator(mode="after")
+    def production_settings_are_fail_closed(self) -> "Settings":
+        if self.env != "development" and not self.allowed_domains:
+            raise ValueError("Production requires an explicit recording-domain allowlist")
+        return self
 
     def ensure_local_directories(self) -> None:
         if self.database_url.startswith("sqlite:///"):

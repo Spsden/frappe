@@ -204,6 +204,8 @@ def logout(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+
+#The primary endpoint, here is where the recordng comes
 @app.post(
     "/recordings",
     response_model=Recording,
