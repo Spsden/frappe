@@ -218,6 +218,7 @@ export interface RecordingApi {
   getState: () => Promise<RecordingState>
   listSessions: () => Promise<RecordedSessionSummary[]>
   deleteSession: (sessionId: string) => Promise<void>
+  retryUpload: (sessionId: string) => Promise<void>
   openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') => Promise<void>
   onStateChanged: (listener: (state: RecordingState) => void) => () => void
 }
@@ -232,6 +233,7 @@ export const recordingIpc = {
   getState: 'recording:get-state',
   listSessions: 'recording:list-sessions',
   deleteSession: 'recording:delete-session',
+  retryUpload: 'recording:retry-upload',
   openPermissionSettings: 'recording:open-permission-settings',
   stateChanged: 'recording:state-changed',
   frameSample: 'recording:frame-sample',

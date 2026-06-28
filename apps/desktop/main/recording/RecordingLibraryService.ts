@@ -1,13 +1,18 @@
-import { readdir, readFile, rm, stat } from 'node:fs/promises'
+import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { RecordedSessionSummary, RecordingSessionManifest } from '../../shared/recording'
 import { WorkTraceApiClient } from '../api/WorkTraceApiClient'
+import { RecordingUploader } from './RecordingUploader'
 
 export class RecordingLibraryService {
+  private readonly uploader: RecordingUploader
+
   constructor(
     private readonly recordingsPath: string,
     private readonly apiClient: WorkTraceApiClient
-  ) {}
+  ) {
+    this.uploader = new RecordingUploader(apiClient)
+  }
 
   async listSessions(): Promise<RecordedSessionSummary[]> {
     const directories = await this.readSessionDirectories()
@@ -30,6 +35,43 @@ export class RecordingLibraryService {
     }
 
     await rm(sessionPath, { force: true, recursive: true })
+  }
+
+  async retryUpload(sessionId: string): Promise<void> {
+    const sessionPath = join(this.recordingsPath, sessionId)
+    const manifest = await this.readManifest(sessionPath)
+
+    // Best-effort: remove a previously-failed remote recording so retries
+    // don't leave orphaned recordings on the backend.
+    if (manifest?.remoteRecordingId) {
+      try {
+        await this.apiClient.deleteRecording(manifest.remoteRecordingId)
+      } catch {
+        // Offline or already gone — proceed with a fresh upload.
+      }
+    }
+
+    // Clear the prior error so the UI reflects the in-progress retry.
+    await this.updateManifest(sessionPath, (current) => {
+      current.uploadError = null
+    })
+
+    try {
+      const uploaded = await this.uploader.uploadCompletedSession(sessionPath)
+      await this.updateManifest(sessionPath, (current) => {
+        current.remoteRecordingId = uploaded.recordingId
+        current.remoteSessionId = uploaded.sessionId
+        current.remoteStatus = uploaded.status
+        current.uploadedAt = new Date().toISOString()
+        current.uploadError = null
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Retry failed.'
+      await this.updateManifest(sessionPath, (current) => {
+        current.uploadError = message
+      })
+      throw error
+    }
   }
 
   private async readSessionDirectories(): Promise<string[]> {
@@ -106,6 +148,18 @@ export class RecordingLibraryService {
     return JSON.parse(await readFile(join(sessionPath, 'manifest.json'), 'utf8')) as Partial<
       RecordingSessionManifest
     >
+  }
+
+  private async updateManifest(
+    sessionPath: string,
+    mutate: (manifest: RecordingSessionManifest) => void
+  ): Promise<void> {
+    const manifestPath = join(sessionPath, 'manifest.json')
+    const temporaryPath = join(sessionPath, 'manifest.tmp.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as RecordingSessionManifest
+    mutate(manifest)
+    await writeFile(temporaryPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    await rename(temporaryPath, manifestPath)
   }
 }
 
