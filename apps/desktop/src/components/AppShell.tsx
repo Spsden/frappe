@@ -15,7 +15,7 @@ const navigation: Array<{ label: string; to: string; icon: IconName }> = [
 const routeTitles: Record<string, string> = {
   '/dashboard': 'Overview',
   '/sessions': 'Sessions',
-  '/sop-library': 'SOP Library',
+  '/sop-library': 'SOPs',
   '/analytics': 'Analytics',
   '/settings': 'Settings'
 }
@@ -78,6 +78,7 @@ export function AppShell() {
   const location = useLocation()
   const pageTitle = routeTitles[location.pathname] ?? 'WorkTrace'
   const { status: connection } = useConnection()
+
   const connectionLabel =
     connection.state === 'connected'
       ? 'SYSTEM SYNCED'
@@ -86,22 +87,25 @@ export function AppShell() {
         : connection.state === 'error'
           ? 'SYSTEM OFFLINE'
           : 'SIGNED OUT'
+
   const connectionColor =
     connection.state === 'connected'
-      ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.75)]'
+      ? 'bg-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.7)]'
       : connection.state === 'checking'
-        ? 'animate-pulse bg-amber-400'
+        ? 'animate-pulse bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.55)]'
         : connection.state === 'error'
           ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.55)]'
-          : 'bg-white/30'
+          : 'bg-zinc-300'
 
   return (
-    <div className="min-h-screen bg-[#070707] text-white md:grid md:grid-cols-[240px_minmax(0,1fr)]">
-      <aside className="border-b border-white/10 bg-[#1b1b1b] md:fixed md:inset-y-0 md:w-60 md:border-b-0 md:border-r">
+    <div className="min-h-screen bg-[#fafafb] text-zinc-950 md:grid md:grid-cols-[240px_minmax(0,1fr)]">
+      <aside className="border-b border-white/10 bg-[#18181b] text-white md:fixed md:inset-y-0 md:w-60 md:border-b-0 md:border-r md:border-white/10">
         <div className="flex h-full flex-col">
-          <div className="px-5 py-6">
-            <p className="text-xl font-extrabold tracking-[-0.04em]">WorkTrace AI</p>
-            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-white/45">
+          <div className="px-5 py-7">
+            <p className="text-xl font-bold tracking-[-0.03em]">
+              WorkTrace AI
+            </p>
+            <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.22em] text-white/40">
               Enterprise Edition
             </p>
           </div>
@@ -113,10 +117,10 @@ export function AppShell() {
                 to={item.to}
                 className={({ isActive }) =>
                   [
-                    'flex min-w-max items-center gap-3 rounded-md border-l-2 px-4 py-3 text-sm font-medium transition',
+                    'flex min-w-max items-center gap-3 rounded-xl px-4 py-3 text-[15px] font-medium transition duration-200',
                     isActive
-                      ? 'border-white bg-white/12 text-white'
-                      : 'border-transparent text-white/65 hover:bg-white/6 hover:text-white'
+                      ? 'bg-gradient-to-r from-[#a66ad8] to-[#d783b6] text-white shadow-[0_14px_32px_rgba(166,106,216,0.26)]'
+                      : 'text-white/60 hover:bg-white/10 hover:text-white'
                   ].join(' ')
                 }
               >
@@ -128,11 +132,12 @@ export function AppShell() {
 
           <div className="mt-auto hidden border-t border-white/10 p-5 md:block">
             <div className="flex items-center gap-3">
-              <div className="grid size-9 place-items-center rounded-full border border-white/20 bg-white/8 text-xs font-bold">
+              <div className="grid size-9 place-items-center rounded-full border border-white/15 bg-white/8 text-xs font-bold">
                 {connection.account?.email.slice(0, 2).toUpperCase() || 'WT'}
               </div>
+
               <div className="min-w-0">
-                <p className="truncate font-mono text-xs font-bold tracking-wide">
+                <p className="truncate font-mono text-xs font-bold tracking-wide text-white">
                   {connection.account?.email || 'WorkTrace user'}
                 </p>
                 <p className="mt-0.5 truncate text-[10px] capitalize text-white/45">
@@ -145,46 +150,22 @@ export function AppShell() {
       </aside>
 
       <div className="min-w-0 md:col-start-2">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-white/10 bg-black/90 px-5 backdrop-blur md:px-8">
+        <header className="sticky top-0 z-20 flex h-14 items-center bg-[#fafafb] px-8 text-zinc-950">
           <div className="flex items-center gap-4">
-            <h1 className="text-base font-bold">{pageTitle}</h1>
-            <span className="h-5 w-px bg-white/15" />
-            <div className="flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.1em] text-white/65">
+            <h1 className="text-xl font-bold tracking-[-0.03em]">
+              {pageTitle}
+            </h1>
+
+            <span className="h-5 w-px bg-zinc-200" />
+
+            <div className="flex items-center gap-2 text-xs font-medium text-zinc-400">
               <span className={`size-1.5 rounded-full ${connectionColor}`} />
               {connectionLabel}
             </div>
           </div>
-
-          <div className="hidden items-center gap-3 sm:flex">
-            <label className="flex w-56 items-center gap-2 rounded-md border border-white/15 bg-white/[0.03] px-3 py-2 text-xs text-white/45">
-              <svg
-                viewBox="0 0 24 24"
-                className="size-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-4-4" />
-              </svg>
-              <input
-                type="search"
-                aria-label="Search sessions"
-                placeholder="Search sessions..."
-                className="min-w-0 flex-1 bg-transparent text-white outline-none placeholder:text-white/35"
-              />
-            </label>
-            <button
-              type="button"
-              aria-label="Open account menu"
-              className="size-8 rounded-full border-2 border-white/70 p-1"
-            >
-              <span className="block size-full rounded-full bg-white/10" />
-            </button>
-          </div>
         </header>
 
-        <main>
+        <main className="min-h-[calc(100vh-3.5rem)] bg-[#fafafb]">
           <Outlet />
         </main>
       </div>

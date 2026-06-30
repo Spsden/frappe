@@ -27,14 +27,16 @@ const dashboardMetrics: DashboardMetric[] = [
 
 export function DashboardPage() {
   return (
-    <section className="px-5 py-6 md:px-8">
-       <RecorderCard />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {dashboardMetrics.map((metric) => (
-          <StatCard key={metric.label} metric={metric} />
-        ))}
+    <section className="dashboard-page">
+      <div className="dashboard-container overview-container">
+        <RecorderCard />
+
+        <div className="overview-stat-grid">
+          {dashboardMetrics.map((metric) => (
+            <StatCard key={metric.label} metric={metric} />
+          ))}
+        </div>
       </div>
-     
     </section>
   )
 }

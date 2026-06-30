@@ -7,6 +7,7 @@ import { AudioRecorderPage } from './pages/AudioRecorderPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { RecordingControlsPage } from './pages/RecordingControlsPage'
 import { SessionsPage } from './pages/SessionsPage'
+import { SopLibraryPage } from './pages/SopLibraryPage'
 import { SettingsPage } from './pages/SettingsPage'
 
 export default function App() {
@@ -41,16 +42,7 @@ export default function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
-          <Route
-            path="/sop-library"
-            element={
-              <PlaceholderPage
-                eyebrow="Documentation"
-                title="SOP Library"
-                description="Review, edit and publish generated procedures."
-              />
-            }
-          />
+          <Route path="/sop-library" element={<SopLibraryPage />} />
           <Route
             path="/analytics"
             element={

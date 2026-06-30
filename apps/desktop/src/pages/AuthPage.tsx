@@ -47,7 +47,7 @@ export function AuthPage() {
           </p>
         </div>
         <div className="my-auto max-w-xl">
-          <div className="size-3 rounded-full bg-red-500 shadow-[0_0_22px_rgba(239,68,68,0.7)]" />
+          <div className="size-3 rounded-full bg-purple-400 shadow-[0_0_22px_rgba(168,85,247,0.55)]" />
           <p className="mt-7 font-mono text-xs font-bold uppercase tracking-[0.28em] text-white/55">
             Capture knowledge as it happens
           </p>
@@ -65,11 +65,11 @@ export function AuthPage() {
       </section>
 
       <section className="grid place-items-center px-6 py-12">
-        <div className="w-full max-w-md">
+        <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#18181b] p-10 shadow-[0_24px_70px_rgba(0,0,0,0.35)]">
           <div className="lg:hidden">
             <p className="text-xl font-black">WorkTrace AI</p>
           </div>
-          <p className="mt-10 font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-400 lg:mt-0">
+          <p className="mt-10 font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-purple-400 lg:mt-0">
             {mode === 'signup' ? 'Create workspace' : 'Secure sign in'}
           </p>
           <h2 className="mt-4 text-4xl font-black tracking-[-0.045em]">
@@ -136,7 +136,7 @@ export function AuthPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="mt-2 rounded-lg bg-white px-5 py-3.5 text-sm font-extrabold text-black transition hover:bg-white/85 disabled:opacity-50"
+              className="primary-gradient-button mt-2"
             >
               {submitting
                 ? mode === 'signup'
