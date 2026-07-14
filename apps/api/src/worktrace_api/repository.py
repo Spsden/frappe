@@ -334,6 +334,14 @@ class Repository:
         ).all()
         return [self._screenshot_from_record(r) for r in records]
 
+    def get_screenshots_for_session(self, session_id: UUID) -> list[Screenshot]:
+        records = self.db.scalars(
+            tenant_query(ScreenshotRecord, self.tenant_id)
+            .where(ScreenshotRecord.session_id == str(session_id))
+            .order_by(ScreenshotRecord.sequence)
+        ).all()
+        return [self._screenshot_from_record(r) for r in records]
+
     def update_screenshot_annotation(
         self, screenshot_id: UUID, annotated_key: str | None, status: str
     ) -> None:

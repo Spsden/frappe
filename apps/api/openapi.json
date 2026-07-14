@@ -847,6 +847,150 @@
         }
       }
     },
+    "/sessions/{session_id}/screenshots": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "List Session Screenshots",
+        "description": "Screenshots for a session, each carrying every annotation that references\nit (N highlights per frame). Only annotations already resolved to\nscreenshot-pixel space are exposed, so the frontend can render them directly\nas overlays without any further coordinate math.",
+        "operationId": "list_session_screenshots_sessions__session_id__screenshots_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScreenshotEvidence"
+                  },
+                  "title": "Response List Session Screenshots Sessions  Session Id  Screenshots Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}/screenshots/{screenshot_id}": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Session Screenshot Image",
+        "description": "Serve the raw screenshot bytes for overlay rendering.",
+        "operationId": "get_session_screenshot_image_sessions__session_id__screenshots__screenshot_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "screenshot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Screenshot Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/sessions/{session_id}/ai-preview": {
       "post": {
         "tags": [
@@ -2497,6 +2641,144 @@
           "instruction"
         ],
         "title": "SOPStep"
+      },
+      "ScreenshotAnnotation": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Event Id"
+          },
+          "event_type": {
+            "$ref": "#/components/schemas/EventType"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "click_rectangle",
+              "scroll_focus",
+              "pointer_focus"
+            ],
+            "title": "Type"
+          },
+          "coordinate_space": {
+            "type": "string",
+            "enum": [
+              "screenshot_pixels",
+              "global_screen"
+            ],
+            "title": "Coordinate Space"
+          },
+          "bounds": {
+            "$ref": "#/components/schemas/TargetBounds"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "event_pointer",
+              "fallback_coordinate",
+              "accessibility"
+            ],
+            "title": "Source"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "event_id",
+          "event_type",
+          "type",
+          "coordinate_space",
+          "bounds",
+          "confidence",
+          "source"
+        ],
+        "title": "ScreenshotAnnotation",
+        "description": "A single renderable highlight on a screenshot (Phase 3 overlay source)."
+      },
+      "ScreenshotEvidence": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sequence"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At"
+          },
+          "width": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Height"
+          },
+          "media_type": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Media Type",
+            "default": "image/png"
+          },
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/ScreenshotAnnotation"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Annotations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "sequence",
+          "captured_at",
+          "width",
+          "height"
+        ],
+        "title": "ScreenshotEvidence",
+        "description": "A screenshot plus every annotation that references it (N per frame)."
       },
       "SessionEvent": {
         "properties": {

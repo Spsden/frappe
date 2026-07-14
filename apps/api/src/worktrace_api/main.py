@@ -53,9 +53,12 @@ from worktrace_api.schemas import (
     RecordingCreate,
     RecordingStatus,
     RecordingStatusResponse,
+    ScreenshotAnnotation,
+    ScreenshotEvidence,
     SignUpRequest,
     SOPApproval,
     SOPStatus,
+    TargetBounds,
     WorkflowSession,
     WorkflowSessionCreate,
 )
@@ -394,6 +397,94 @@ def list_sessions(
 @app.get("/sessions/{session_id}", response_model=WorkflowSession, tags=["sessions"])
 def get_session(session_id: UUID, repo: Repository = Depends(repository)) -> WorkflowSession:
     return require_session(repo, session_id)
+
+
+@app.get(
+    "/sessions/{session_id}/screenshots",
+    response_model=list[ScreenshotEvidence],
+    tags=["sessions"],
+)
+def list_session_screenshots(
+    session_id: UUID, repo: Repository = Depends(repository)
+) -> list[ScreenshotEvidence]:
+    """Screenshots for a session, each carrying every annotation that references
+    it (N highlights per frame). Only annotations already resolved to
+    screenshot-pixel space are exposed, so the frontend can render them directly
+    as overlays without any further coordinate math."""
+    session = require_session(repo, session_id)
+    screenshots = repo.get_screenshots_for_session(session_id)
+
+    annotations_by_screenshot: dict[UUID, list[ScreenshotAnnotation]] = {}
+    for event in session.events:
+        annotation = (event.event_data or {}).get("evidenceAnnotation")
+        if not isinstance(annotation, dict) or "bounds" not in annotation:
+            continue
+        if annotation.get("coordinate_space") != "screenshot_pixels":
+            continue
+        target = event.screenshot_reference or event.after_screenshot_id
+        if target is None:
+            continue
+        try:
+            bounds = TargetBounds(**annotation["bounds"])
+        except (TypeError, ValueError):
+            continue
+        annotations_by_screenshot.setdefault(UUID(str(target)), []).append(
+            ScreenshotAnnotation(
+                event_id=event.id,
+                event_type=event.event_type,
+                type=annotation.get("type", "click_rectangle"),
+                coordinate_space="screenshot_pixels",
+                bounds=bounds,
+                confidence=float(annotation.get("confidence", 0.45)),
+                source=annotation.get("source", "fallback_coordinate"),
+                label=event.target_label,
+                role=event.target_role,
+            )
+        )
+
+    return [
+        ScreenshotEvidence(
+            id=screenshot.id,
+            sequence=screenshot.sequence,
+            captured_at=screenshot.captured_at,
+            width=screenshot.width,
+            height=screenshot.height,
+            media_type=screenshot.media_type,
+            annotations=annotations_by_screenshot.get(screenshot.id, []),
+        )
+        for screenshot in screenshots
+    ]
+
+
+@app.get("/sessions/{session_id}/screenshots/{screenshot_id}", tags=["sessions"])
+def get_session_screenshot_image(
+    session_id: UUID,
+    screenshot_id: UUID,
+    repo: Repository = Depends(repository),
+) -> Response:
+    """Serve the raw screenshot bytes for overlay rendering."""
+    require_session(repo, session_id)
+    screenshot = next(
+        (
+            item
+            for item in repo.get_screenshots_for_session(session_id)
+            if item.id == screenshot_id
+        ),
+        None,
+    )
+    if screenshot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
+    storage = ChunkStorage(
+        root=settings.recording_storage_path,
+        max_chunk_bytes=settings.max_chunk_bytes,
+    )
+    if not storage.exists(screenshot.storage_key):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot image not available"
+        )
+    return Response(
+        content=storage.read(screenshot.storage_key), media_type=screenshot.media_type
+    )
 
 
 @app.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["sessions"])

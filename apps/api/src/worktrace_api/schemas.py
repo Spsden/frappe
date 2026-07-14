@@ -128,6 +128,33 @@ class EvidenceAnnotation(StrictModel):
     source: Literal["event_pointer", "fallback_coordinate"] = "event_pointer"
 
 
+class ScreenshotAnnotation(StrictModel):
+    """A single renderable highlight on a screenshot (Phase 3 overlay source)."""
+
+    event_id: UUID
+    event_type: EventType
+    type: Literal["click_rectangle", "scroll_focus", "pointer_focus"]
+    coordinate_space: Literal["screenshot_pixels", "global_screen"]
+    bounds: TargetBounds
+    confidence: float = Field(ge=0, le=1)
+    # "accessibility" is reserved for Phase 2 element-level capture.
+    source: Literal["event_pointer", "fallback_coordinate", "accessibility"]
+    label: str | None = Field(default=None, max_length=500)
+    role: str | None = Field(default=None, max_length=100)
+
+
+class ScreenshotEvidence(StrictModel):
+    """A screenshot plus every annotation that references it (N per frame)."""
+
+    id: UUID
+    sequence: int = Field(ge=1)
+    captured_at: datetime
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    media_type: str = Field(default="image/png", max_length=100)
+    annotations: list[ScreenshotAnnotation] = Field(default_factory=list, max_length=50)
+
+
 class TranscriptSegment(StrictModel):
     start_ms: int = Field(ge=0)
     end_ms: int = Field(ge=0)
