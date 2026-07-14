@@ -616,3 +616,21 @@ def test_broker_available_returns_false_for_unreachable_host():
     from worktrace_api.core.celery_app import broker_available
 
     assert broker_available("redis://127.0.0.1:1/0", timeout=0.5) is False
+
+
+def test_service_status_reports_redis_down_without_broker():
+    from worktrace_api.core.celery_app import service_status
+
+    assert service_status("redis://127.0.0.1:1/0", timeout=0.5) == {
+        "redis": "down",
+        "worker": "down",
+    }
+
+
+def test_health_reports_services(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["services"]["redis"] in {"up", "down"}
+    assert body["services"]["worker"] in {"up", "down", "unknown"}

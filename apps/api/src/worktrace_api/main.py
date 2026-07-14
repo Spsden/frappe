@@ -3,6 +3,7 @@ from collections.abc import Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import (
@@ -165,8 +166,14 @@ def require_session(repo: Repository, session_id: UUID) -> WorkflowSession:
 
 
 @app.get("/health", tags=["system"])
-def health() -> dict[str, str]:
-    return {"status": "ok", "environment": settings.env}
+def health() -> dict[str, Any]:
+    from worktrace_api.core.celery_app import service_status
+
+    return {
+        "status": "ok",
+        "environment": settings.env,
+        "services": service_status(settings.redis_url),
+    }
 
 
 @app.post(

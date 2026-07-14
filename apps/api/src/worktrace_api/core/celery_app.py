@@ -19,6 +19,20 @@ def broker_available(url: str, timeout: float = 1.0) -> bool:
         return False
 
 
+def service_status(redis_url: str, timeout: float = 1.0) -> dict[str, str]:
+    """Report the reachability of the async pipeline services. `redis` is the
+    Celery broker/result backend; `worker` is probed via a control ping (only
+    when the broker is up, since workers talk over it). Used by /health so the
+    desktop client can tell the user when transcription/annotation are offline."""
+    if not broker_available(redis_url, timeout=timeout):
+        return {"redis": "down", "worker": "down"}
+    try:
+        replies = celery_app.control.ping(timeout=timeout)
+        return {"redis": "up", "worker": "up" if replies else "down"}
+    except Exception:
+        return {"redis": "up", "worker": "unknown"}
+
+
 def create_celery_app() -> Celery:
     settings = get_settings()
     app = Celery(
