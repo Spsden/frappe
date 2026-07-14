@@ -170,6 +170,28 @@ export interface BackendWorkflowSession {
   transcript: BackendTranscript | null
 }
 
+export interface BackendAnnotation {
+  event_id: string
+  event_type: string
+  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus'
+  coordinate_space: 'screenshot_pixels' | 'global_screen'
+  bounds: { x: number; y: number; width: number; height: number }
+  confidence: number
+  source: 'event_pointer' | 'fallback_coordinate' | 'accessibility'
+  label: string | null
+  role: string | null
+}
+
+export interface BackendScreenshotEvidence {
+  id: string
+  sequence: number
+  captured_at: string
+  width: number
+  height: number
+  media_type: string
+  annotations: BackendAnnotation[]
+}
+
 export interface RecordedSessionSummary {
   id: string
   name: string
@@ -257,6 +279,8 @@ export interface RecordingApi {
   deleteSession: (sessionId: string) => Promise<void>
   retryUpload: (sessionId: string) => Promise<void>
   getSession: (backendSessionId: string) => Promise<BackendWorkflowSession>
+  getSessionScreenshots: (backendSessionId: string) => Promise<BackendScreenshotEvidence[]>
+  getScreenshotImage: (backendSessionId: string, screenshotId: string) => Promise<ArrayBuffer>
   openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') => Promise<void>
   onStateChanged: (listener: (state: RecordingState) => void) => () => void
 }
@@ -273,6 +297,8 @@ export const recordingIpc = {
   deleteSession: 'recording:delete-session',
   retryUpload: 'recording:retry-upload',
   getSession: 'recording:get-session',
+  getSessionScreenshots: 'recording:get-session-screenshots',
+  getScreenshotImage: 'recording:get-screenshot-image',
   openPermissionSettings: 'recording:open-permission-settings',
   stateChanged: 'recording:state-changed',
   frameSample: 'recording:frame-sample',

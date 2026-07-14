@@ -7,6 +7,7 @@ import type {
 import type {
   BackendRecording,
   BackendRecordingStatusResponse,
+  BackendScreenshotEvidence,
   BackendWorkflowSession
 } from '../../shared/recording'
 import { ConnectionSettingsStore } from './ConnectionSettingsStore'
@@ -165,6 +166,16 @@ export class WorkTraceApiClient {
   async getSession(sessionId: string): Promise<BackendWorkflowSession> {
     const response = await this.request(`/sessions/${sessionId}`)
     return (await response.json()) as BackendWorkflowSession
+  }
+
+  async getSessionScreenshots(sessionId: string): Promise<BackendScreenshotEvidence[]> {
+    const response = await this.request(`/sessions/${sessionId}/screenshots`)
+    return (await response.json()) as BackendScreenshotEvidence[]
+  }
+
+  async getScreenshotImage(sessionId: string, screenshotId: string): Promise<ArrayBuffer> {
+    const response = await this.request(`/sessions/${sessionId}/screenshots/${screenshotId}`)
+    return response.arrayBuffer()
   }
 
   async request(path: string, init: RequestInit = {}): Promise<Response> {

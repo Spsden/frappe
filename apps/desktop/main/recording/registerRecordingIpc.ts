@@ -38,6 +38,14 @@ export function registerRecordingIpc(
   ipcMain.handle(recordingIpc.getSession, (_event, backendSessionId: string) =>
     library.getSession(backendSessionId)
   )
+  ipcMain.handle(recordingIpc.getSessionScreenshots, (_event, backendSessionId: string) =>
+    library.getSessionScreenshots(backendSessionId)
+  )
+  ipcMain.handle(
+    recordingIpc.getScreenshotImage,
+    (_event, backendSessionId: string, screenshotId: string) =>
+      library.getScreenshotImage(backendSessionId, screenshotId)
+  )
   ipcMain.handle(
     recordingIpc.openPermissionSettings,
     (_event, permission: 'accessibility' | 'screen' | 'microphone') => {
@@ -70,6 +78,8 @@ export function registerRecordingIpc(
     ipcMain.removeHandler(recordingIpc.deleteSession)
     ipcMain.removeHandler(recordingIpc.retryUpload)
     ipcMain.removeHandler(recordingIpc.getSession)
+    ipcMain.removeHandler(recordingIpc.getSessionScreenshots)
+    ipcMain.removeHandler(recordingIpc.getScreenshotImage)
     ipcMain.removeHandler(recordingIpc.openPermissionSettings)
   }
 }

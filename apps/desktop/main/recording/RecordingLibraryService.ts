@@ -1,6 +1,7 @@
 import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
+  BackendScreenshotEvidence,
   BackendWorkflowSession,
   RecordedSessionSummary,
   RecordingSessionManifest
@@ -43,6 +44,17 @@ export class RecordingLibraryService {
 
   async getSession(backendSessionId: string): Promise<BackendWorkflowSession> {
     return this.apiClient.getSession(backendSessionId)
+  }
+
+  async getSessionScreenshots(backendSessionId: string): Promise<BackendScreenshotEvidence[]> {
+    return this.apiClient.getSessionScreenshots(backendSessionId)
+  }
+
+  async getScreenshotImage(
+    backendSessionId: string,
+    screenshotId: string
+  ): Promise<ArrayBuffer> {
+    return this.apiClient.getScreenshotImage(backendSessionId, screenshotId)
   }
 
   async retryUpload(sessionId: string): Promise<void> {
