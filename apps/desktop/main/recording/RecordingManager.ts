@@ -145,7 +145,7 @@ export class RecordingManager extends EventEmitter {
         getBeforeScreenshotId: () => this.screenCapture.getCurrentScreenshotId(),
         shouldIgnorePoint: this.shouldIgnoreInputPoint,
         onEventCaptured: (event) => {
-          this.screenCapture.registerEvent(event.id)
+          this.screenCapture.registerInput(event.id, event.type)
         },
         onEventSaved: () => {
           this.updateState({ eventCount: this.state.eventCount + 1 })

@@ -8,6 +8,7 @@ import {
 } from 'electron'
 import type {
   CaptureDisplayMetadata,
+  RecordedEvent,
   RecordingOptions,
   ScreenshotRecord
 } from '../../shared/recording'
@@ -23,11 +24,17 @@ export class ScreenCaptureService {
   private paused = false
   private captureInProgress = false
   private timer: NodeJS.Timeout | null = null
-  private previousThumbnail: Buffer | null = null
+  private background: Buffer | null = null
   private pendingChange = false
   private changeStartedAt = 0
   private lastChangedAt = 0
   private highestChangeScore = 0
+  private lastInputAt = 0
+  private lastCaptureAt = 0
+  private startedAt = 0
+  private calibrated = false
+  private adaptiveThreshold = 0
+  private calibrationSamples: number[] = []
   private screenshotSequence = 0
   private options: RecordingOptions | null = null
   private callbacks: ScreenCaptureCallbacks | null = null
@@ -54,11 +61,17 @@ export class ScreenCaptureService {
     this.callbacks = callbacks
     this.active = true
     this.paused = false
-    this.previousThumbnail = null
+    this.background = null
     this.pendingChange = false
     this.screenshotSequence = 0
     this.currentScreenshotId = undefined
     this.pendingEventIds = []
+    this.lastInputAt = 0
+    this.lastCaptureAt = Date.now()
+    this.startedAt = Date.now()
+    this.calibrated = false
+    this.calibrationSamples = []
+    this.adaptiveThreshold = options.changeThreshold
 
     try {
       await this.captureAndSave(1)
@@ -103,9 +116,27 @@ export class ScreenCaptureService {
     return this.currentScreenshotId
   }
 
-  registerEvent(eventId: string): void {
+  /**
+   * Called by the input layer for every captured event. Two roles:
+   *  (1) attribution — the event id is stamped onto the next saved screenshot,
+   *      used downstream to pair annotations with frames; and
+   *  (2) scheduling  — input marks "recent activity", which lowers the change
+   *      threshold (4-D) and classifies sustained motion as intentional
+   *      navigation vs ambient animation (5-B). Significant events (click,
+   *      app-switch, navigation) also trigger an immediate sample so we capture
+   *      a tight at/near-event frame, improving before/after pairing for
+   *      highlight annotation.
+   */
+  registerInput(eventId: string, eventType: RecordedEvent['type']): void {
+    this.lastInputAt = Date.now()
     if (!this.pendingEventIds.includes(eventId)) {
       this.pendingEventIds.push(eventId)
+    }
+
+    const significant =
+      eventType === 'click' || eventType === 'app-switch' || eventType === 'navigation'
+    if (significant && !this.captureInProgress) {
+      this.scheduleNextSample(0)
     }
   }
 
@@ -129,41 +160,48 @@ export class ScreenCaptureService {
         })
         .toBitmap()
 
-      if (this.previousThumbnail) {
-        const changeScore = calculateChangeScore(
-          this.previousThumbnail,
-          thumbnail,
-          this.options.thumbnailWidth,
-          this.options.thumbnailHeight
-        )
-        const now = Date.now()
-
-        if (changeScore >= this.options.changeThreshold) {
-          if (!this.pendingChange) {
-            this.pendingChange = true
-            this.changeStartedAt = now
-          }
-
-          this.lastChangedAt = now
-          this.highestChangeScore = Math.max(this.highestChangeScore, changeScore)
-        } else if (
-          this.pendingChange &&
-          now - this.lastChangedAt >= this.options.settleDurationMs
-        ) {
-          await this.captureAndSave(this.highestChangeScore)
-          this.resetPendingChange()
-        }
-
-        if (
-          this.pendingChange &&
-          now - this.changeStartedAt >= this.options.maxSettleDurationMs
-        ) {
-          await this.captureAndSave(this.highestChangeScore)
-          this.resetPendingChange()
-        }
+      // Seed the background model from the very first frame.
+      if (!this.background) {
+        this.background = Buffer.from(thumbnail)
+        return
       }
 
-      this.previousThumbnail = Buffer.from(thumbnail)
+      const now = Date.now()
+      const changeScore = calculateChangeScore(
+        this.background,
+        thumbnail,
+        this.options.thumbnailWidth,
+        this.options.thumbnailHeight
+      )
+
+      this.runCalibration(now, changeScore)
+
+      // 4-D: input-gated sensitivity. Recent input means the user just acted —
+      // expect a visual consequence, so use the base threshold. During idle,
+      // raise the threshold so ambient churn (cursor blink, ads, clocks)
+      // cannot trigger captures.
+      const recentInput = now - this.lastInputAt <= this.options.inputSensitivityWindowMs
+      const threshold =
+        this.adaptiveThreshold * (recentInput ? 1 : this.options.idleThresholdMultiplier)
+      const isChange = changeScore >= threshold
+
+      if (isChange) {
+        if (!this.pendingChange) {
+          this.pendingChange = true
+          this.changeStartedAt = now
+        }
+        this.lastChangedAt = now
+        this.highestChangeScore = Math.max(this.highestChangeScore, changeScore)
+      } else {
+        // 4-C: stable frame — fold it into the EMA background. Transient motion
+        // is excluded (we only blend when NOT changing), so the model tracks
+        // the real steady state and periodic noise averages out.
+        this.background = blendBackground(this.background, thumbnail, this.options.emaAlpha)
+      }
+
+      if (this.pendingChange) {
+        await this.maybeFlushPendingChange(now, recentInput)
+      }
     } catch (error) {
       const captureError =
         error instanceof Error ? error : new Error('Screen capture failed unexpectedly.')
@@ -173,6 +211,75 @@ export class ScreenCaptureService {
       this.captureInProgress = false
       this.scheduleNextSample()
     }
+  }
+
+  /**
+   * Decide whether the pending-change window should be flushed into a full-res
+   * capture. Implements 5-B (input-correlated sampling) and 5-C (navigation
+   * endpoint vs ambient suppression):
+   *  - Navigation (sustained change WITH recent input, e.g. scrolling/dragging):
+   *    wait for input to stop, then capture the settled "destination" frame;
+   *    a periodic floor prevents long navigations from starving.
+   *  - Ambient (sustained change WITHOUT input, e.g. video/animation): suppress;
+   *    only the hard cap forces a frame so we never block forever.
+   *  - Normal short change: capture once it has settled.
+   */
+  private async maybeFlushPendingChange(now: number, recentInput: boolean): Promise<void> {
+    if (!this.options) {
+      return
+    }
+
+    const settled = now - this.lastChangedAt >= this.options.settleDurationMs
+    let capture = false
+
+    if (recentInput) {
+      // 5-C: capture the endpoint — the frame after the user stopped acting.
+      const inputStopped = now - this.lastInputAt >= this.options.settleDurationMs
+      capture = settled && inputStopped
+      // 5-B: periodic floor so a long scroll/drag still yields frames.
+      if (!capture && now - this.lastCaptureAt >= this.options.navigationSampleIntervalMs) {
+        capture = true
+      }
+    } else {
+      capture = settled
+      // 5-C backstop: ambient sustained change is capped (not starved).
+      if (!capture && now - this.changeStartedAt >= this.options.maxSettleDurationMs) {
+        capture = true
+      }
+    }
+
+    if (capture) {
+      await this.captureAndSave(this.highestChangeScore)
+      this.lastCaptureAt = now
+      this.resetPendingChange()
+    }
+  }
+
+  /**
+   * 4-A: measure the ambient change-score baseline during the first
+   * `calibrationDurationMs` of idle recording and raise the threshold above
+   * the measured noise floor. Aborts (falling back to the base threshold) the
+   * moment the user starts acting, so calibration never fights real input.
+   */
+  private runCalibration(now: number, changeScore: number): void {
+    if (this.calibrated || !this.options) {
+      return
+    }
+
+    const recentInput = now - this.lastInputAt <= this.options.inputSensitivityWindowMs
+    if (recentInput || now - this.startedAt >= this.options.calibrationDurationMs) {
+      if (!recentInput && this.calibrationSamples.length > 0) {
+        const sorted = [...this.calibrationSamples].sort((a, b) => a - b)
+        const median = sorted[Math.floor(sorted.length / 2)]
+        this.adaptiveThreshold = Math.max(this.options.changeThreshold, median * 2.5 + 0.004)
+      } else {
+        this.adaptiveThreshold = this.options.changeThreshold
+      }
+      this.calibrated = true
+      return
+    }
+
+    this.calibrationSamples.push(changeScore)
   }
 
   private async captureAndSave(changeScore: number): Promise<void> {
@@ -301,9 +408,15 @@ export class ScreenCaptureService {
     this.paused = false
     this.captureInProgress = false
     this.clearTimer()
-    this.previousThumbnail = null
+    this.background = null
     this.currentScreenshotId = undefined
     this.pendingEventIds = []
+    this.lastInputAt = 0
+    this.lastCaptureAt = 0
+    this.startedAt = 0
+    this.calibrated = false
+    this.calibrationSamples = []
+    this.adaptiveThreshold = 0
     this.options = null
     this.callbacks = null
     this.resetPendingChange()
@@ -327,6 +440,15 @@ function serializeDisplay(display: Display): CaptureDisplayMetadata {
       height: display.workArea.height
     }
   }
+}
+
+function blendBackground(background: Buffer, frame: Buffer, alpha: number): Buffer {
+  const weight = Math.min(1, Math.max(0, alpha))
+  const blended = Buffer.allocUnsafe(background.length)
+  for (let index = 0; index < background.length; index += 1) {
+    blended[index] = Math.round(background[index] * (1 - weight) + frame[index] * weight)
+  }
+  return blended
 }
 
 function getUnavailableDisplayMessage(detail: string): string {

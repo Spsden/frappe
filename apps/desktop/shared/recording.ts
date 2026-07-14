@@ -84,6 +84,16 @@ export interface RecordingOptions {
   thumbnailWidth: number
   thumbnailHeight: number
   changeThreshold: number
+  /** 4-C: EMA background-model learning rate (weight of the new frame, 0..1). */
+  emaAlpha: number
+  /** 4-D: multiplier applied to the change threshold during input-idle periods. */
+  idleThresholdMultiplier: number
+  /** 4-D: window after an input event during which the base (lower) threshold is used. */
+  inputSensitivityWindowMs: number
+  /** 4-A: idle baseline window used to auto-calibrate the threshold. */
+  calibrationDurationMs: number
+  /** 5-B: minimum interval between captures during sustained input-driven motion. */
+  navigationSampleIntervalMs: number
 }
 
 export const defaultRecordingOptions: RecordingOptions = {
@@ -95,7 +105,12 @@ export const defaultRecordingOptions: RecordingOptions = {
   maxSettleDurationMs: 2500,
   thumbnailWidth: 160,
   thumbnailHeight: 90,
-  changeThreshold: 0.018
+  changeThreshold: 0.018,
+  emaAlpha: 0.2,
+  idleThresholdMultiplier: 3,
+  inputSensitivityWindowMs: 1500,
+  calibrationDurationMs: 3000,
+  navigationSampleIntervalMs: 1000
 }
 
 export interface RecordingState {
