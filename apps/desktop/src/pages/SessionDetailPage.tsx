@@ -18,6 +18,7 @@ import {
   statusLabel
 } from '../features/recording/sessionStatus'
 import { StepProgress } from '../components/StepProgress'
+import { EvidenceGallery } from '../components/EvidenceGallery'
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
@@ -291,6 +292,25 @@ export function SessionDetailPage() {
         </div>
         <div className="mt-5">
           <TranscriptPanel session={backendSession} />
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-white/10 bg-[#090909] p-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-black tracking-[-0.02em]">Evidence</h3>
+            <p className="mt-1 text-xs text-white/40">
+              Captured screenshots with click &amp; scroll highlights.
+            </p>
+          </div>
+          {session.remoteSessionId ? (
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/60">
+              {session.screenshotCount} frame{session.screenshotCount === 1 ? '' : 's'}
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-5">
+          <EvidenceGallery remoteSessionId={session.remoteSessionId} />
         </div>
       </section>
     </main>
