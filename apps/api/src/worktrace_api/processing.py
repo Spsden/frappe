@@ -428,8 +428,8 @@ def _map_pointer_to_screenshot(
         display_height = float(display_bounds["height"]) * display_scale
         image_width = float(image_size["width"])
         image_height = float(image_size["height"])
-        x = float(point["x"]) * display_scale
-        y = float(point["y"]) * display_scale
+        x = float(point["x"])
+        y = float(point["y"])
     except (KeyError, TypeError, ValueError):
         return None
 
@@ -442,7 +442,6 @@ def _map_pointer_to_screenshot(
         "image_width": image_width,
         "image_height": image_height,
     }
-
 
 def _centered_bounds(
     center_x: float,

@@ -53,15 +53,16 @@ def annotate_screenshots(self, recording_id: str, session_id: str, tenant_id: st
             if screenshot.redaction_status in ("redacted", "not_required"):
                 continue
 
-   
-            matching_event = next(
-                (
-                    e for e in events
-                    if e.after_screenshot_id == screenshot.id
-                    or e.screenshot_reference == screenshot.id
-                ),
-                None
-            )
+
+            # Match events that declare this screenshot as their BEFORE state.
+            # pick the LAST such event: when multiple clicks happen on the same
+            # screen before it changes, the final click is the one that caused the
+            # transition (most meaningful to annotate).
+            candidates = [
+                e for e in events
+                if e.before_screenshot_id == screenshot.id
+            ]
+            matching_event = candidates[-1] if candidates else None
 
             if not matching_event:
                 repo.update_screenshot_annotation(screenshot.id, None, "not_required")
