@@ -274,7 +274,8 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
                 None,
             )
 
-            narration = _align_narration(screenshot, next_ss, session.created_at, segments)
+            recording_start_time = screenshots[0].captured_at if screenshots else session.created_at
+            narration = _align_narration(screenshot, next_ss, recording_start_time, segments)
 
             steps_context.append({
                 "position": i + 1,
