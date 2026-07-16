@@ -29,6 +29,7 @@ def create_celery_app() -> Celery:
         "worktrace_api.tasks.annotation",
         "worktrace_api.tasks.pipeline",
         "worktrace_api.tasks.transcription",
+        "worktrace_api.tasks.sop_generation",
     )
     return app
 
