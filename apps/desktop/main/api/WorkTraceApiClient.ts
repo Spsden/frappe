@@ -6,6 +6,7 @@ import type {
   SignUpCredentials
 } from '../../shared/connection'
 import type {
+  AnnotationInput,
   BackendRecording,
   BackendRecordingStatusResponse,
   BackendScreenshotEvidence,
@@ -186,6 +187,22 @@ export class WorkTraceApiClient {
   async getScreenshotImage(sessionId: string, screenshotId: string): Promise<ArrayBuffer> {
     const response = await this.request(`/sessions/${sessionId}/screenshots/${screenshotId}`)
     return response.arrayBuffer()
+  }
+
+  async saveScreenshotAnnotations(
+    sessionId: string,
+    screenshotId: string,
+    annotations: AnnotationInput[]
+  ): Promise<BackendScreenshotEvidence> {
+    const response = await this.request(
+      `/sessions/${sessionId}/screenshots/${screenshotId}/annotations`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ annotations })
+      }
+    )
+    return (await response.json()) as BackendScreenshotEvidence
   }
 
   async request(path: string, init: RequestInit = {}): Promise<Response> {
