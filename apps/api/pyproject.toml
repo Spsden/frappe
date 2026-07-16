@@ -17,7 +17,8 @@ dependencies = [
   "celery>=5.0,<6",
   "redis>=5.0,<6",
   "Pillow>=10.0,<12",
-  "openai-whisper>=20231117"
+  "openai-whisper>=20231117",
+  "openai>=1.10,<2"
 ]
 
 [project.optional-dependencies]
