@@ -119,7 +119,7 @@ class SessionStatus(StrEnum):
 
 
 class EvidenceAnnotation(StrictModel):
-    type: Literal["click_rectangle", "scroll_focus", "pointer_focus"]
+    type: Literal["click_rectangle", "scroll_focus", "pointer_focus", "manual_box"]
     event_id: UUID
     screenshot_reference: UUID | None = None
     coordinate_space: Literal["screenshot_pixels", "global_screen"]
@@ -129,16 +129,20 @@ class EvidenceAnnotation(StrictModel):
 
 
 class ScreenshotAnnotation(StrictModel):
-    """A single renderable highlight on a screenshot (Phase 3 overlay source)."""
+    """A single renderable highlight on a screenshot (Phase 3 overlay source).
 
-    event_id: UUID
-    event_type: EventType
-    type: Literal["click_rectangle", "scroll_focus", "pointer_focus"]
-    coordinate_space: Literal["screenshot_pixels", "global_screen"]
+    ``event_id``/``event_type`` are optional because a ``manual_box`` highlight
+    is authored by the user in the evidence editor and is not tied to a recorded
+    input event."""
+
+    event_id: UUID | None = None
+    event_type: EventType | None = None
+    type: Literal["click_rectangle", "scroll_focus", "pointer_focus", "manual_box"]
+    coordinate_space: Literal["screenshot_pixels", "global_screen"] = "screenshot_pixels"
     bounds: TargetBounds
-    confidence: float = Field(ge=0, le=1)
+    confidence: float = Field(default=1.0, ge=0, le=1)
     # "accessibility" is reserved for Phase 2 element-level capture.
-    source: Literal["event_pointer", "fallback_coordinate", "accessibility"]
+    source: Literal["event_pointer", "fallback_coordinate", "accessibility", "manual"]
     label: str | None = Field(default=None, max_length=500)
     role: str | None = Field(default=None, max_length=100)
 
@@ -153,6 +157,28 @@ class ScreenshotEvidence(StrictModel):
     height: int = Field(gt=0)
     media_type: str = Field(default="image/png", max_length=100)
     annotations: list[ScreenshotAnnotation] = Field(default_factory=list, max_length=50)
+
+
+class ScreenshotAnnotationInput(StrictModel):
+    """Author-supplied annotation for the evidence editor save flow. Only the
+    renderable fields are accepted; server-side bookkeeping (coordinate space,
+    confidence) is normalized by the endpoint."""
+
+    type: Literal["click_rectangle", "scroll_focus", "pointer_focus", "manual_box"]
+    bounds: TargetBounds
+    label: str | None = Field(default=None, max_length=500)
+    role: str | None = Field(default=None, max_length=100)
+    source: Literal["event_pointer", "fallback_coordinate", "accessibility", "manual"] = (
+        "manual"
+    )
+
+
+class ScreenshotAnnotationSet(StrictModel):
+    """Full replacement set of annotations for a single screenshot. An empty
+    list means "cleared" (no highlights). Once saved, this set is the
+    authoritative source for the frame, overriding event-derived annotations."""
+
+    annotations: list[ScreenshotAnnotationInput] = Field(default_factory=list, max_length=50)
 
 
 class TranscriptSegment(StrictModel):
@@ -375,6 +401,7 @@ class Screenshot(StrictModel):
     content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     redaction_status: Literal["pending", "not_required", "redacted", "failed"] = "pending"
     annotated_storage_key: str | None = Field(default=None, max_length=500)
+    annotations: list[dict[str, Any]] | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

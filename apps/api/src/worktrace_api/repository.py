@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import Select, delete, select
@@ -354,6 +355,21 @@ class Repository:
             record.redaction_status = status
             self.db.commit()
 
+    def set_screenshot_annotations(
+        self, screenshot_id: UUID, annotations: list[dict[str, Any]] | None
+    ) -> None:
+        """Persist the authoritative (user-edited) annotation set for a frame.
+
+        ``None`` resets the frame to event-derived annotations; an empty list
+        means the user cleared all highlights."""
+        record = self.db.scalar(
+            tenant_query(ScreenshotRecord, self.tenant_id)
+            .where(ScreenshotRecord.id == str(screenshot_id))
+        )
+        if record:
+            record.annotations = annotations
+            self.db.commit()
+
     def link_recording_session(
         self, recording_id: UUID, session_id: UUID, status: RecordingStatus
     ) -> Recording:
@@ -639,6 +655,7 @@ class Repository:
                 "change_score": record.change_score,
                 "content_hash": record.content_hash,
                 "annotated_storage_key": getattr(record, "annotated_storage_key", None),
+                "annotations": getattr(record, "annotations", None),
                 "redaction_status": record.redaction_status,
                 "created_at": record.created_at,
             }

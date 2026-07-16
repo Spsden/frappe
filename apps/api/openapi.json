@@ -915,6 +915,92 @@
         }
       }
     },
+    "/sessions/{session_id}/screenshots/{screenshot_id}/annotations": {
+      "put": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Replace Screenshot Annotations",
+        "description": "Replace a screenshot's annotation set with the user-edited/manual set.\n\nThe supplied set becomes the authoritative annotations for the frame\n(overriding event-derived highlights), and the ``*-annotated.png`` is\nre-baked so the stored imagery matches the on-screen overlays. The raw\nscreenshot is preserved.",
+        "operationId": "replace_screenshot_annotations_sessions__session_id__screenshots__screenshot_id__annotations_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "screenshot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Screenshot Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScreenshotAnnotationSet"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenshotEvidence"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/sessions/{session_id}/screenshots/{screenshot_id}": {
       "get": {
         "tags": [
@@ -1892,7 +1978,8 @@
             "enum": [
               "click_rectangle",
               "scroll_focus",
-              "pointer_focus"
+              "pointer_focus",
+              "manual_box"
             ],
             "title": "Type"
           },
@@ -2644,19 +2731,34 @@
       "ScreenshotAnnotation": {
         "properties": {
           "event_id": {
-            "type": "string",
-            "format": "uuid",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Event Id"
           },
           "event_type": {
-            "$ref": "#/components/schemas/EventType"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventType"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "type": {
             "type": "string",
             "enum": [
               "click_rectangle",
               "scroll_focus",
-              "pointer_focus"
+              "pointer_focus",
+              "manual_box"
             ],
             "title": "Type"
           },
@@ -2666,7 +2768,8 @@
               "screenshot_pixels",
               "global_screen"
             ],
-            "title": "Coordinate Space"
+            "title": "Coordinate Space",
+            "default": "screenshot_pixels"
           },
           "bounds": {
             "$ref": "#/components/schemas/TargetBounds"
@@ -2675,14 +2778,16 @@
             "type": "number",
             "maximum": 1.0,
             "minimum": 0.0,
-            "title": "Confidence"
+            "title": "Confidence",
+            "default": 1.0
           },
           "source": {
             "type": "string",
             "enum": [
               "event_pointer",
               "fallback_coordinate",
-              "accessibility"
+              "accessibility",
+              "manual"
             ],
             "title": "Source"
           },
@@ -2714,16 +2819,88 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "event_id",
-          "event_type",
           "type",
-          "coordinate_space",
           "bounds",
-          "confidence",
           "source"
         ],
         "title": "ScreenshotAnnotation",
-        "description": "A single renderable highlight on a screenshot (Phase 3 overlay source)."
+        "description": "A single renderable highlight on a screenshot (Phase 3 overlay source).\n\n``event_id``/``event_type`` are optional because a ``manual_box`` highlight\nis authored by the user in the evidence editor and is not tied to a recorded\ninput event."
+      },
+      "ScreenshotAnnotationInput": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "click_rectangle",
+              "scroll_focus",
+              "pointer_focus",
+              "manual_box"
+            ],
+            "title": "Type"
+          },
+          "bounds": {
+            "$ref": "#/components/schemas/TargetBounds"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "event_pointer",
+              "fallback_coordinate",
+              "accessibility",
+              "manual"
+            ],
+            "title": "Source",
+            "default": "manual"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "bounds"
+        ],
+        "title": "ScreenshotAnnotationInput",
+        "description": "Author-supplied annotation for the evidence editor save flow. Only the\nrenderable fields are accepted; server-side bookkeeping (coordinate space,\nconfidence) is normalized by the endpoint."
+      },
+      "ScreenshotAnnotationSet": {
+        "properties": {
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/ScreenshotAnnotationInput"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Annotations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ScreenshotAnnotationSet",
+        "description": "Full replacement set of annotations for a single screenshot. An empty\nlist means \"cleared\" (no highlights). Once saved, this set is the\nauthoritative source for the frame, overriding event-derived annotations."
       },
       "ScreenshotEvidence": {
         "properties": {

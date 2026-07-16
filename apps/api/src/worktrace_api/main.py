@@ -54,7 +54,9 @@ from worktrace_api.schemas import (
     RecordingCreate,
     RecordingStatus,
     RecordingStatusResponse,
+    Screenshot,
     ScreenshotAnnotation,
+    ScreenshotAnnotationSet,
     ScreenshotEvidence,
     SignUpRequest,
     SOPApproval,
@@ -70,6 +72,7 @@ from worktrace_api.services import (
     generate_sop,
 )
 from worktrace_api.settings import get_settings
+from worktrace_api.annotation_render import render_annotated_png
 
 
 @asynccontextmanager
@@ -457,10 +460,100 @@ def list_session_screenshots(
             width=screenshot.width,
             height=screenshot.height,
             media_type=screenshot.media_type,
-            annotations=annotations_by_screenshot.get(screenshot.id, []),
+            annotations=_effective_annotations(screenshot, annotations_by_screenshot),
         )
         for screenshot in screenshots
     ]
+
+
+def _effective_annotations(
+    screenshot: Screenshot,
+    derived: dict[UUID, list[ScreenshotAnnotation]],
+) -> list[ScreenshotAnnotation]:
+    """If the frame carries an authoritative (user-edited) annotation set, use
+    it; otherwise fall back to the annotations derived from recorded events."""
+    if screenshot.annotations is None:
+        return derived.get(screenshot.id, [])
+    try:
+        return [ScreenshotAnnotation(**item) for item in screenshot.annotations]
+    except (TypeError, ValueError):
+        return derived.get(screenshot.id, [])
+
+
+@app.put(
+    "/sessions/{session_id}/screenshots/{screenshot_id}/annotations",
+    response_model=ScreenshotEvidence,
+    tags=["sessions"],
+)
+def replace_screenshot_annotations(
+    session_id: UUID,
+    screenshot_id: UUID,
+    payload: ScreenshotAnnotationSet,
+    repo: Repository = Depends(repository),
+) -> ScreenshotEvidence:
+    """Replace a screenshot's annotation set with the user-edited/manual set.
+
+    The supplied set becomes the authoritative annotations for the frame
+    (overriding event-derived highlights), and the ``*-annotated.png`` is
+    re-baked so the stored imagery matches the on-screen overlays. The raw
+    screenshot is preserved."""
+    require_session(repo, session_id)
+    screenshot = next(
+        (
+            item
+            for item in repo.get_screenshots_for_session(session_id)
+            if item.id == screenshot_id
+        ),
+        None,
+    )
+    if screenshot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
+
+    normalized = [
+        ScreenshotAnnotation(
+            type=item.type,
+            bounds=item.bounds,
+            label=item.label,
+            role=item.role,
+            source=item.source,
+            coordinate_space="screenshot_pixels",
+            confidence=1.0,
+        )
+        for item in payload.annotations
+    ]
+    stored = [annotation.model_dump(mode="json") for annotation in normalized]
+    repo.set_screenshot_annotations(screenshot_id, stored)
+
+    storage = ChunkStorage(
+        root=settings.recording_storage_path,
+        max_chunk_bytes=settings.max_chunk_bytes,
+    )
+    try:
+        if storage.exists(screenshot.storage_key):
+            annotated_bytes = render_annotated_png(
+                storage.read(screenshot.storage_key), stored
+            )
+            annotated_key = f"{screenshot.storage_key.rsplit('.', 1)[0]}-annotated.png"
+            annotated_path = storage.resolve_storage_key(annotated_key)
+            annotated_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = annotated_path.with_suffix(".tmp")
+            temporary.write_bytes(annotated_bytes)
+            temporary.replace(annotated_path)
+            repo.update_screenshot_annotation(screenshot_id, annotated_key, "redacted")
+        else:
+            repo.update_screenshot_annotation(screenshot_id, None, "failed")
+    except Exception:
+        repo.update_screenshot_annotation(screenshot_id, None, "failed")
+
+    return ScreenshotEvidence(
+        id=screenshot.id,
+        sequence=screenshot.sequence,
+        captured_at=screenshot.captured_at,
+        width=screenshot.width,
+        height=screenshot.height,
+        media_type=screenshot.media_type,
+        annotations=normalized,
+    )
 
 
 @app.get("/sessions/{session_id}/screenshots/{screenshot_id}", tags=["sessions"])
