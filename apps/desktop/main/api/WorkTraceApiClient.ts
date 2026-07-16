@@ -197,9 +197,7 @@ export class WorkTraceApiClient {
   }
 
   async getSopScreenshotImage(sessionId: string, screenshotId: string): Promise<ArrayBuffer> {
-    // Reuses the same screenshot image endpoint — the annotated image is served
-    // by screenshot ID regardless of whether it was fetched for evidence or SOP.
-    const response = await this.request(`/sessions/${sessionId}/screenshots/${screenshotId}`)
+    const response = await this.request(`/sessions/${sessionId}/screenshots/${screenshotId}?type=annotated`)
     return response.arrayBuffer()
   }
 
