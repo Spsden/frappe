@@ -192,6 +192,27 @@ export interface BackendScreenshotEvidence {
   annotations: BackendAnnotation[]
 }
 
+export interface BackendSOPStep {
+  id: string
+  position: number
+  title: string
+  instruction: string
+  warning: string | null
+  screenshot_reference: string | null
+  estimated_time_ms: number | null
+  decision_branch: string | null
+}
+
+export interface BackendSOP {
+  id: string
+  source_session_id: string
+  version: number
+  status: 'draft' | 'approved' | 'archived'
+  title: string
+  steps: BackendSOPStep[]
+  created_at: string
+}
+
 export interface RecordedSessionSummary {
   id: string
   name: string
@@ -281,6 +302,8 @@ export interface RecordingApi {
   getSession: (backendSessionId: string) => Promise<BackendWorkflowSession>
   getSessionScreenshots: (backendSessionId: string) => Promise<BackendScreenshotEvidence[]>
   getScreenshotImage: (backendSessionId: string, screenshotId: string) => Promise<ArrayBuffer>
+  getSessionSops: (backendSessionId: string) => Promise<BackendSOP[]>
+  getSopScreenshotImage: (backendSessionId: string, screenshotId: string) => Promise<ArrayBuffer>
   openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') => Promise<void>
   onStateChanged: (listener: (state: RecordingState) => void) => () => void
 }
@@ -299,6 +322,8 @@ export const recordingIpc = {
   getSession: 'recording:get-session',
   getSessionScreenshots: 'recording:get-session-screenshots',
   getScreenshotImage: 'recording:get-screenshot-image',
+  getSessionSops: 'recording:get-session-sops',
+  getSopScreenshotImage: 'recording:get-sop-screenshot-image',
   openPermissionSettings: 'recording:open-permission-settings',
   stateChanged: 'recording:state-changed',
   frameSample: 'recording:frame-sample',

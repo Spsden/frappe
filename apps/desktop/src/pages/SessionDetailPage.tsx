@@ -220,6 +220,15 @@ export function SessionDetailPage() {
             </h2>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {session.remoteSessionId && (
+              <button
+                type="button"
+                onClick={() => navigate(`/sessions/${id}/sop`)}
+                className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-emerald-300 transition hover:bg-emerald-500/18"
+              >
+                View SOP
+              </button>
+            )}
             {retryable && (
               <button
                 type="button"

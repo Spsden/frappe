@@ -10,6 +10,7 @@ import {
   recordingIpc,
   type AudioRecorderApi,
   type BackendScreenshotEvidence,
+  type BackendSOP,
   type RecordingOptions,
   type RecordedSessionSummary,
   type RecordingState,
@@ -77,6 +78,17 @@ contextBridge.exposeInMainWorld('api', {
     getScreenshotImage: (backendSessionId: string, screenshotId: string) =>
       ipcRenderer.invoke(
         recordingIpc.getScreenshotImage,
+        backendSessionId,
+        screenshotId
+      ) as Promise<ArrayBuffer>,
+    getSessionSops: (backendSessionId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.getSessionSops,
+        backendSessionId
+      ) as Promise<BackendSOP[]>,
+    getSopScreenshotImage: (backendSessionId: string, screenshotId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.getSopScreenshotImage,
         backendSessionId,
         screenshotId
       ) as Promise<ArrayBuffer>,

@@ -57,6 +57,17 @@ export class RecordingLibraryService {
     return this.apiClient.getScreenshotImage(backendSessionId, screenshotId)
   }
 
+  async getSessionSops(backendSessionId: string) {
+    return this.apiClient.getSessionSops(backendSessionId)
+  }
+
+  async getSopScreenshotImage(
+    backendSessionId: string,
+    screenshotId: string
+  ): Promise<ArrayBuffer> {
+    return this.apiClient.getSopScreenshotImage(backendSessionId, screenshotId)
+  }
+
   async retryUpload(sessionId: string): Promise<void> {
     const sessionPath = join(this.recordingsPath, sessionId)
     const manifest = await this.readManifest(sessionPath)

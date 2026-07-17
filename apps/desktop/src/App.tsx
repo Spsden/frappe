@@ -8,6 +8,7 @@ import { PlaceholderPage } from './pages/PlaceholderPage'
 import { RecordingControlsPage } from './pages/RecordingControlsPage'
 import { SessionsPage } from './pages/SessionsPage'
 import { SessionDetailPage } from './pages/SessionDetailPage'
+import { SOPDetailPage } from './pages/SOPDetailPage'
 import { SettingsPage } from './pages/SettingsPage'
 
 export default function App() {
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/sessions/:id" element={<SessionDetailPage />} />
+          <Route path="/sessions/:id/sop" element={<SOPDetailPage />} />
           <Route
             path="/sop-library"
             element={
