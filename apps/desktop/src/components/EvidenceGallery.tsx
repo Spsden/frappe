@@ -321,11 +321,7 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
 
   return (
     <figure className="overflow-hidden rounded-xl border border-white/10 bg-black/40">
-      <div
-        ref={containerRef}
-        className="relative"
-        style={editMode ? { cursor: `url(${pointerCursor}) 0 0, crosshair` } : undefined}
-      >
+      <div ref={containerRef} className="relative">
         <img src={url} alt={`Screenshot ${evidence.sequence}`} className="block w-full" />
         {/* highlight visuals (read + edit) */}
         {visuals.map((anno, i) => (
@@ -337,6 +333,7 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
         {editMode && drawMode && (
           <div
             className="absolute inset-0"
+            style={{ cursor: `url(${pointerCursor}) 0 0, crosshair` }}
             onPointerDown={beginDraw}
             title="Drag to draw a highlight box"
           />
