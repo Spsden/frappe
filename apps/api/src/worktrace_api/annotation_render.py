@@ -3,7 +3,9 @@
 Re-bakes a screenshot PNG so the stored image reflects the on-screen overlays
 shown by the evidence editor. Each annotation type renders distinctly:
 
-* ``click_rectangle`` -> a hand-drawn-style arrow pointing at the target.
+* ``click_rectangle`` -> the branded pointer asset (``assets/pointer.png``)
+  pasted at the click target, anchored top-left so the arrow tip lands on
+  the exact click coordinate.
 * ``scroll_focus`` / ``pointer_focus`` -> a soft glow box (rounded, tinted).
 * ``manual_box`` -> a crisp user-drawn rectangle (emerald).
 
@@ -14,7 +16,7 @@ separate ``*-annotated.png`` artifact.
 from __future__ import annotations
 
 import io
-import math
+from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw
@@ -26,64 +28,48 @@ _ANNOTATION_RGB: dict[str, tuple[int, int, int]] = {
     "manual_box": (16, 185, 129),
 }
 
+_ASSETS_DIR = Path(__file__).parent / "assets"
+_POINTER_PATH = _ASSETS_DIR / "pointer.png"
+
+# Pointer overlay cache keyed by edge size. The PNG is decoded once per size
+# and reused for every subsequent render in the process.
+_pointer_cache: dict[int, Image.Image] = {}
+
 
 def _rgba(rgb: tuple[int, int, int], alpha: int) -> tuple[int, int, int, int]:
     return (rgb[0], rgb[1], rgb[2], alpha)
 
 
-def _clamp(value: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, value))
+def _load_pointer(size: int) -> Image.Image:
+    """Load pointer.png downscaled to ``size``x``size`` (cached per size)."""
+    cached = _pointer_cache.get(size)
+    if cached is None:
+        with Image.open(_POINTER_PATH) as img:
+            cached = img.convert("RGBA").resize((size, size), Image.Resampling.LANCZOS)
+        _pointer_cache[size] = cached
+    return cached
 
 
-def _arrow_origin(
-    tx: float, ty: float, width: int, height: int
-) -> tuple[float, float]:
-    """Pick an on-frame origin to the lower-left of the target, flipping if it
-    would collide. Keeps the arrow's tail inside the screenshot."""
-    margin = 30
-    ox = _clamp(tx - 150, margin, width - margin)
-    oy = _clamp(ty + 120, margin, height - margin)
-    if math.hypot(tx - ox, ty - oy) < 70:
-        ox = _clamp(tx + 150, margin, width - margin)
-        oy = _clamp(ty - 120, margin, height - margin)
-    return ox, oy
-
-
-def _head_points(
-    ox: float, oy: float, tx: float, ty: float
-) -> list[tuple[float, float]]:
-    dx = tx - ox
-    dy = ty - oy
-    length = math.hypot(dx, dy) or 1.0
-    ux = dx / length
-    uy = dy / length
-    size = max(16.0, min(30.0, length * 0.18))
-    base_x = tx - ux * size
-    base_y = ty - uy * size
-    perp_x = -uy
-    perp_y = ux
-    half = size * 0.6
-    return [
-        (tx, ty),
-        (base_x + perp_x * half, base_y + perp_y * half),
-        (base_x - perp_x * half, base_y - perp_y * half),
-    ]
-
-
-def _draw_arrow(
-    draw: ImageDraw.ImageDraw,
-    bounds: dict[str, Any],
-    rgb: tuple[int, int, int],
-    width: int,
-    height: int,
+def _paste_pointer(
+    base: Image.Image, bounds: dict[str, Any], width: int, height: int
 ) -> None:
-    tx = bounds.get("x", 0) + bounds.get("width", 0) / 2
-    ty = bounds.get("y", 0) + bounds.get("height", 0) / 2
-    ox, oy = _arrow_origin(tx, ty, width, height)
-    # wide translucent bleed behind a crisp shaft for a marker feel
-    draw.line([(ox, oy), (tx, ty)], fill=_rgba(rgb, 70), width=12)
-    draw.line([(ox, oy), (tx, ty)], fill=_rgba(rgb, 255), width=5)
-    draw.polygon(_head_points(ox, oy, tx, ty), fill=_rgba(rgb, 255))
+    """Paste the pointer asset onto ``base`` at the click target.
+
+    Size scales with the screenshot's shorter edge so the pointer stays
+    visible across resolutions (~75px on 1080p, ~120px on 1440p, ~180px on 4K).
+    The tip is anchored at the target's center, matching a standard arrow
+    cursor hotspot. The paste position is clamped to keep the whole pointer
+    inside the frame.
+    """
+    size = max(64, min(width, height) // 12)
+    pointer = _load_pointer(size)
+    tx = int(bounds.get("x", 0) + bounds.get("width", 0) / 2)
+    ty = int(bounds.get("y", 0) + bounds.get("height", 0) / 2)
+    paste_x = min(max(tx, 0), width - size)
+    paste_y = min(max(ty, 0), height - size)
+    # Third arg = alpha mask; required so transparent pixels in the PNG stay
+    # transparent instead of being painted as solid black.
+    base.paste(pointer, (paste_x, paste_y), pointer)
 
 
 def _draw_box(
@@ -121,7 +107,7 @@ def render_annotated_png(image_bytes: bytes, annotations: list[dict[str, Any]]) 
             rgb = _ANNOTATION_RGB.get(ann_type, _ANNOTATION_RGB["click_rectangle"])
             bounds = annotation.get("bounds") or {}
             if ann_type == "click_rectangle":
-                _draw_arrow(draw, bounds, rgb, width, height)
+                _paste_pointer(img, bounds, width, height)
             else:
                 _draw_box(draw, bounds, rgb, rounded=ann_type != "manual_box")
         output = io.BytesIO()
