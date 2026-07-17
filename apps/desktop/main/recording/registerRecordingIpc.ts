@@ -98,6 +98,8 @@ export function registerRecordingIpc(
     ipcMain.removeHandler(recordingIpc.getSession)
     ipcMain.removeHandler(recordingIpc.getSessionScreenshots)
     ipcMain.removeHandler(recordingIpc.getScreenshotImage)
+    ipcMain.removeHandler(recordingIpc.getSessionSops)
+    ipcMain.removeHandler(recordingIpc.getSopScreenshotImage)
     ipcMain.removeHandler(recordingIpc.saveScreenshotAnnotations)
     ipcMain.removeHandler(recordingIpc.openPermissionSettings)
   }

@@ -311,6 +311,8 @@ export interface RecordingApi {
   getSession: (backendSessionId: string) => Promise<BackendWorkflowSession>
   getSessionScreenshots: (backendSessionId: string) => Promise<BackendScreenshotEvidence[]>
   getScreenshotImage: (backendSessionId: string, screenshotId: string) => Promise<ArrayBuffer>
+  getSessionSops: (backendSessionId: string) => Promise<BackendSOP[]>
+  getSopScreenshotImage: (backendSessionId: string, screenshotId: string) => Promise<ArrayBuffer>
   saveScreenshotAnnotations: (
     backendSessionId: string,
     screenshotId: string,

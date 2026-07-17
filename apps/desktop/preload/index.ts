@@ -82,6 +82,17 @@ contextBridge.exposeInMainWorld('api', {
         backendSessionId,
         screenshotId
       ) as Promise<ArrayBuffer>,
+    getSessionSops: (backendSessionId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.getSessionSops,
+        backendSessionId
+      ) as Promise<BackendSOP[]>,
+    getSopScreenshotImage: (backendSessionId: string, screenshotId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.getSopScreenshotImage,
+        backendSessionId,
+        screenshotId
+      ) as Promise<ArrayBuffer>,
     saveScreenshotAnnotations: (
       backendSessionId: string,
       screenshotId: string,
