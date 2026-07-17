@@ -225,6 +225,14 @@ interface FrameProps {
 function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onChange, onClear }: FrameProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
+  // Mirror annotations into a ref so window-level pointer handlers (which
+  // capture the closure of the render that registered them) always see the
+  // latest array. Without this, draw mode silently no-ops: beginDraw adds an
+  // item at index = annotations.length, but handleMove's captured closure
+  // still sees the pre-add array and replaceAt(index, ...) maps over a list
+  // that has no entry at that index.
+  const annotationsRef = useRef(annotations)
+  annotationsRef.current = annotations
 
   const toCoords = (clientX: number, clientY: number): Bounds => {
     const rect = containerRef.current?.getBoundingClientRect()
@@ -238,7 +246,7 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
   }
 
   const replaceAt = (index: number, bounds: Bounds) => {
-    onChange(annotations.map((item, i) => (i === index ? { ...item, bounds } : item)))
+    onChange(annotationsRef.current.map((item, i) => (i === index ? { ...item, bounds } : item)))
   }
 
   const handleMove = (event: PointerEvent) => {
@@ -281,7 +289,7 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
     window.removeEventListener('pointerup', endDrag)
     dragRef.current = null
     if (drag?.mode === 'draw' && (drag.last.width < MIN_SIZE || drag.last.height < MIN_SIZE)) {
-      onChange(annotations.filter((_, i) => i !== drag.index))
+      onChange(annotationsRef.current.filter((_, i) => i !== drag.index))
     }
   }
 
