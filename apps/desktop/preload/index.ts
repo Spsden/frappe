@@ -8,6 +8,7 @@ import {
 } from '../shared/connection'
 import {
   recordingIpc,
+  type AnnotationInput,
   type AudioRecorderApi,
   type BackendScreenshotEvidence,
   type BackendSOP,
@@ -81,17 +82,17 @@ contextBridge.exposeInMainWorld('api', {
         backendSessionId,
         screenshotId
       ) as Promise<ArrayBuffer>,
-    getSessionSops: (backendSessionId: string) =>
+    saveScreenshotAnnotations: (
+      backendSessionId: string,
+      screenshotId: string,
+      annotations: AnnotationInput[]
+    ) =>
       ipcRenderer.invoke(
-        recordingIpc.getSessionSops,
-        backendSessionId
-      ) as Promise<BackendSOP[]>,
-    getSopScreenshotImage: (backendSessionId: string, screenshotId: string) =>
-      ipcRenderer.invoke(
-        recordingIpc.getSopScreenshotImage,
+        recordingIpc.saveScreenshotAnnotations,
         backendSessionId,
-        screenshotId
-      ) as Promise<ArrayBuffer>,
+        screenshotId,
+        annotations
+      ) as Promise<BackendScreenshotEvidence>,
     openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') =>
       ipcRenderer.invoke(recordingIpc.openPermissionSettings, permission),
     onStateChanged: (listener: (state: RecordingState) => void) => {

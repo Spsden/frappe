@@ -171,15 +171,24 @@ export interface BackendWorkflowSession {
 }
 
 export interface BackendAnnotation {
-  event_id: string
-  event_type: string
-  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus'
+  event_id: string | null
+  event_type: string | null
+  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus' | 'manual_box'
   coordinate_space: 'screenshot_pixels' | 'global_screen'
   bounds: { x: number; y: number; width: number; height: number }
   confidence: number
-  source: 'event_pointer' | 'fallback_coordinate' | 'accessibility'
+  source: 'event_pointer' | 'fallback_coordinate' | 'accessibility' | 'manual'
   label: string | null
   role: string | null
+}
+
+/** Author-supplied annotation payload for the evidence editor save flow. */
+export interface AnnotationInput {
+  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus' | 'manual_box'
+  bounds: { x: number; y: number; width: number; height: number }
+  label?: string | null
+  role?: string | null
+  source?: 'event_pointer' | 'fallback_coordinate' | 'accessibility' | 'manual'
 }
 
 export interface BackendScreenshotEvidence {
@@ -302,8 +311,11 @@ export interface RecordingApi {
   getSession: (backendSessionId: string) => Promise<BackendWorkflowSession>
   getSessionScreenshots: (backendSessionId: string) => Promise<BackendScreenshotEvidence[]>
   getScreenshotImage: (backendSessionId: string, screenshotId: string) => Promise<ArrayBuffer>
-  getSessionSops: (backendSessionId: string) => Promise<BackendSOP[]>
-  getSopScreenshotImage: (backendSessionId: string, screenshotId: string) => Promise<ArrayBuffer>
+  saveScreenshotAnnotations: (
+    backendSessionId: string,
+    screenshotId: string,
+    annotations: AnnotationInput[]
+  ) => Promise<BackendScreenshotEvidence>
   openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') => Promise<void>
   onStateChanged: (listener: (state: RecordingState) => void) => () => void
 }
@@ -322,8 +334,7 @@ export const recordingIpc = {
   getSession: 'recording:get-session',
   getSessionScreenshots: 'recording:get-session-screenshots',
   getScreenshotImage: 'recording:get-screenshot-image',
-  getSessionSops: 'recording:get-session-sops',
-  getSopScreenshotImage: 'recording:get-sop-screenshot-image',
+  saveScreenshotAnnotations: 'recording:save-screenshot-annotations',
   openPermissionSettings: 'recording:open-permission-settings',
   stateChanged: 'recording:state-changed',
   frameSample: 'recording:frame-sample',

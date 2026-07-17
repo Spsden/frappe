@@ -1,6 +1,7 @@
 import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
+  AnnotationInput,
   BackendScreenshotEvidence,
   BackendWorkflowSession,
   RecordedSessionSummary,
@@ -57,15 +58,12 @@ export class RecordingLibraryService {
     return this.apiClient.getScreenshotImage(backendSessionId, screenshotId)
   }
 
-  async getSessionSops(backendSessionId: string) {
-    return this.apiClient.getSessionSops(backendSessionId)
-  }
-
-  async getSopScreenshotImage(
+  async saveScreenshotAnnotations(
     backendSessionId: string,
-    screenshotId: string
-  ): Promise<ArrayBuffer> {
-    return this.apiClient.getSopScreenshotImage(backendSessionId, screenshotId)
+    screenshotId: string,
+    annotations: AnnotationInput[]
+  ): Promise<BackendScreenshotEvidence> {
+    return this.apiClient.saveScreenshotAnnotations(backendSessionId, screenshotId, annotations)
   }
 
   async retryUpload(sessionId: string): Promise<void> {

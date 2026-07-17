@@ -6,6 +6,7 @@ import type {
   SignUpCredentials
 } from '../../shared/connection'
 import type {
+  AnnotationInput,
   BackendRecording,
   BackendRecordingStatusResponse,
   BackendScreenshotEvidence,

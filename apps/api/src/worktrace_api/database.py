@@ -229,6 +229,7 @@ class ScreenshotRecord(TenantRecord, Base):
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
     redaction_status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
     annotated_storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    annotations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

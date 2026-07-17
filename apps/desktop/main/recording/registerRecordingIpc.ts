@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain, shell } from 'electron'
 import {
   recordingIpc,
+  type AnnotationInput,
   type RecordingOptions,
   type RecordingState
 } from '../../shared/recording'
@@ -55,6 +56,15 @@ export function registerRecordingIpc(
       library.getSopScreenshotImage(backendSessionId, screenshotId)
   )
   ipcMain.handle(
+    recordingIpc.saveScreenshotAnnotations,
+    (
+      _event,
+      backendSessionId: string,
+      screenshotId: string,
+      annotations: AnnotationInput[]
+    ) => library.saveScreenshotAnnotations(backendSessionId, screenshotId, annotations)
+  )
+  ipcMain.handle(
     recordingIpc.openPermissionSettings,
     (_event, permission: 'accessibility' | 'screen' | 'microphone') => {
       if (process.platform !== 'darwin') {
@@ -88,8 +98,7 @@ export function registerRecordingIpc(
     ipcMain.removeHandler(recordingIpc.getSession)
     ipcMain.removeHandler(recordingIpc.getSessionScreenshots)
     ipcMain.removeHandler(recordingIpc.getScreenshotImage)
-    ipcMain.removeHandler(recordingIpc.getSessionSops)
-    ipcMain.removeHandler(recordingIpc.getSopScreenshotImage)
+    ipcMain.removeHandler(recordingIpc.saveScreenshotAnnotations)
     ipcMain.removeHandler(recordingIpc.openPermissionSettings)
   }
 }

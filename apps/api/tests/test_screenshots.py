@@ -11,10 +11,12 @@ import hashlib
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
+
 from conftest import TEST_TENANT_ID
 from test_api import auth_headers
 
-from worktrace_api.database import SessionLocal
+from worktrace_api.database import SessionLocal, ScreenshotRecord
 from worktrace_api.recordings import ChunkStorage
 from worktrace_api.repository import Repository
 from worktrace_api.schemas import (
@@ -224,3 +226,130 @@ def test_session_screenshots_require_auth(client):
     response = client.get(f"/sessions/{session_id}/screenshots")
 
     assert response.status_code == 401
+
+
+def _valid_png_bytes(width: int = 1280, height: int = 720) -> bytes:
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), (40, 40, 40)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def test_replace_annotations_overrides_event_derived(client):
+    session_id, screenshot_id, _event_id = _seed_session_with_screenshot()
+
+    # baseline: one event-derived click highlight
+    response = client.get(f"/sessions/{session_id}/screenshots", headers=auth_headers())
+    assert response.json()[0]["annotations"][0]["type"] == "click_rectangle"
+
+    payload = {
+        "annotations": [
+            {
+                "type": "manual_box",
+                "bounds": {"x": 10.0, "y": 20.0, "width": 100.0, "height": 50.0},
+                "label": "Drawn box",
+            }
+        ]
+    }
+    response = client.put(
+        f"/sessions/{session_id}/screenshots/{screenshot_id}/annotations",
+        json=payload,
+        headers=auth_headers(),
+    )
+    assert response.status_code == 200
+    saved = response.json()["annotations"]
+    assert len(saved) == 1
+    assert saved[0]["type"] == "manual_box"
+    assert saved[0]["bounds"]["x"] == 10.0
+    assert saved[0]["source"] == "manual"
+    assert saved[0]["coordinate_space"] == "screenshot_pixels"
+
+    # the authoritative set now overrides the event-derived click highlight
+    response = client.get(f"/sessions/{session_id}/screenshots", headers=auth_headers())
+    annotations = response.json()[0]["annotations"]
+    assert len(annotations) == 1
+    assert annotations[0]["type"] == "manual_box"
+
+
+def test_replace_annotations_clear_removes_all_highlights(client):
+    session_id, screenshot_id, _event_id = _seed_session_with_screenshot()
+
+    response = client.put(
+        f"/sessions/{session_id}/screenshots/{screenshot_id}/annotations",
+        json={"annotations": []},
+        headers=auth_headers(),
+    )
+    assert response.status_code == 200
+    assert response.json()["annotations"] == []
+
+    # empty authoritative set means "cleared", not "fall back to events"
+    response = client.get(f"/sessions/{session_id}/screenshots", headers=auth_headers())
+    assert response.json()[0]["annotations"] == []
+
+
+def test_replace_annotations_rebakes_annotated_png(client):
+    session_id, screenshot_id, _event_id = _seed_session_with_screenshot()
+
+    # overwrite the seeded stub PNG with a real, renderable image
+    settings = get_settings()
+    storage = ChunkStorage(
+        root=settings.recording_storage_path, max_chunk_bytes=settings.max_chunk_bytes
+    )
+    storage_key = f"{TENANT}/{session_id}/{screenshot_id}.png"
+    storage.resolve_storage_key(storage_key).write_bytes(_valid_png_bytes())
+
+    payload = {
+        "annotations": [
+            {
+                "type": "click_rectangle",
+                "bounds": {"x": 100.0, "y": 100.0, "width": 80.0, "height": 60.0},
+            },
+            {
+                "type": "manual_box",
+                "bounds": {"x": 300.0, "y": 200.0, "width": 120.0, "height": 90.0},
+            },
+        ]
+    }
+    response = client.put(
+        f"/sessions/{session_id}/screenshots/{screenshot_id}/annotations",
+        json=payload,
+        headers=auth_headers(),
+    )
+    assert response.status_code == 200
+
+    # the annotated PNG artifact was (re)written and the frame marked redacted
+    with SessionLocal() as db:
+        record = db.scalar(
+            select(ScreenshotRecord).where(ScreenshotRecord.id == str(screenshot_id))
+        )
+        assert record is not None
+        assert record.redaction_status == "redacted"
+        assert record.annotated_storage_key is not None
+        assert record.annotated_storage_key.endswith("-annotated.png")
+        annotated_path = storage.resolve_storage_key(record.annotated_storage_key)
+        assert annotated_path.exists()
+        assert annotated_path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_replace_annotations_requires_auth(client):
+    session_id, screenshot_id, _event_id = _seed_session_with_screenshot()
+
+    response = client.put(
+        f"/sessions/{session_id}/screenshots/{screenshot_id}/annotations",
+        json={"annotations": []},
+    )
+    assert response.status_code == 401
+
+
+def test_replace_annotations_404_for_unknown_screenshot(client):
+    session_id, _screenshot_id, _event_id = _seed_session_with_screenshot()
+
+    response = client.put(
+        f"/sessions/{session_id}/screenshots/{uuid4()}/annotations",
+        json={"annotations": []},
+        headers=auth_headers(),
+    )
+    assert response.status_code == 404
