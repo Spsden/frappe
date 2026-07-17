@@ -6,9 +6,10 @@
 #   - worker -> command overridden to `celery worker ...`
 FROM python:3.12-slim
 
-# ffmpeg is a hard runtime requirement: openai-whisper shells out to it to
-# decode uploaded audio (whisper/audio.py:58 -> subprocess.run(["ffmpeg", ...]).
-# Installing it here is the whole point of containerizing the backend.
+# ffmpeg is kept as a runtime fallback for audio remuxing. faster-whisper
+# decodes via PyAV (libav bundled in the wheel), so the model itself no
+# longer shells out to /usr/bin/ffmpeg, but naive chunk concatenation in
+# ChunkStorage.assemble can produce container formats that need a remux.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
