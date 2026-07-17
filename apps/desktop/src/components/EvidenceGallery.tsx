@@ -4,7 +4,6 @@ import type {
   BackendAnnotation,
   BackendScreenshotEvidence
 } from '../../shared/recording'
-import pointerCursor from '../../assets/pointer-cursor.png'
 
 interface EvidenceGalleryProps {
   remoteSessionId: string | null
@@ -332,8 +331,7 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
         {/* draw capture layer */}
         {editMode && drawMode && (
           <div
-            className="absolute inset-0"
-            style={{ cursor: `url(${pointerCursor}) 0 0, crosshair` }}
+            className="absolute inset-0 cursor-crosshair"
             onPointerDown={beginDraw}
             title="Drag to draw a highlight box"
           />
