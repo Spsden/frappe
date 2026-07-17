@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-import whisper
+from faster_whisper import WhisperModel
 from celery.exceptions import SoftTimeLimitExceeded
 
 from worktrace_api.core.celery_app import celery_app
@@ -18,7 +18,7 @@ from worktrace_api.schemas import (
 )
 from worktrace_api.settings import get_settings
 
-_whisper_model: whisper.Whisper | None = None
+_whisper_model: WhisperModel | None = None
 _storage: ChunkStorage | None = None
 
 # Recording statuses at which the raw audio chunks are safe to drop: ingestion
@@ -30,11 +30,18 @@ _AUDIO_CHUNK_SAFE_STATUSES = {
 }
 
 
-def get_whisper_model() -> whisper.Whisper:
+def get_whisper_model() -> WhisperModel:
     global _whisper_model
     if _whisper_model is None:
         settings = get_settings()
-        _whisper_model = whisper.load_model(settings.whisper_model_size)
+        # CPU + int8: ~75% smaller memory footprint than openai-whisper's
+        # default FP16 and noticeably faster on CPU. CTranslate2 backend,
+        # so neither torch nor the nvidia-* CUDA wheels are needed.
+        _whisper_model = WhisperModel(
+            settings.whisper_model_size,
+            device="cpu",
+            compute_type="int8",
+        )
     return _whisper_model
 
 
@@ -147,20 +154,32 @@ def transcribe_audio(self: Any, recording_id: str, session_id: str, tenant_id: s
             return
 
         model = get_whisper_model()
-        result = model.transcribe(str(audio_path))
+        # faster-whisper returns a lazy generator: inference only runs as we
+        # iterate, so consume it exactly once (no `result["text"]` to fall
+        # back on — we join segment texts ourselves).
+        segments_iter, _info = model.transcribe(
+            str(audio_path),
+            vad_filter=True,
+            beam_size=5,
+        )
 
-        segments = [
-            TranscriptSegment(
-                start_ms=int(seg["start"] * 1000),
-                end_ms=int(seg["end"] * 1000),
-                text=seg["text"].strip(),
+        segments: list[TranscriptSegment] = []
+        parts: list[str] = []
+        for seg in segments_iter:
+            text = seg.text.strip()
+            segments.append(
+                TranscriptSegment(
+                    start_ms=int(seg.start * 1000),
+                    end_ms=int(seg.end * 1000),
+                    text=text,
+                )
             )
-            for seg in result.get("segments", [])
-        ]
+            if text:
+                parts.append(text)
 
         transcript = RecordingTranscript(
             status="completed",
-            text=result.get("text", "").strip(),
+            text=" ".join(parts),
             segments=segments,
             audio_chunk_count=existing_chunk_count,
         )
