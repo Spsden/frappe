@@ -6,14 +6,6 @@
 #   - worker -> command overridden to `celery worker ...`
 FROM python:3.12-slim
 
-# ffmpeg is kept as a runtime fallback for audio remuxing. faster-whisper
-# decodes via PyAV (libav bundled in the wheel), so the model itself no
-# longer shells out to /usr/bin/ffmpeg, but naive chunk concatenation in
-# ChunkStorage.assemble can produce container formats that need a remux.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
-
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
