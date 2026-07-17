@@ -202,6 +202,22 @@ export class WorkTraceApiClient {
     return response.arrayBuffer()
   }
 
+  async saveScreenshotAnnotations(
+    sessionId: string,
+    screenshotId: string,
+    annotations: AnnotationInput[]
+  ): Promise<BackendScreenshotEvidence> {
+    const response = await this.request(
+      `/sessions/${sessionId}/screenshots/${screenshotId}/annotations`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ annotations })
+      }
+    )
+    return (await response.json()) as BackendScreenshotEvidence
+  }
+
   async request(path: string, init: RequestInit = {}): Promise<Response> {
     const connection = await this.settings.resolve()
     const headers = new Headers(init.headers)
