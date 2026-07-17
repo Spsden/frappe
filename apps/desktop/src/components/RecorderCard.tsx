@@ -26,8 +26,14 @@ function formatElapsed(
 export function RecorderCard() {
   const { discard, error, save, start, state, stop } = useRecording()
   const [elapsed, setElapsed] = useState('00:00')
-  const [audioEnabled, setAudioEnabled] = useState(true)
+  const [audioEnabled, setAudioEnabled] = useState<boolean>(
+    () => localStorage.getItem('worktrace:mic-enabled') !== 'false'
+  )
   const [saveName, setSaveName] = useState('Untitled workflow')
+
+  useEffect(() => {
+    localStorage.setItem('worktrace:mic-enabled', String(audioEnabled))
+  }, [audioEnabled])
   const { status } = state
   const isRecording = status === 'recording'
   const isPaused = status === 'paused'
