@@ -74,6 +74,7 @@ class RecordingProcessor:
             (
                 screenshots,
                 screenshot_ids,
+                screenshot_metadata_by_id,
                 after_screenshot_by_event,
                 after_screenshot_metadata_by_event,
             ) = self._screenshots(recording_id, session_id, chunks)
@@ -86,6 +87,7 @@ class RecordingProcessor:
                 recording_id,
                 chunks,
                 screenshot_ids,
+                screenshot_metadata_by_id,
                 after_screenshot_by_event,
                 after_screenshot_metadata_by_event,
                 repo.tenant_id,
@@ -172,9 +174,16 @@ class RecordingProcessor:
 
     def _screenshots(
         self, recording_id: UUID, session_id: UUID, chunks: list
-    ) -> tuple[list[Screenshot], dict[str, UUID], dict[str, UUID], dict[str, dict[str, Any]]]:
+    ) -> tuple[
+        list[Screenshot],
+        dict[str, UUID],
+        dict[str, dict[str, Any]],
+        dict[str, UUID],
+        dict[str, dict[str, Any]],
+    ]:
         screenshots: list[Screenshot] = []
         screenshot_ids: dict[str, UUID] = {}
+        screenshot_metadata_by_id: dict[str, dict[str, Any]] = {}
         after_screenshot_by_event: dict[str, UUID] = {}
         after_screenshot_metadata_by_event: dict[str, dict[str, Any]] = {}
         seen_hashes: dict[str, UUID] = {}
@@ -200,6 +209,8 @@ class RecordingProcessor:
                 existing_id = seen_hashes[content_hash]
                 if original_id:
                     screenshot_ids[str(original_id)] = existing_id
+                    screenshot_metadata_by_id[str(original_id)] = metadata
+                screenshot_metadata_by_id[str(existing_id)] = metadata
 
                 event_ids = metadata.get("eventIds") or metadata.get("event_ids") or []
                 if isinstance(event_ids, list):
@@ -210,6 +221,8 @@ class RecordingProcessor:
 
             if original_id:
                 screenshot_ids[str(original_id)] = screenshot_id
+                screenshot_metadata_by_id[str(original_id)] = metadata
+            screenshot_metadata_by_id[str(screenshot_id)] = metadata
 
             seen_hashes[content_hash] = screenshot_id
 
@@ -253,6 +266,7 @@ class RecordingProcessor:
         return (
             screenshots,
             screenshot_ids,
+            screenshot_metadata_by_id,
             after_screenshot_by_event,
             after_screenshot_metadata_by_event,
         )
@@ -263,6 +277,7 @@ class RecordingProcessor:
         recording_id: UUID,
         chunks: list,
         screenshot_ids: dict[str, UUID],
+        screenshot_metadata_by_id: dict[str, dict[str, Any]],
         after_screenshot_by_event: dict[str, UUID],
         after_screenshot_metadata_by_event: dict[str, dict[str, Any]],
         tenant_id: UUID,
@@ -281,6 +296,7 @@ class RecordingProcessor:
                     tenant_id,
                     len(events) + 1,
                     screenshot_ids,
+                    screenshot_metadata_by_id,
                     after_screenshot_by_event,
                     after_screenshot_metadata_by_event,
                 )
@@ -316,6 +332,7 @@ def _normalize_event(
     tenant_id: UUID,
     fallback_sequence: int,
     screenshot_ids: dict[str, UUID],
+    screenshot_metadata_by_id: dict[str, dict[str, Any]],
     after_screenshot_by_event: dict[str, UUID],
     after_screenshot_metadata_by_event: dict[str, dict[str, Any]],
 ) -> SessionEvent:
@@ -331,20 +348,28 @@ def _normalize_event(
     sequence = int(raw.get("sequence") or fallback_sequence)
     raw_id = raw.get("id")
     event_id = _uuid_or_default(raw_id, uuid5(recording_id, f"event:{sequence}"))
-    before_id = _mapped_uuid(
-        raw.get("beforeScreenshotId") or raw.get("before_screenshot_id"), screenshot_ids
-    )
+    raw_before_screenshot_id = raw.get("beforeScreenshotId") or raw.get("before_screenshot_id")
+    raw_after_screenshot_id = raw.get("afterScreenshotId") or raw.get("after_screenshot_id")
+    before_id = _mapped_uuid(raw_before_screenshot_id, screenshot_ids)
     after_id = _mapped_uuid(
-        raw.get("afterScreenshotId") or raw.get("after_screenshot_id"), screenshot_ids
+        raw_after_screenshot_id, screenshot_ids
     ) or after_screenshot_by_event.get(str(raw_id))
+    annotation_screenshot_id = before_id or after_id
+    annotation_screenshot_metadata = (
+        _metadata_for_screenshot(
+            screenshot_metadata_by_id, annotation_screenshot_id, raw_before_screenshot_id
+        )
+        or after_screenshot_metadata_by_event.get(str(raw_id))
+        or _metadata_for_screenshot(screenshot_metadata_by_id, after_id, raw_after_screenshot_id)
+    )
     annotation = _pointer_annotation(
         event_type,
         event_id,
-        after_id,
+        annotation_screenshot_id,
         raw.get("x") if raw.get("x") is not None else data.get("x"),
         raw.get("y") if raw.get("y") is not None else data.get("y"),
         data,
-        after_screenshot_metadata_by_event.get(str(raw_id)),
+        annotation_screenshot_metadata,
     )
     if annotation:
         data["evidenceAnnotation"] = annotation
@@ -383,7 +408,7 @@ def _normalize_event(
         element_text=raw.get("element_text"),
         before_screenshot_id=before_id,
         after_screenshot_id=after_id,
-        screenshot_reference=after_id,
+        screenshot_reference=annotation_screenshot_id,
         duration_ms=duration_ms,
         event_data=data,
     )
@@ -577,6 +602,20 @@ def _centered_bounds(
         "width": width,
         "height": height,
     }
+
+
+def _metadata_for_screenshot(
+    screenshot_metadata_by_id: dict[str, dict[str, Any]],
+    screenshot_id: UUID | None,
+    original_screenshot_id: Any,
+) -> dict[str, Any] | None:
+    if original_screenshot_id is not None:
+        metadata = screenshot_metadata_by_id.get(str(original_screenshot_id))
+        if metadata is not None:
+            return metadata
+    if screenshot_id is not None:
+        return screenshot_metadata_by_id.get(str(screenshot_id))
+    return None
 
 
 def _mapped_uuid(value: Any, mapping: dict[str, UUID]) -> UUID | None:

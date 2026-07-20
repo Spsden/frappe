@@ -83,7 +83,13 @@ def annotate_screenshots(self, recording_id: str, session_id: str, tenant_id: st
 
             try:
                 original_bytes = storage.read(screenshot.storage_key)
-                print(f"Annotating screenshot {screenshot.id} with bounds {bounds}")
+                center_x = bounds["x"] + bounds["width"] / 2
+                center_y = bounds["y"] + bounds["height"] / 2
+                print(
+                    f"Annotating screenshot {screenshot.id} "
+                    f"for event {matching_event.id} "
+                    f"center=({center_x}, {center_y}) bounds={bounds}"
+                )
                 annotated_bytes = _draw_annotation_box(original_bytes, bounds)
 
  

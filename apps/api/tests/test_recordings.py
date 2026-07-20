@@ -218,6 +218,8 @@ def test_resumable_chunk_upload_and_status_pipeline(client):
     assert event["after_screenshot_id"] == after_screenshot_id
     annotation = event["event_data"]["evidenceAnnotation"]
     assert annotation["type"] == "click_rectangle"
+    assert annotation["screenshot_reference"] == before_screenshot_id
+    assert event["screenshot_reference"] == before_screenshot_id
     assert annotation["coordinate_space"] == "global_screen"
     assert annotation["bounds"] == {"x": 432.0, "y": 284.0, "width": 96.0, "height": 72.0}
 
@@ -553,6 +555,7 @@ def test_complete_recording_without_broker_leaves_pipeline_processing(client):
     after_screenshot_id = str(uuid4())
     event_id = str(uuid4())
     png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + b"\x00\x00\x05\x00\x00\x00\x02\xd0"  # 1280x720
+    after_png = png + b"changed"
 
     event_payload = json.dumps(
         {
@@ -591,6 +594,14 @@ def test_complete_recording_without_broker_leaves_pipeline_processing(client):
                 "sequence": 1,
                 "capturedAt": "2026-06-19T09:59:59Z",
                 "changeScore": 0,
+                "capture": {
+                    "imageSize": {"width": 1280, "height": 720},
+                    "display": {
+                        "id": "1",
+                        "scaleFactor": 1,
+                        "bounds": {"x": 0, "y": 0, "width": 1280, "height": 720},
+                    },
+                },
             },
             media_type="image/png",
         ).status_code
@@ -612,7 +623,7 @@ def test_complete_recording_without_broker_leaves_pipeline_processing(client):
             client,
             recording["id"],
             2,
-            png,
+            after_png,
             content_type="screenshots",
             metadata={
                 "id": after_screenshot_id,
@@ -648,9 +659,25 @@ def test_complete_recording_without_broker_leaves_pipeline_processing(client):
     event = session.json()["events"][0]
     assert event["event_type"] == "click"
     assert event["target_label"] == "Approve"
+    assert event["before_screenshot_id"] == before_screenshot_id
+    assert event["after_screenshot_id"] == after_screenshot_id
+    assert event["screenshot_reference"] == before_screenshot_id
     annotation = event["event_data"]["evidenceAnnotation"]
+    assert annotation["screenshot_reference"] == before_screenshot_id
     assert annotation["coordinate_space"] == "screenshot_pixels"
     assert annotation["bounds"] == {"x": 432.0, "y": 284.0, "width": 96.0, "height": 72.0}
+
+    screenshots = client.get(f"/sessions/{session_id}/screenshots", headers=auth_headers())
+    assert screenshots.status_code == 200
+    screenshots_by_id = {item["id"]: item for item in screenshots.json()}
+    assert len(screenshots_by_id[before_screenshot_id]["annotations"]) == 1
+    assert screenshots_by_id[before_screenshot_id]["annotations"][0]["bounds"] == {
+        "x": 432.0,
+        "y": 284.0,
+        "width": 96.0,
+        "height": 72.0,
+    }
+    assert screenshots_by_id[after_screenshot_id]["annotations"] == []
 
     export = client.get(f"/exports/{session_id}", headers=auth_headers())
     assert export.status_code == 200
