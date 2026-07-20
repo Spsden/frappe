@@ -7,6 +7,7 @@ const PIPELINE: BackendRecordingStatus[] = [
   'processing_screenshots',
   'aligning_evidence',
   'generating_sop',
+  'sop_failed',
   'ready_for_review',
   'completed'
 ]
@@ -19,6 +20,7 @@ const STEP_LABELS: Record<BackendRecordingStatus, string> = {
   processing_screenshots: 'Annotate',
   aligning_evidence: 'Align',
   generating_sop: 'SOP',
+  sop_failed: 'Retry SOP',
   ready_for_review: 'Review',
   completed: 'Done',
   failed: 'Failed'

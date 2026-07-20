@@ -3,6 +3,7 @@ import {
   recordingIpc,
   type AnnotationInput,
   type RecordingOptions,
+  type RecordingRetryTarget,
   type RecordingState
 } from '../../shared/recording'
 import { RecordingManager } from './RecordingManager'
@@ -33,8 +34,9 @@ export function registerRecordingIpc(
   ipcMain.handle(recordingIpc.deleteSession, (_event, sessionId: string) =>
     library.deleteSession(sessionId)
   )
-  ipcMain.handle(recordingIpc.retryUpload, (_event, sessionId: string) =>
-    library.retryUpload(sessionId)
+  ipcMain.handle(
+    recordingIpc.retry,
+    (_event, sessionId: string, target: RecordingRetryTarget) => library.retry(sessionId, target)
   )
   ipcMain.handle(recordingIpc.getSession, (_event, backendSessionId: string) =>
     library.getSession(backendSessionId)
@@ -94,7 +96,7 @@ export function registerRecordingIpc(
     ipcMain.removeHandler(recordingIpc.getState)
     ipcMain.removeHandler(recordingIpc.listSessions)
     ipcMain.removeHandler(recordingIpc.deleteSession)
-    ipcMain.removeHandler(recordingIpc.retryUpload)
+    ipcMain.removeHandler(recordingIpc.retry)
     ipcMain.removeHandler(recordingIpc.getSession)
     ipcMain.removeHandler(recordingIpc.getSessionScreenshots)
     ipcMain.removeHandler(recordingIpc.getScreenshotImage)

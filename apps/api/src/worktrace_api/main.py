@@ -53,6 +53,8 @@ from worktrace_api.schemas import (
     Recording,
     RecordingComplete,
     RecordingCreate,
+    RecordingRetryRequest,
+    RecordingRetryTarget,
     RecordingStatus,
     RecordingStatusResponse,
     Screenshot,
@@ -119,6 +121,7 @@ processing_stages = [
     RecordingStatus.PROCESSING_SCREENSHOTS,
     RecordingStatus.ALIGNING_EVIDENCE,
     RecordingStatus.GENERATING_SOP,
+    RecordingStatus.SOP_FAILED,
     RecordingStatus.READY_FOR_REVIEW,
     RecordingStatus.COMPLETED,
 ]
@@ -355,6 +358,63 @@ def complete_recording(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@app.post(
+    "/recordings/{recording_id}/retry",
+    response_model=Recording,
+    tags=["recordings"],
+)
+def retry_recording_step(
+    recording_id: UUID,
+    payload: RecordingRetryRequest,
+    repo: Repository = Depends(repository),
+) -> Recording:
+    if payload.target == RecordingRetryTarget.SOP:
+        return _retry_sop_generation(recording_id, repo)
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=f"Unsupported retry target: {payload.target}",
+    )
+
+
+def _retry_sop_generation(recording_id: UUID, repo: Repository) -> Recording:
+    recording = repo.get_recording(recording_id)
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+    if not recording.session_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Recording has no processed session yet",
+        )
+    if recording.status != RecordingStatus.SOP_FAILED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="SOP retry is only available after SOP generation fails",
+        )
+
+    queued_status = (
+        RecordingStatus.TRANSCRIBING_AUDIO
+        if recording.has_audio
+        else RecordingStatus.PROCESSING_SCREENSHOTS
+    )
+    updated = repo.set_recording_status(recording_id, queued_status) or recording
+    queued, error_message = recording_processor.enqueue_pipeline(
+        recording_id,
+        recording.session_id,
+        repo.tenant_id,
+    )
+    if not queued:
+        repo.set_recording_status(
+            recording_id,
+            RecordingStatus.SOP_FAILED,
+            error_message or "Could not queue SOP generation",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=error_message or "Could not queue SOP generation",
+        )
+    return updated
 
 
 @app.get(

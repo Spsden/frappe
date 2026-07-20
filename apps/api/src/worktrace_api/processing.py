@@ -18,7 +18,6 @@ from worktrace_api.schemas import (
     SessionEvent,
     WorkflowSession,
 )
-from worktrace_api.services import generate_sop
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +28,30 @@ class RecordingProcessor:
     def __init__(self, storage: ChunkStorage, allowed_domains: list[str] | None = None):
         self.storage = storage
         self.allowed_domains = allowed_domains or []
+
+    def enqueue_pipeline(
+        self,
+        recording_id: UUID,
+        session_id: UUID,
+        tenant_id: UUID,
+    ) -> tuple[bool, str | None]:
+        from worktrace_api.core.celery_app import broker_available
+        from worktrace_api.settings import get_settings
+        from worktrace_api.tasks.pipeline import process_recording
+
+        if not broker_available(get_settings().redis_url):
+            return False, "Background queue is offline; start Redis and retry SOP generation."
+
+        try:
+            process_recording.delay(str(recording_id), str(session_id), str(tenant_id))
+        except Exception as exc:
+            logger.warning(
+                "async processing pipeline dispatch failed for recording %s",
+                recording_id,
+                exc_info=True,
+            )
+            return False, f"Could not queue SOP generation: {exc}"
+        return True, None
 
     def process(self, recording_id: UUID, repo: Repository):
         recording = repo.get_recording(recording_id)
@@ -86,39 +109,33 @@ class RecordingProcessor:
             )
             repo.save_session(session)
             repo.save_screenshots(screenshots)
-
-            repo.set_recording_status(recording_id, RecordingStatus.GENERATING_SOP)
-            repo.save_sop(generate_sop(session, repo.next_sop_version(session.id)))
+            next_status = (
+                RecordingStatus.TRANSCRIBING_AUDIO
+                if recording.has_audio
+                else RecordingStatus.PROCESSING_SCREENSHOTS
+            )
             recording_result = repo.link_recording_session(
-                recording_id, session.id, RecordingStatus.READY_FOR_REVIEW
+                recording_id, session.id, next_status
             )
 
             # Trigger the Celery orchestration pipeline AFTER the session is
-            # linked. Best-effort: if the broker is offline (Redis/worker not
-            # started), the session + SOP are already durable at ready_for_review,
-            # so we skip transcription/annotation rather than fail the recording.
-            # This keeps `/complete` from blocking on broker reconnect retries.
-            from worktrace_api.core.celery_app import broker_available
-            from worktrace_api.settings import get_settings
-            from worktrace_api.tasks.pipeline import process_recording
-
-            if broker_available(get_settings().redis_url):
-                try:
-                    process_recording.delay(
-                        str(recording_id), str(session.id), str(repo.tenant_id)
-                    )
-                except Exception:
-                    logger.warning(
-                        "async processing pipeline dispatch failed for recording %s",
-                        recording_id,
-                        exc_info=True,
-                    )
+            # linked. Best-effort: if the broker is offline (Redis not started),
+            # the session + raw evidence remain durable and the recording stays
+            # recoverable via manual SOP retry.
+            queued, error_message = self.enqueue_pipeline(recording_id, session.id, repo.tenant_id)
+            if not queued:
+                recording_result = repo.set_recording_status(
+                    recording_id,
+                    RecordingStatus.SOP_FAILED,
+                    error_message or "Could not queue SOP generation",
+                ) or recording_result
             else:
                 logger.info(
-                    "broker offline; skipping async pipeline for recording %s "
-                    "(session %s left ready_for_review)",
+                    "queued async pipeline for recording %s "
+                    "(session %s; initial status %s)",
                     recording_id,
                     session.id,
+                    next_status.value,
                 )
 
             return recording_result

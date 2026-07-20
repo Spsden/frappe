@@ -19,9 +19,12 @@ export type BackendRecordingStatus =
   | 'processing_screenshots'
   | 'aligning_evidence'
   | 'generating_sop'
+  | 'sop_failed'
   | 'ready_for_review'
   | 'completed'
   | 'failed'
+
+export type RecordingRetryTarget = 'upload' | 'sop'
 
 export type CaptureMode = 'full-desktop' | 'display'
 export type RecordingPlatform = 'darwin' | 'win32' | 'linux'
@@ -307,7 +310,7 @@ export interface RecordingApi {
   getState: () => Promise<RecordingState>
   listSessions: () => Promise<RecordedSessionSummary[]>
   deleteSession: (sessionId: string) => Promise<void>
-  retryUpload: (sessionId: string) => Promise<void>
+  retry: (sessionId: string, target: RecordingRetryTarget) => Promise<void>
   getSession: (backendSessionId: string) => Promise<BackendWorkflowSession>
   getSessionScreenshots: (backendSessionId: string) => Promise<BackendScreenshotEvidence[]>
   getScreenshotImage: (backendSessionId: string, screenshotId: string) => Promise<ArrayBuffer>
@@ -332,7 +335,7 @@ export const recordingIpc = {
   getState: 'recording:get-state',
   listSessions: 'recording:list-sessions',
   deleteSession: 'recording:delete-session',
-  retryUpload: 'recording:retry-upload',
+  retry: 'recording:retry',
   getSession: 'recording:get-session',
   getSessionScreenshots: 'recording:get-session-screenshots',
   getSessionSops: 'recording:get-session-sops',

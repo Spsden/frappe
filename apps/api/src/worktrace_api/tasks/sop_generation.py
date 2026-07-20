@@ -31,8 +31,8 @@ import openai
 from worktrace_api.core.celery_app import celery_app
 from worktrace_api.recordings import ChunkStorage
 from worktrace_api.schemas import (
-    RecordingTranscript,
     SOP,
+    RecordingStatus,
     SOPStatus,
     SOPStep,
 )
@@ -99,7 +99,11 @@ def _build_step_prompt(ctx: dict, workflow_name: str, position: int, total: int)
         ctx.get("target_label")
         or ctx.get("element_text")
         or ctx.get("target_role")
-        or (f"element at ({ctx.get('x')}, {ctx.get('y')})" if ctx.get("x") is not None else "unknown element")
+        or (
+            f"element at ({ctx.get('x')}, {ctx.get('y')})"
+            if ctx.get("x") is not None
+            else "unknown element"
+        )
     )
 
     narration = ctx.get("narration")
@@ -124,7 +128,8 @@ def _build_step_prompt(ctx: dict, workflow_name: str, position: int, total: int)
         f"Rules:\n"
         f"- Use the element label visible inside or near the red box as your primary reference.\n"
         f"- Reference the application name where helpful.\n"
-        f"- Be specific: instead of 'click the button', write 'click the [label] button in [location]'.\n"
+        f"- Be specific: instead of 'click the button', write "
+        f"'click the [label] button in [location]'.\n"
         f"- Do NOT include the step number.\n"
         f"- Output only the instruction sentence, nothing else."
     )
@@ -194,8 +199,10 @@ def _generate_sop_markdown(
         f"Write a complete, professional Markdown SOP document that includes:\n"
         f"1. A title header: # {workflow_name}\n"
         f"2. A short **Purpose** section (1-2 sentences) explaining what this SOP accomplishes.\n"
-        f"3. A **Prerequisites** section (if any steps mention specific applications or accounts).\n"
-        f"4. A **Steps** section with each step as a numbered list using the exact instructions above.\n"
+        f"3. A **Prerequisites** section "
+        f"(if any steps mention specific applications or accounts).\n"
+        f"4. A **Steps** section with each step as a numbered list using "
+        f"the exact instructions above.\n"
         f"   - If a step has a ⚠️ Note, include it beneath that step as a blockquote.\n"
         f"5. A **Notes** section at the end for any general observations.\n\n"
         f"Output only raw Markdown. No code fences. No preamble."
@@ -228,6 +235,9 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
     """
     settings = get_settings()
     repo = make_repo(tenant_id)
+    recording_uuid = UUID(recording_id)
+    session_uuid = UUID(session_id)
+    tenant_uuid = UUID(tenant_id)
     storage = ChunkStorage(
         root=settings.recording_storage_path,
         max_chunk_bytes=settings.max_chunk_bytes,
@@ -237,12 +247,18 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
         # ------------------------------------------------------------------
         # 1. Load data from DB
         # ------------------------------------------------------------------
-        session = repo.get_session(UUID(session_id))
+        repo.set_recording_status(recording_uuid, RecordingStatus.GENERATING_SOP)
+        session = repo.get_session(session_uuid)
         if not session:
             logger.error("Session %s not found — aborting SOP generation.", session_id)
+            repo.set_recording_status(
+                recording_uuid,
+                RecordingStatus.FAILED,
+                "Session not found for SOP generation",
+            )
             return
 
-        screenshots = repo.get_screenshots_for_recording(UUID(recording_id))
+        screenshots = repo.get_screenshots_for_recording(recording_uuid)
         annotated = [s for s in screenshots if s.redaction_status == "redacted"]
         events = session.events
 
@@ -250,6 +266,11 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
             logger.warning(
                 "No annotated screenshots for recording %s — skipping SOP generation.",
                 recording_id,
+            )
+            repo.set_recording_status(
+                recording_uuid,
+                RecordingStatus.FAILED,
+                "No annotated screenshots were produced",
             )
             return
 
@@ -363,10 +384,10 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
             for item in step_instructions
         ]
 
-        version = repo.next_sop_version(UUID(session_id))
+        version = repo.next_sop_version(session_uuid)
         sop = SOP(
-            tenant_id=UUID(tenant_id),
-            source_session_id=UUID(session_id),
+            tenant_id=tenant_uuid,
+            source_session_id=session_uuid,
             version=version,
             status=SOPStatus.DRAFT,
             title=session.workflow_name,
@@ -387,10 +408,10 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
         # ------------------------------------------------------------------
         from worktrace_api.schemas import SOPStep as MarkdownSOPStep
 
-        markdown_version = repo.next_sop_version(UUID(session_id))
+        markdown_version = repo.next_sop_version(session_uuid)
         markdown_sop = SOP(
-            tenant_id=UUID(tenant_id),
-            source_session_id=UUID(session_id),
+            tenant_id=tenant_uuid,
+            source_session_id=session_uuid,
             version=markdown_version,
             status=SOPStatus.DRAFT,
             title=f"{session.workflow_name} — Full Document",
@@ -411,9 +432,23 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
             markdown_version,
             session_id,
         )
+        repo.link_recording_session(recording_uuid, session_uuid, RecordingStatus.READY_FOR_REVIEW)
 
     except Exception as exc:
         logger.exception("SOP generation failed for session %s: %s", session_id, exc)
+        max_retries = int(self.max_retries or 0)
+        if int(self.request.retries) >= max_retries:
+            repo.set_recording_status(
+                recording_uuid,
+                RecordingStatus.SOP_FAILED,
+                f"SOP generation failed: {exc}",
+            )
+            return
+        repo.set_recording_status(
+            recording_uuid,
+            RecordingStatus.GENERATING_SOP,
+            f"SOP generation failed; retrying: {exc}",
+        )
         raise self.retry(exc=exc, countdown=30) from exc
     finally:
         repo.db.close()

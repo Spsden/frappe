@@ -3,8 +3,8 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from faster_whisper import WhisperModel
 from celery.exceptions import SoftTimeLimitExceeded
+from faster_whisper import WhisperModel
 
 from worktrace_api.core.celery_app import celery_app
 from worktrace_api.database import SessionLocal, WorkflowSessionRecord
@@ -128,6 +128,18 @@ def transcribe_audio(self: Any, recording_id: str, session_id: str, tenant_id: s
         ).first()
 
         if not session_record:
+            return
+
+        if not recording.has_audio:
+            if not session_record.transcript:
+                transcript = RecordingTranscript(
+                    status="not_recorded",
+                    text=None,
+                    segments=[],
+                    audio_chunk_count=0,
+                )
+                session_record.transcript = transcript.model_dump(mode="json")
+                repo.db.commit()
             return
 
         if session_record.transcript and session_record.transcript.get("status") == "completed":

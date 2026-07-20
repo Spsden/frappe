@@ -5,6 +5,7 @@ import type {
   BackendScreenshotEvidence,
   BackendWorkflowSession,
   RecordedSessionSummary,
+  RecordingRetryTarget,
   RecordingSessionManifest
 } from '../../shared/recording'
 import { WorkTraceApiClient } from '../api/WorkTraceApiClient'
@@ -66,7 +67,17 @@ export class RecordingLibraryService {
     return this.apiClient.saveScreenshotAnnotations(backendSessionId, screenshotId, annotations)
   }
 
-  async retryUpload(sessionId: string): Promise<void> {
+  async retry(sessionId: string, target: RecordingRetryTarget): Promise<void> {
+    if (target === 'upload') {
+      return this.retryLocalUpload(sessionId)
+    }
+    if (target === 'sop') {
+      return this.retryServerSop(sessionId)
+    }
+    throw new Error(`Unsupported retry target: ${target}`)
+  }
+
+  private async retryLocalUpload(sessionId: string): Promise<void> {
     const sessionPath = join(this.recordingsPath, sessionId)
     const manifest = await this.readManifest(sessionPath)
 
@@ -101,6 +112,23 @@ export class RecordingLibraryService {
       })
       throw error
     }
+  }
+
+  private async retryServerSop(sessionId: string): Promise<void> {
+    const sessionPath = join(this.recordingsPath, sessionId)
+    const manifest = await this.readManifest(sessionPath)
+    const recordingId = manifest.remoteRecordingId ?? sessionId
+    if (!recordingId) {
+      throw new Error('Session has not been uploaded yet.')
+    }
+
+    const recording = await this.apiClient.retryRecording(recordingId, 'sop')
+    await this.updateManifest(sessionPath, (current) => {
+      current.remoteRecordingId = recording.id
+      current.remoteSessionId = recording.session_id
+      current.remoteStatus = recording.status
+      current.uploadError = null
+    })
   }
 
   private async readSessionDirectories(): Promise<string[]> {

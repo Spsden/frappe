@@ -13,6 +13,7 @@ import {
   type BackendScreenshotEvidence,
   type BackendSOP,
   type RecordingOptions,
+  type RecordingRetryTarget,
   type RecordedSessionSummary,
   type RecordingState,
   type BackendWorkflowSession
@@ -68,7 +69,8 @@ contextBridge.exposeInMainWorld('api', {
     listSessions: () =>
       ipcRenderer.invoke(recordingIpc.listSessions) as Promise<RecordedSessionSummary[]>,
     deleteSession: (sessionId: string) => ipcRenderer.invoke(recordingIpc.deleteSession, sessionId),
-    retryUpload: (sessionId: string) => ipcRenderer.invoke(recordingIpc.retryUpload, sessionId),
+    retry: (sessionId: string, target: RecordingRetryTarget) =>
+      ipcRenderer.invoke(recordingIpc.retry, sessionId, target),
     getSession: (backendSessionId: string) =>
       ipcRenderer.invoke(recordingIpc.getSession, backendSessionId) as Promise<BackendWorkflowSession>,
     getSessionScreenshots: (backendSessionId: string) =>

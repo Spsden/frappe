@@ -12,6 +12,7 @@ export const stageLabels: Record<BackendRecordingStatus, string> = {
   processing_screenshots: 'Annotating',
   aligning_evidence: 'Aligning',
   generating_sop: 'Creating SOP',
+  sop_failed: 'SOP needs retry',
   ready_for_review: 'Ready',
   completed: 'Completed',
   failed: 'Failed'
@@ -82,7 +83,12 @@ export function statusLabel(session: RecordedSessionSummary) {
 
 export function statusDot(session: RecordedSessionSummary) {
   const status = statusForSession(session)
-  if (status === 'failed' || session.uploadError || session.localStatus === 'error') {
+  if (
+    status === 'failed' ||
+    status === 'sop_failed' ||
+    session.uploadError ||
+    session.localStatus === 'error'
+  ) {
     return 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.55)]'
   }
   if (status === 'ready_for_review' || status === 'completed') {
@@ -105,6 +111,7 @@ export function isFinished(session: RecordedSessionSummary) {
 export function isFailed(session: RecordedSessionSummary) {
   return (
     statusForSession(session) === 'failed' ||
+    statusForSession(session) === 'sop_failed' ||
     session.localStatus === 'error' ||
     Boolean(session.uploadError)
   )
@@ -119,8 +126,12 @@ export function canDeleteSession(session: RecordedSessionSummary) {
 }
 
 export function canRetrySession(session: RecordedSessionSummary) {
-  // Retryable when something failed and the session is not mid-flight.
-  return isFailed(session) && !isActiveSession(session)
+  // Retryable upload failures re-send raw evidence. SOP failures use server-side retry.
+  return statusForSession(session) !== 'sop_failed' && isFailed(session) && !isActiveSession(session)
+}
+
+export function canRetrySop(session: RecordedSessionSummary) {
+  return statusForSession(session) === 'sop_failed' && !isActiveSession(session)
 }
 
 export function activeRecordingSummary(state: RecordingState): RecordedSessionSummary | null {

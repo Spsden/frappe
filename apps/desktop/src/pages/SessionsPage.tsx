@@ -6,6 +6,7 @@ import { StepProgress } from '../components/StepProgress'
 import {
   activeRecordingSummary,
   canDeleteSession,
+  canRetrySop,
   canRetrySession,
   formatDate,
   formatDuration,
@@ -46,7 +47,7 @@ export function SessionsPage() {
   const [sessions, setSessions] = useState<RecordedSessionSummary[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [busyAction, setBusyAction] = useState<'retry' | 'delete' | null>(null)
+  const [busyAction, setBusyAction] = useState<'upload' | 'sop' | 'delete' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const displaySessions = useMemo(() => {
@@ -70,13 +71,28 @@ export function SessionsPage() {
 
   const retrySession = async (session: RecordedSessionSummary) => {
     setBusyId(session.id)
-    setBusyAction('retry')
+    setBusyAction('upload')
     setError(null)
     try {
-      await window.api.recording.retryUpload(session.id)
+      await window.api.recording.retry(session.id, 'upload')
       void refresh()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Retry failed.')
+    } finally {
+      setBusyId(null)
+      setBusyAction(null)
+    }
+  }
+
+  const retryServerSop = async (session: RecordedSessionSummary) => {
+    setBusyId(session.id)
+    setBusyAction('sop')
+    setError(null)
+    try {
+      await window.api.recording.retry(session.id, 'sop')
+      void refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'SOP retry failed.')
     } finally {
       setBusyId(null)
       setBusyAction(null)
@@ -146,6 +162,7 @@ export function SessionsPage() {
         {displaySessions.map((session) => {
           const failed = isFailed(session)
           const retryable = canRetrySession(session)
+          const sopRetryable = canRetrySop(session)
           const deletable = canDeleteSession(session)
           const isBusy = busyId === session.id
           return (
@@ -186,6 +203,16 @@ export function SessionsPage() {
                 </button>
 
                 <div className="flex shrink-0 flex-col gap-2">
+                  {sopRetryable && (
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => void retryServerSop(session)}
+                      className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-400/18 disabled:cursor-wait disabled:opacity-40"
+                    >
+                      {isBusy && busyAction === 'sop' ? 'Retrying' : 'Retry SOP'}
+                    </button>
+                  )}
                   {retryable && (
                     <button
                       type="button"
@@ -193,7 +220,7 @@ export function SessionsPage() {
                       onClick={() => void retrySession(session)}
                       className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-400/18 disabled:cursor-wait disabled:opacity-40"
                     >
-                      {isBusy && busyAction === 'retry' ? 'Retrying' : 'Retry'}
+                      {isBusy && busyAction === 'upload' ? 'Retrying' : 'Retry'}
                     </button>
                   )}
                   <button

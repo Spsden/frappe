@@ -2,9 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { BackendSOP, BackendSOPStep, RecordedSessionSummary } from '../../shared/recording'
 import { useRecording } from '../features/recording/useRecording'
-import { activeRecordingSummary } from '../features/recording/sessionStatus'
+import {
+  activeRecordingSummary,
+  canRetrySop,
+  isFailed,
+  statusForSession
+} from '../features/recording/sessionStatus'
 import { StepProgress } from '../components/StepProgress'
-import { statusForSession, isFailed } from '../features/recording/sessionStatus'
 
 // ─── Markdown renderer (simple, no external deps) ────────────────────────────
 // Converts the LLM-generated Markdown document into safe HTML without any
@@ -211,27 +215,51 @@ ${markdownSection}
 // ─── Processing state banner ──────────────────────────────────────────────────
 interface ProcessingBannerProps {
   session: RecordedSessionSummary
+  isRetryingSop: boolean
+  onRetry: () => void
 }
 
-function ProcessingBanner({ session }: ProcessingBannerProps) {
+function ProcessingBanner({ session, isRetryingSop, onRetry }: ProcessingBannerProps) {
   const backendStatus = session.backend?.recording.status
   const hasAudio = session.audioChunkCount > 0
   const failed = isFailed(session)
+  const sopRetryable = canRetrySop(session)
 
-  if (!backendStatus || backendStatus === 'completed') return null
+  if (!backendStatus || backendStatus === 'completed' || backendStatus === 'ready_for_review') return null
 
   return (
-    <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.06] p-4">
+    <div className={`rounded-2xl border p-4 ${
+      failed
+        ? 'border-red-500/25 bg-red-500/10'
+        : 'border-amber-400/20 bg-amber-400/[0.06]'
+    }`}>
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-amber-400/70">
-            SOP Pipeline Running
+          <p className={`font-mono text-[10px] font-bold uppercase tracking-[0.2em] ${
+            failed ? 'text-red-300/80' : 'text-amber-400/70'
+          }`}>
+            {failed ? 'SOP Pipeline Failed' : 'SOP Pipeline Running'}
           </p>
-          <p className="mt-0.5 text-sm text-amber-200/70">
-            Your recording is being processed. The SOP will appear below when ready.
+          <p className={`mt-0.5 text-sm ${failed ? 'text-red-200/70' : 'text-amber-200/70'}`}>
+            {failed
+              ? session.backend?.recording.error_message ?? 'The SOP pipeline could not finish.'
+              : 'Your recording is being processed. The SOP will appear below when ready.'}
           </p>
         </div>
-        <span className="size-2.5 shrink-0 animate-pulse rounded-full bg-amber-400" />
+        {sopRetryable ? (
+          <button
+            type="button"
+            disabled={isRetryingSop}
+            onClick={onRetry}
+            className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-400/18 disabled:cursor-wait disabled:opacity-40"
+          >
+            {isRetryingSop ? 'Retrying' : 'Retry SOP'}
+          </button>
+        ) : (
+          <span className={`size-2.5 shrink-0 rounded-full ${
+            failed ? 'bg-red-500' : 'animate-pulse bg-amber-400'
+          }`} />
+        )}
       </div>
       <div className="mt-4">
         <StepProgress
@@ -245,6 +273,13 @@ function ProcessingBanner({ session }: ProcessingBannerProps) {
   )
 }
 
+function isFullDocumentSop(sop: BackendSOP) {
+  return (
+    sop.title.endsWith('— Full Document') ||
+    sop.steps.some((step) => step.title === 'Full SOP Document')
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 export function SOPDetailPage() {
   const { id = '' } = useParams<{ id: string }>()
@@ -255,8 +290,9 @@ export function SOPDetailPage() {
   const [sops, setSops] = useState<BackendSOP[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isRetryingSop, setIsRetryingSop] = useState(false)
 
-  // Which structured SOP to render (version 2 = individual steps)
+  // Which structured SOP to render when multiple worker outputs exist.
   const [activeSopIndex, setActiveSopIndex] = useState(0)
   // Which step card in the left rail is highlighted
   const [activeStepIndex, setActiveStepIndex] = useState(0)
@@ -308,15 +344,32 @@ export function SOPDetailPage() {
     }
   }, [id, recordingState])
 
-  // ── Preload all annotated images for the active SOP ───────────────────────
+  const retryServerSop = async () => {
+    setIsRetryingSop(true)
+    setError(null)
+    try {
+      await window.api.recording.retry(id, 'sop')
+      setSops([])
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'SOP retry failed.')
+    } finally {
+      setIsRetryingSop(false)
+    }
+  }
+
+  // ── Derived state ─────────────────────────────────────────────────────────
   const sessionId = session?.remoteSessionId ?? null
+  const markdownSop = sops.find(isFullDocumentSop) ?? null
+  const structuredSops = sops.filter((sop) => !isFullDocumentSop(sop))
+  const displaySop = structuredSops[activeSopIndex] ?? structuredSops[0] ?? null
+  const activeStep = displaySop?.steps[activeStepIndex] ?? null
+  const hasScreenshot = Boolean(activeStep?.screenshot_reference)
 
+  // ── Preload all annotated images for the active SOP ───────────────────────
   useEffect(() => {
-    if (!sessionId || sops.length === 0) return
+    if (!sessionId || !displaySop) return
 
-    // Pick version 2 (AI step-level SOP) for images; fall back to first
-    const targetSop = sops.find((s) => s.version === 2) ?? sops[activeSopIndex]
-    const screenshotIds = targetSop.steps
+    const screenshotIds = displaySop.steps
       .map((s) => s.screenshot_reference)
       .filter((id): id is string => Boolean(id))
 
@@ -356,15 +409,7 @@ export function SOPDetailPage() {
       cancelled = true
       for (const url of createdUrls) URL.revokeObjectURL(url)
     }
-  }, [sessionId, sops, activeSopIndex])
-
-  // ── Derived state ─────────────────────────────────────────────────────────
-  // v2 = AI-generated structured steps; v3 = aggregated Markdown doc
-  const aiStepSop = sops.find((s) => s.version === 2) ?? null
-  const markdownSop = sops.find((s) => s.version === 3) ?? null
-  const displaySop = aiStepSop ?? sops[activeSopIndex] ?? null
-  const activeStep = displaySop?.steps[activeStepIndex] ?? null
-  const hasScreenshot = Boolean(activeStep?.screenshot_reference)
+  }, [sessionId, displaySop])
 
   // ── Render guards ─────────────────────────────────────────────────────────
   if (isLoading && !session) {
@@ -411,9 +456,9 @@ export function SOPDetailPage() {
           </div>
           <div className="flex items-center gap-2">
             {/* Version selector (only shown when multiple SOPs exist) */}
-            {sops.length > 1 && (
+            {structuredSops.length > 1 && (
               <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-1">
-                {sops.slice(0, 2).map((sop, idx) => (
+                {structuredSops.map((sop, idx) => (
                   <button
                     key={sop.id}
                     type="button"
@@ -454,7 +499,13 @@ export function SOPDetailPage() {
         <div className="space-y-5 px-6 py-6 md:px-8">
 
           {/* Processing banner (shown when pipeline is still running) */}
-          {session && <ProcessingBanner session={session} />}
+          {session && (
+            <ProcessingBanner
+              session={session}
+              isRetryingSop={isRetryingSop}
+              onRetry={() => void retryServerSop()}
+            />
+          )}
 
           {error && (
             <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300">

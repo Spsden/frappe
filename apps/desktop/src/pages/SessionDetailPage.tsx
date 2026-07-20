@@ -9,6 +9,7 @@ import { useRecording } from '../features/recording/useRecording'
 import {
   activeRecordingSummary,
   canDeleteSession,
+  canRetrySop,
   canRetrySession,
   formatDate,
   formatDuration,
@@ -90,7 +91,7 @@ export function SessionDetailPage() {
   const [session, setSession] = useState<RecordedSessionSummary | null>(null)
   const [backendSession, setBackendSession] = useState<BackendWorkflowSession | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [acting, setActing] = useState<'retry' | 'delete' | null>(null)
+  const [acting, setActing] = useState<'upload' | 'sop' | 'delete' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -135,12 +136,24 @@ export function SessionDetailPage() {
   }, [id, recordingState])
 
   const retry = async () => {
-    setActing('retry')
+    setActing('upload')
     setError(null)
     try {
-      await window.api.recording.retryUpload(id)
+      await window.api.recording.retry(id, 'upload')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Retry failed.')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  const retryServerSop = async () => {
+    setActing('sop')
+    setError(null)
+    try {
+      await window.api.recording.retry(id, 'sop')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'SOP retry failed.')
     } finally {
       setActing(null)
     }
@@ -190,6 +203,7 @@ export function SessionDetailPage() {
 
   const failed = isFailed(session)
   const retryable = canRetrySession(session)
+  const sopRetryable = canRetrySop(session)
   const deletable = canDeleteSession(session)
 
   return (
@@ -229,6 +243,16 @@ export function SessionDetailPage() {
                 View SOP
               </button>
             )}
+            {sopRetryable && (
+              <button
+                type="button"
+                disabled={acting !== null}
+                onClick={() => void retryServerSop()}
+                className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-400/18 disabled:cursor-wait disabled:opacity-40"
+              >
+                {acting === 'sop' ? 'Retrying' : 'Retry SOP'}
+              </button>
+            )}
             {retryable && (
               <button
                 type="button"
@@ -236,7 +260,7 @@ export function SessionDetailPage() {
                 onClick={() => void retry()}
                 className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-400/18 disabled:cursor-wait disabled:opacity-40"
               >
-                {acting === 'retry' ? 'Retrying' : 'Retry'}
+                {acting === 'upload' ? 'Retrying' : 'Retry'}
               </button>
             )}
             <button

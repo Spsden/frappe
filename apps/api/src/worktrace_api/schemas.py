@@ -334,6 +334,7 @@ class RecordingStatus(StrEnum):
     PROCESSING_SCREENSHOTS = "processing_screenshots"
     ALIGNING_EVIDENCE = "aligning_evidence"
     GENERATING_SOP = "generating_sop"
+    SOP_FAILED = "sop_failed"
     READY_FOR_REVIEW = "ready_for_review"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -379,6 +380,14 @@ class ChunkReceipt(StrictModel):
 
 class RecordingComplete(StrictModel):
     expected_chunk_count: int = Field(ge=1)
+
+
+class RecordingRetryTarget(StrEnum):
+    SOP = "sop"
+
+
+class RecordingRetryRequest(StrictModel):
+    target: RecordingRetryTarget
 
 
 class RecordingStatusResponse(StrictModel):

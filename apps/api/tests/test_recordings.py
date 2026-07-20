@@ -184,14 +184,14 @@ def test_resumable_chunk_upload_and_status_pipeline(client):
     )
     assert completed.status_code == 200
     completed_recording = completed.json()
-    assert completed_recording["status"] == "ready_for_review"
+    assert completed_recording["status"] == "sop_failed"
     assert completed_recording["session_id"]
     late = upload_chunk(client, recording["id"], 3, b"late")
     assert late.status_code == 409
 
     current = client.get(f"/recordings/{recording['id']}/status", headers=auth_headers())
     assert current.status_code == 200
-    assert current.json()["recording"]["status"] == "ready_for_review"
+    assert current.json()["recording"]["status"] == "sop_failed"
     assert current.json()["stages"] == [
         "recording",
         "uploading",
@@ -199,11 +199,12 @@ def test_resumable_chunk_upload_and_status_pipeline(client):
         "processing_screenshots",
         "aligning_evidence",
         "generating_sop",
+        "sop_failed",
         "ready_for_review",
         "completed",
     ]
     repeated = client.get(f"/recordings/{recording['id']}/status", headers=auth_headers())
-    assert repeated.json()["recording"]["status"] == "ready_for_review"
+    assert repeated.json()["recording"]["status"] == "sop_failed"
 
     session = client.get(
         f"/sessions/{completed_recording['session_id']}", headers=auth_headers()
@@ -224,10 +225,7 @@ def test_resumable_chunk_upload_and_status_pipeline(client):
         f"/exports/{completed_recording['session_id']}", headers=auth_headers()
     )
     assert export.status_code == 200
-    assert len(export.json()["sops"]) == 1
-    assert export.json()["sops"][0]["status"] == "draft"
-    assert export.json()["sops"][0]["steps"][0]["screenshot_reference"] == after_screenshot_id
-    assert export.json()["sops"][0]["steps"][0]["evidence_annotations"][0]["event_id"] == event_id
+    assert export.json()["sops"] == []
 
 
 def test_audio_recording_keeps_transcript_placeholder(client):
@@ -546,10 +544,10 @@ def test_delete_recording_removes_metadata_and_raw_chunks(client):
     assert repeated.status_code == 404
 
 
-def test_complete_recording_succeeds_without_broker(client):
-    """With no Redis/worker running, /complete must still build the session + SOP
-    synchronously (best-effort async dispatch) and return ready_for_review, and
-    the click's evidence annotation must be resolved to screenshot-pixel space."""
+def test_complete_recording_without_broker_leaves_pipeline_processing(client):
+    """With no Redis/worker running, /complete must build the durable session
+    and evidence metadata, but it must not create a fallback SOP or pretend the
+    recording is ready for review."""
     recording = create_recording(client, has_audio=False)
     before_screenshot_id = str(uuid4())
     after_screenshot_id = str(uuid4())
@@ -642,7 +640,7 @@ def test_complete_recording_succeeds_without_broker(client):
         json={"expected_chunk_count": 3},
     )
     assert completed.status_code == 200
-    assert completed.json()["status"] == "ready_for_review"
+    assert completed.json()["status"] == "sop_failed"
     session_id = completed.json()["session_id"]
 
     session = client.get(f"/sessions/{session_id}", headers=auth_headers())
@@ -653,6 +651,76 @@ def test_complete_recording_succeeds_without_broker(client):
     annotation = event["event_data"]["evidenceAnnotation"]
     assert annotation["coordinate_space"] == "screenshot_pixels"
     assert annotation["bounds"] == {"x": 432.0, "y": 284.0, "width": 96.0, "height": 72.0}
+
+    export = client.get(f"/exports/{session_id}", headers=auth_headers())
+    assert export.status_code == 200
+    assert export.json()["sops"] == []
+
+
+def test_retry_sop_is_recoverable_but_requires_background_queue(client):
+    recording = create_recording(client, has_audio=False)
+    screenshot_id = str(uuid4())
+    event_id = str(uuid4())
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + b"\x00\x00\x05\x00\x00\x00\x02\xd0"
+    event_payload = json.dumps(
+        {
+            "id": event_id,
+            "sequence": 1,
+            "timestamp": "2026-06-19T10:00:00Z",
+            "type": "click",
+            "data": {"x": 480, "y": 320, "button": "left", "application": "ERP Desktop"},
+        }
+    ).encode()
+
+    assert (
+        upload_chunk(
+            client,
+            recording["id"],
+            0,
+            event_payload,
+            content_type="events",
+            media_type="application/x-ndjson",
+        ).status_code
+        == 200
+    )
+    assert (
+        upload_chunk(
+            client,
+            recording["id"],
+            1,
+            png,
+            content_type="screenshots",
+            metadata={
+                "id": screenshot_id,
+                "sequence": 1,
+                "capturedAt": "2026-06-19T10:00:01Z",
+                "eventIds": [event_id],
+            },
+            media_type="image/png",
+        ).status_code
+        == 200
+    )
+
+    completed = client.post(
+        f"/recordings/{recording['id']}/complete",
+        headers=auth_headers(),
+        json={"expected_chunk_count": 2},
+    )
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "sop_failed"
+    assert "queue is offline" in completed.json()["error_message"]
+
+    retry = client.post(
+        f"/recordings/{recording['id']}/retry",
+        headers=auth_headers(),
+        json={"target": "sop"},
+    )
+
+    assert retry.status_code == 409
+    assert "queue is offline" in retry.json()["detail"]
+    current = client.get(f"/recordings/{recording['id']}/status", headers=auth_headers())
+    assert current.status_code == 200
+    assert current.json()["recording"]["status"] == "sop_failed"
 
 
 def test_broker_available_returns_false_for_unreachable_host():

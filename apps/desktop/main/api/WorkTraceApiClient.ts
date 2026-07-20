@@ -11,7 +11,8 @@ import type {
   BackendRecordingStatusResponse,
   BackendScreenshotEvidence,
   BackendSOP,
-  BackendWorkflowSession
+  BackendWorkflowSession,
+  RecordingRetryTarget
 } from '../../shared/recording'
 import { ConnectionSettingsStore } from './ConnectionSettingsStore'
 
@@ -175,6 +176,18 @@ export class WorkTraceApiClient {
 
   async deleteRecording(recordingId: string): Promise<void> {
     await this.request(`/recordings/${recordingId}`, { method: 'DELETE' })
+  }
+
+  async retryRecording(
+    recordingId: string,
+    target: Exclude<RecordingRetryTarget, 'upload'>
+  ): Promise<BackendRecording> {
+    const response = await this.request(`/recordings/${recordingId}/retry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target })
+    })
+    return (await response.json()) as BackendRecording
   }
 
   async getSession(sessionId: string): Promise<BackendWorkflowSession> {

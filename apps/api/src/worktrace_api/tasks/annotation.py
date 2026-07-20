@@ -5,6 +5,7 @@ from PIL import Image, ImageDraw
 
 from worktrace_api.core.celery_app import celery_app
 from worktrace_api.recordings import ChunkStorage
+from worktrace_api.schemas import RecordingStatus
 from worktrace_api.settings import get_settings
 from worktrace_api.tasks._repo import make_repo
 
@@ -42,12 +43,15 @@ def annotate_screenshots(self, recording_id: str, session_id: str, tenant_id: st
     )
 
     try:
+        repo.set_recording_status(UUID(recording_id), RecordingStatus.PROCESSING_SCREENSHOTS)
         workflow_session = repo.get_session(UUID(session_id))
         if not workflow_session:
             return
 
         events = workflow_session.events
         screenshots = repo.get_screenshots_for_recording(UUID(recording_id))
+
+        ###TODO : Redaction will probablbly happen here -- sps
 
         for screenshot in screenshots:
             if screenshot.redaction_status in ("redacted", "not_required"):
@@ -62,6 +66,8 @@ def annotate_screenshots(self, recording_id: str, session_id: str, tenant_id: st
                 e for e in events
                 if e.before_screenshot_id == screenshot.id
             ]
+
+            
             matching_event = candidates[-1] if candidates else None
 
             if not matching_event:
@@ -77,7 +83,7 @@ def annotate_screenshots(self, recording_id: str, session_id: str, tenant_id: st
 
             try:
                 original_bytes = storage.read(screenshot.storage_key)
-
+                print(f"Annotating screenshot {screenshot.id} with bounds {bounds}")
                 annotated_bytes = _draw_annotation_box(original_bytes, bounds)
 
  

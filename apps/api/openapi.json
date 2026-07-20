@@ -439,6 +439,81 @@
         }
       }
     },
+    "/recordings/{recording_id}/retry": {
+      "post": {
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Retry Recording Step",
+        "operationId": "retry_recording_step_recordings__recording_id__retry_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Recording Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingRetryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recording"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recordings/{recording_id}/status": {
       "get": {
         "tags": [
@@ -2487,6 +2562,26 @@
         ],
         "title": "RecordingCreate"
       },
+      "RecordingRetryRequest": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/RecordingRetryTarget"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "title": "RecordingRetryRequest"
+      },
+      "RecordingRetryTarget": {
+        "type": "string",
+        "enum": [
+          "sop"
+        ],
+        "title": "RecordingRetryTarget"
+      },
       "RecordingStatus": {
         "type": "string",
         "enum": [
@@ -2497,6 +2592,7 @@
           "processing_screenshots",
           "aligning_evidence",
           "generating_sop",
+          "sop_failed",
           "ready_for_review",
           "completed",
           "failed"
