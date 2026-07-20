@@ -21,9 +21,9 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from worktrace_api.annotation_render import render_annotated_png
 from worktrace_api.auth import (
     AuthenticationError,
     EmailAlreadyRegisteredError,
@@ -649,18 +649,19 @@ def _effective_annotations(
     response_model=ScreenshotEvidence,
     tags=["sessions"],
 )
-def replace_screenshot_annotations(
+async def replace_screenshot_annotations(
     session_id: UUID,
     screenshot_id: UUID,
-    payload: ScreenshotAnnotationSet,
+    annotations: str = Form(...),
+    annotated_image: UploadFile = File(...),
     repo: Repository = Depends(repository),
 ) -> ScreenshotEvidence:
     """Replace a screenshot's annotation set with the user-edited/manual set.
 
     The supplied set becomes the authoritative annotations for the frame
-    (overriding event-derived highlights), and the ``*-annotated.png`` is
-    re-baked so the stored imagery matches the on-screen overlays. The raw
-    screenshot is preserved."""
+    (overriding event-derived highlights). The Electron editor sends the final
+    annotated PNG it rendered, so the backend stores the reviewed image without
+    re-rendering it and risking renderer drift. The raw screenshot is preserved."""
     require_session(repo, session_id)
     screenshot = next(
         (
@@ -672,6 +673,39 @@ def replace_screenshot_annotations(
     )
     if screenshot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
+
+    try:
+        payload = ScreenshotAnnotationSet.model_validate(
+            {"annotations": json.loads(annotations)}
+        )
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="annotations must be valid JSON",
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.errors(),
+        ) from exc
+
+    if annotated_image.content_type != "image/png":
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Annotated image must be image/png",
+        )
+
+    annotated_bytes = await annotated_image.read(settings.max_chunk_bytes + 1)
+    if len(annotated_bytes) > settings.max_chunk_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Annotated image exceeds maximum size of {settings.max_chunk_bytes} bytes",
+        )
+    if not annotated_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Annotated image must be a PNG file",
+        )
 
     normalized = [
         ScreenshotAnnotation(
@@ -693,21 +727,19 @@ def replace_screenshot_annotations(
         max_chunk_bytes=settings.max_chunk_bytes,
     )
     try:
-        if storage.exists(screenshot.storage_key):
-            annotated_bytes = render_annotated_png(
-                storage.read(screenshot.storage_key), stored
-            )
-            annotated_key = f"{screenshot.storage_key.rsplit('.', 1)[0]}-annotated.png"
-            annotated_path = storage.resolve_storage_key(annotated_key)
-            annotated_path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = annotated_path.with_suffix(".tmp")
-            temporary.write_bytes(annotated_bytes)
-            temporary.replace(annotated_path)
-            repo.update_screenshot_annotation(screenshot_id, annotated_key, "redacted")
-        else:
-            repo.update_screenshot_annotation(screenshot_id, None, "failed")
-    except Exception:
+        annotated_key = f"{screenshot.storage_key.rsplit('.', 1)[0]}-annotated.png"
+        annotated_path = storage.resolve_storage_key(annotated_key)
+        annotated_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = annotated_path.with_suffix(".tmp")
+        temporary.write_bytes(annotated_bytes)
+        temporary.replace(annotated_path)
+        repo.update_screenshot_annotation(screenshot_id, annotated_key, "redacted")
+    except Exception as exc:
         repo.update_screenshot_annotation(screenshot_id, None, "failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not save annotated image",
+        ) from exc
 
     return ScreenshotEvidence(
         id=screenshot.id,

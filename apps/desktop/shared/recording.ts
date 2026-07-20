@@ -324,7 +324,8 @@ export interface RecordingApi {
   saveScreenshotAnnotations: (
     backendSessionId: string,
     screenshotId: string,
-    annotations: AnnotationInput[]
+    annotations: AnnotationInput[],
+    annotatedImage: ArrayBuffer
   ) => Promise<BackendScreenshotEvidence>
   deleteScreenshot: (backendSessionId: string, screenshotId: string) => Promise<void>
   saveManualReview: (

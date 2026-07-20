@@ -106,6 +106,197 @@ function pct(value: number, dim: number): string {
   return `${(value / dim) * 100}%`
 }
 
+function rgba(rgb: string, alpha: number): string {
+  return `rgba(${rgb}, ${alpha})`
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Could not load screenshot image.'))
+    image.src = src
+  })
+}
+
+function roundedRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  const r = Math.min(radius, width / 2, height / 2)
+  context.beginPath()
+  context.moveTo(x + r, y)
+  context.lineTo(x + width - r, y)
+  context.quadraticCurveTo(x + width, y, x + width, y + r)
+  context.lineTo(x + width, y + height - r)
+  context.quadraticCurveTo(x + width, y + height, x + width - r, y + height)
+  context.lineTo(x + r, y + height)
+  context.quadraticCurveTo(x, y + height, x, y + height - r)
+  context.lineTo(x, y + r)
+  context.quadraticCurveTo(x, y, x + r, y)
+  context.closePath()
+}
+
+function drawCanvasBox(
+  context: CanvasRenderingContext2D,
+  bounds: Bounds,
+  rgb: string,
+  rounded: boolean
+) {
+  context.save()
+  const x = bounds.x
+  const y = bounds.y
+  const width = bounds.width
+  const height = bounds.height
+  const halo = 6
+
+  context.lineWidth = 3
+  context.strokeStyle = rgba(rgb, 0.24)
+  if (rounded) {
+    roundedRect(context, x - halo, y - halo, width + halo * 2, height + halo * 2, 12)
+  } else {
+    context.beginPath()
+    context.rect(x - halo, y - halo, width + halo * 2, height + halo * 2)
+  }
+  context.stroke()
+
+  context.fillStyle = rgba(rgb, 0.18)
+  context.strokeStyle = rgba(rgb, 0.88)
+  if (rounded) {
+    roundedRect(context, x, y, width, height, 8)
+  } else {
+    context.beginPath()
+    context.rect(x, y, width, height)
+  }
+  context.fill()
+  context.stroke()
+  context.restore()
+}
+
+function wrapCanvasText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number
+): string[] {
+  const lines: string[] = []
+  for (const rawLine of text.split(/\r?\n/)) {
+    const words = rawLine.split(/\s+/).filter(Boolean)
+    if (words.length === 0) {
+      lines.push('')
+      continue
+    }
+    let current = ''
+    for (const word of words) {
+      const candidate = `${current} ${word}`.trim()
+      if (current && context.measureText(candidate).width > maxWidth) {
+        lines.push(current)
+        current = word
+      } else {
+        current = candidate
+      }
+    }
+    if (current) lines.push(current)
+  }
+  return lines.length ? lines : [text]
+}
+
+function trimCanvasLine(
+  context: CanvasRenderingContext2D,
+  line: string,
+  maxWidth: number
+): string {
+  if (context.measureText(line).width <= maxWidth) return line
+  let trimmed = line
+  while (trimmed && context.measureText(`${trimmed}…`).width > maxWidth) {
+    trimmed = trimmed.slice(0, -1)
+  }
+  return trimmed ? `${trimmed}…` : '…'
+}
+
+function drawCanvasTextBox(context: CanvasRenderingContext2D, bounds: Bounds, rgb: string, label?: string | null) {
+  const x = bounds.x
+  const y = bounds.y
+  const width = Math.max(80, bounds.width)
+  const height = Math.max(32, bounds.height)
+  const fontSize = Math.round(Math.min(72, Math.max(32, Math.min(height * 0.55, width * 0.16))))
+  const paddingX = Math.max(16, Math.round(fontSize * 0.65))
+  const paddingY = Math.max(12, Math.round(fontSize * 0.45))
+  const lineHeight = Math.round(fontSize * 1.25)
+  const maxTextWidth = Math.max(20, width - paddingX * 2)
+  const maxLines = Math.max(1, Math.floor((height - paddingY * 2) / lineHeight))
+
+  context.save()
+  context.fillStyle = 'rgba(8, 8, 8, 0.84)'
+  context.strokeStyle = rgba(rgb, 0.92)
+  context.lineWidth = Math.max(3, Math.round(fontSize * 0.12))
+  roundedRect(context, x, y, width, height, Math.max(10, Math.round(fontSize * 0.45)))
+  context.fill()
+  context.stroke()
+
+  context.font = `700 ${fontSize}px Inter, Arial, sans-serif`
+  context.fillStyle = 'rgba(255, 255, 255, 0.96)'
+  context.textBaseline = 'top'
+
+  const text = (label || 'Note').trim() || 'Note'
+  const lines = wrapCanvasText(context, text, maxTextWidth).slice(0, maxLines)
+  const fitted = lines.map((line, index) =>
+    index === lines.length - 1 ? trimCanvasLine(context, line, maxTextWidth) : line
+  )
+  fitted.forEach((line, index) => {
+    context.fillText(line, x + paddingX, y + paddingY + index * lineHeight)
+  })
+  context.restore()
+}
+
+async function renderAnnotatedPng(
+  evidence: BackendScreenshotEvidence,
+  url: string,
+  annotations: AnnotationInput[]
+): Promise<ArrayBuffer> {
+  const [baseImage, pointerImage] = await Promise.all([loadImage(url), loadImage(pointerUrl)])
+  const canvas = document.createElement('canvas')
+  canvas.width = evidence.width
+  canvas.height = evidence.height
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Could not create image renderer.')
+
+  context.drawImage(baseImage, 0, 0, evidence.width, evidence.height)
+
+  for (const annotation of annotations) {
+    const style = TYPE_STYLES[annotation.type] ?? TYPE_STYLES.click_rectangle
+    const bounds = annotation.bounds
+    if (annotation.type === 'click_rectangle') {
+      const tx = bounds.x + bounds.width / 2
+      const ty = bounds.y + bounds.height / 2
+      const croppedEdge = Math.max(48, Math.min(evidence.width, evidence.height) / 18)
+      const originalEdge = croppedEdge * (POINTER_ORIGINAL_EDGE / POINTER_CROPPED_MAX_EDGE)
+      context.drawImage(
+        pointerImage,
+        tx - originalEdge * POINTER_HOTSPOT_X,
+        ty - originalEdge * POINTER_HOTSPOT_Y,
+        originalEdge,
+        originalEdge
+      )
+    } else if (annotation.type === 'text_box') {
+      drawCanvasTextBox(context, bounds, style.rgb, annotation.label)
+    } else {
+      drawCanvasBox(context, bounds, style.rgb, annotation.type !== 'manual_box')
+    }
+  }
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((nextBlob) => {
+      if (nextBlob) resolve(nextBlob)
+      else reject(new Error('Could not render annotated PNG.'))
+    }, 'image/png')
+  })
+  return blob.arrayBuffer()
+}
+
 /** Renders the highlight visual (arrow for clicks, glow box otherwise). */
 function AnnotationVisual({ anno, width, height }: { anno: VisualAnno; width: number; height: number }) {
   const style = TYPE_STYLES[anno.type] ?? TYPE_STYLES.click_rectangle
@@ -469,8 +660,9 @@ function ScreenshotFrame({
  *
  * The editor (toggle via the toolbar) lets the user drag highlights to fix
  * imprecise placements, apply a global (x, y) offset across every frame, clear
- * highlights and draw manual boxes. Saving persists the edited sets and
- * re-bakes the backend's annotated PNGs.
+ * highlights and draw manual boxes. Saving persists the edited sets plus the
+ * final annotated PNG rendered by this editor, so the backend stores exactly
+ * what the reviewer saw.
  */
 function ToolButton({
   active,
@@ -760,10 +952,14 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
     try {
       for (const id of dirty) {
         const annotations = edits[id] ?? []
+        const frame = screenshots.find((item) => item.evidence.id === id)
+        if (!frame) continue
+        const annotatedImage = await renderAnnotatedPng(frame.evidence, frame.url, annotations)
         const saved = await window.api.recording.saveScreenshotAnnotations(
           remoteSessionId,
           id,
-          annotations
+          annotations,
+          annotatedImage
         )
         setScreenshots((prev) =>
           prev.map((item) => (item.evidence.id === id ? { ...item, evidence: saved } : item))

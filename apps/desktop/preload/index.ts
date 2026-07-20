@@ -98,13 +98,15 @@ contextBridge.exposeInMainWorld('api', {
     saveScreenshotAnnotations: (
       backendSessionId: string,
       screenshotId: string,
-      annotations: AnnotationInput[]
+      annotations: AnnotationInput[],
+      annotatedImage: ArrayBuffer
     ) =>
       ipcRenderer.invoke(
         recordingIpc.saveScreenshotAnnotations,
         backendSessionId,
         screenshotId,
-        annotations
+        annotations,
+        annotatedImage
       ) as Promise<BackendScreenshotEvidence>,
     deleteScreenshot: (backendSessionId: string, screenshotId: string) =>
       ipcRenderer.invoke(recordingIpc.deleteScreenshot, backendSessionId, screenshotId),

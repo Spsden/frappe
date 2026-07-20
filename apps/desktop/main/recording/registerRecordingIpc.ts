@@ -63,8 +63,14 @@ export function registerRecordingIpc(
       _event,
       backendSessionId: string,
       screenshotId: string,
-      annotations: AnnotationInput[]
-    ) => library.saveScreenshotAnnotations(backendSessionId, screenshotId, annotations)
+      annotations: AnnotationInput[],
+      annotatedImage: ArrayBuffer
+    ) => library.saveScreenshotAnnotations(
+      backendSessionId,
+      screenshotId,
+      annotations,
+      annotatedImage
+    )
   )
   ipcMain.handle(
     recordingIpc.deleteScreenshot,

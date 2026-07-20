@@ -62,9 +62,15 @@ export class RecordingLibraryService {
   async saveScreenshotAnnotations(
     backendSessionId: string,
     screenshotId: string,
-    annotations: AnnotationInput[]
+    annotations: AnnotationInput[],
+    annotatedImage: ArrayBuffer
   ): Promise<BackendScreenshotEvidence> {
-    return this.apiClient.saveScreenshotAnnotations(backendSessionId, screenshotId, annotations)
+    return this.apiClient.saveScreenshotAnnotations(
+      backendSessionId,
+      screenshotId,
+      annotations,
+      annotatedImage
+    )
   }
 
   async deleteScreenshot(backendSessionId: string, screenshotId: string): Promise<void> {

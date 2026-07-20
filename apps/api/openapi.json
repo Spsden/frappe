@@ -1146,7 +1146,7 @@
           "sessions"
         ],
         "summary": "Replace Screenshot Annotations",
-        "description": "Replace a screenshot's annotation set with the user-edited/manual set.\n\nThe supplied set becomes the authoritative annotations for the frame\n(overriding event-derived highlights), and the ``*-annotated.png`` is\nre-baked so the stored imagery matches the on-screen overlays. The raw\nscreenshot is preserved.",
+        "description": "Replace a screenshot's annotation set with the user-edited/manual set.\n\nThe supplied set becomes the authoritative annotations for the frame\n(overriding event-derived highlights). The Electron editor sends the final\nannotated PNG it rendered, so the backend stores the reviewed image without\nre-rendering it and risking renderer drift. The raw screenshot is preserved.",
         "operationId": "replace_screenshot_annotations_sessions__session_id__screenshots__screenshot_id__annotations_put",
         "security": [
           {
@@ -1195,9 +1195,9 @@
         "requestBody": {
           "required": true,
           "content": {
-            "application/json": {
+            "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/ScreenshotAnnotationSet"
+                "$ref": "#/components/schemas/Body_replace_screenshot_annotations_sessions__session_id__screenshots__screenshot_id__annotations_put"
               }
             }
           }
@@ -2154,6 +2154,25 @@
           "account"
         ],
         "title": "AuthSession"
+      },
+      "Body_replace_screenshot_annotations_sessions__session_id__screenshots__screenshot_id__annotations_put": {
+        "properties": {
+          "annotations": {
+            "type": "string",
+            "title": "Annotations"
+          },
+          "annotated_image": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Annotated Image"
+          }
+        },
+        "type": "object",
+        "required": [
+          "annotations",
+          "annotated_image"
+        ],
+        "title": "Body_replace_screenshot_annotations_sessions__session_id__screenshots__screenshot_id__annotations_put"
       },
       "Body_upload_recording_chunk_recordings__recording_id__chunks__chunk_index__put": {
         "properties": {
@@ -3238,83 +3257,6 @@
         ],
         "title": "ScreenshotAnnotation",
         "description": "A single renderable highlight on a screenshot (Phase 3 overlay source).\n\n``event_id``/``event_type`` are optional because a ``manual_box`` highlight\nis authored by the user in the evidence editor and is not tied to a recorded\ninput event."
-      },
-      "ScreenshotAnnotationInput": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "click_rectangle",
-              "scroll_focus",
-              "pointer_focus",
-              "manual_box",
-              "text_box"
-            ],
-            "title": "Type"
-          },
-          "bounds": {
-            "$ref": "#/components/schemas/TargetBounds"
-          },
-          "label": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 500
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Label"
-          },
-          "role": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 100
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Role"
-          },
-          "source": {
-            "type": "string",
-            "enum": [
-              "event_pointer",
-              "fallback_coordinate",
-              "accessibility",
-              "manual"
-            ],
-            "title": "Source",
-            "default": "manual"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "type",
-          "bounds"
-        ],
-        "title": "ScreenshotAnnotationInput",
-        "description": "Author-supplied annotation for the evidence editor save flow. Only the\nrenderable fields are accepted; server-side bookkeeping (coordinate space,\nconfidence) is normalized by the endpoint."
-      },
-      "ScreenshotAnnotationSet": {
-        "properties": {
-          "annotations": {
-            "items": {
-              "$ref": "#/components/schemas/ScreenshotAnnotationInput"
-            },
-            "type": "array",
-            "maxItems": 50,
-            "title": "Annotations"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "ScreenshotAnnotationSet",
-        "description": "Full replacement set of annotations for a single screenshot. An empty\nlist means \"cleared\" (no highlights). Once saved, this set is the\nauthoritative source for the frame, overriding event-derived annotations."
       },
       "ScreenshotEvidence": {
         "properties": {

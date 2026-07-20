@@ -222,14 +222,24 @@ export class WorkTraceApiClient {
   async saveScreenshotAnnotations(
     sessionId: string,
     screenshotId: string,
-    annotations: AnnotationInput[]
+    annotations: AnnotationInput[],
+    annotatedImage: ArrayBuffer
   ): Promise<BackendScreenshotEvidence> {
+    const filePayload: Uint8Array<ArrayBuffer> = new Uint8Array(annotatedImage.byteLength)
+    filePayload.set(new Uint8Array(annotatedImage))
+    const form = new FormData()
+    form.set('annotations', JSON.stringify(annotations))
+    form.set(
+      'annotated_image',
+      new Blob([filePayload], { type: 'image/png' }),
+      `${screenshotId}-annotated.png`
+    )
+
     const response = await this.request(
       `/sessions/${sessionId}/screenshots/${screenshotId}/annotations`,
       {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ annotations })
+        body: form
       }
     )
     return (await response.json()) as BackendScreenshotEvidence

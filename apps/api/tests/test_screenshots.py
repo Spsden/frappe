@@ -8,6 +8,7 @@ They cover the two overlay-rendering endpoints:
 """
 
 import hashlib
+import json
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -237,6 +238,29 @@ def _valid_png_bytes(width: int = 1280, height: int = 720) -> bytes:
     return buffer.getvalue()
 
 
+def _put_annotations(
+    client,
+    session_id: UUID,
+    screenshot_id: UUID,
+    annotations: list[dict],
+    *,
+    headers: dict[str, str] | None = None,
+    annotated_png: bytes | None = None,
+):
+    return client.put(
+        f"/sessions/{session_id}/screenshots/{screenshot_id}/annotations",
+        data={"annotations": json.dumps(annotations)},
+        files={
+            "annotated_image": (
+                "annotated.png",
+                annotated_png or _valid_png_bytes(),
+                "image/png",
+            )
+        },
+        headers=headers,
+    )
+
+
 def test_replace_annotations_overrides_event_derived(client):
     session_id, screenshot_id, _event_id = _seed_session_with_screenshot()
 
@@ -244,18 +268,17 @@ def test_replace_annotations_overrides_event_derived(client):
     response = client.get(f"/sessions/{session_id}/screenshots", headers=auth_headers())
     assert response.json()[0]["annotations"][0]["type"] == "click_rectangle"
 
-    payload = {
-        "annotations": [
+    response = _put_annotations(
+        client,
+        session_id,
+        screenshot_id,
+        [
             {
                 "type": "manual_box",
                 "bounds": {"x": 10.0, "y": 20.0, "width": 100.0, "height": 50.0},
                 "label": "Drawn box",
             }
-        ]
-    }
-    response = client.put(
-        f"/sessions/{session_id}/screenshots/{screenshot_id}/annotations",
-        json=payload,
+        ],
         headers=auth_headers(),
     )
     assert response.status_code == 200
@@ -276,11 +299,7 @@ def test_replace_annotations_overrides_event_derived(client):
 def test_replace_annotations_clear_removes_all_highlights(client):
     session_id, screenshot_id, _event_id = _seed_session_with_screenshot()
 
-    response = client.put(
-        f"/sessions/{session_id}/screenshots/{screenshot_id}/annotations",
-        json={"annotations": []},
-        headers=auth_headers(),
-    )
+    response = _put_annotations(client, session_id, screenshot_id, [], headers=auth_headers())
     assert response.status_code == 200
     assert response.json()["annotations"] == []
 
@@ -289,7 +308,7 @@ def test_replace_annotations_clear_removes_all_highlights(client):
     assert response.json()[0]["annotations"] == []
 
 
-def test_replace_annotations_rebakes_annotated_png(client):
+def test_replace_annotations_stores_uploaded_annotated_png(client):
     session_id, screenshot_id, _event_id = _seed_session_with_screenshot()
 
     # overwrite the seeded stub PNG with a real, renderable image
@@ -300,8 +319,12 @@ def test_replace_annotations_rebakes_annotated_png(client):
     storage_key = f"{TENANT}/{session_id}/{screenshot_id}.png"
     storage.resolve_storage_key(storage_key).write_bytes(_valid_png_bytes())
 
-    payload = {
-        "annotations": [
+    annotated_png = _valid_png_bytes(width=640, height=360)
+    response = _put_annotations(
+        client,
+        session_id,
+        screenshot_id,
+        [
             {
                 "type": "click_rectangle",
                 "bounds": {"x": 100.0, "y": 100.0, "width": 80.0, "height": 60.0},
@@ -315,16 +338,13 @@ def test_replace_annotations_rebakes_annotated_png(client):
                 "bounds": {"x": 440.0, "y": 260.0, "width": 160.0, "height": 64.0},
                 "label": "Check this total",
             },
-        ]
-    }
-    response = client.put(
-        f"/sessions/{session_id}/screenshots/{screenshot_id}/annotations",
-        json=payload,
+        ],
         headers=auth_headers(),
+        annotated_png=annotated_png,
     )
     assert response.status_code == 200
 
-    # the annotated PNG artifact was (re)written and the frame marked redacted
+    # the reviewed PNG artifact is stored exactly as uploaded by the client
     with SessionLocal() as db:
         record = db.scalar(
             select(ScreenshotRecord).where(ScreenshotRecord.id == str(screenshot_id))
@@ -335,7 +355,7 @@ def test_replace_annotations_rebakes_annotated_png(client):
         assert record.annotated_storage_key.endswith("-annotated.png")
         annotated_path = storage.resolve_storage_key(record.annotated_storage_key)
         assert annotated_path.exists()
-        assert annotated_path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+        assert annotated_path.read_bytes() == annotated_png
 
 
 def test_delete_session_screenshot_removes_row_and_files(client):
@@ -362,19 +382,18 @@ def test_delete_session_screenshot_removes_row_and_files(client):
 def test_replace_annotations_requires_auth(client):
     session_id, screenshot_id, _event_id = _seed_session_with_screenshot()
 
-    response = client.put(
-        f"/sessions/{session_id}/screenshots/{screenshot_id}/annotations",
-        json={"annotations": []},
-    )
+    response = _put_annotations(client, session_id, screenshot_id, [])
     assert response.status_code == 401
 
 
 def test_replace_annotations_404_for_unknown_screenshot(client):
     session_id, _screenshot_id, _event_id = _seed_session_with_screenshot()
 
-    response = client.put(
-        f"/sessions/{session_id}/screenshots/{uuid4()}/annotations",
-        json={"annotations": []},
+    response = _put_annotations(
+        client,
+        session_id,
+        uuid4(),
+        [],
         headers=auth_headers(),
     )
     assert response.status_code == 404
