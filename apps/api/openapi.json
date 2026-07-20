@@ -514,6 +514,156 @@
         }
       }
     },
+    "/recordings/{recording_id}/manual-review": {
+      "put": {
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Save Manual Review",
+        "operationId": "save_manual_review_recordings__recording_id__manual_review_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Recording Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualReviewUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recording"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recordings/{recording_id}/generate-sop": {
+      "post": {
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Generate Recording Sop",
+        "operationId": "generate_recording_sop_recordings__recording_id__generate_sop_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Recording Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingGenerateSOP"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recording"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recordings/{recording_id}/status": {
       "get": {
         "tags": [
@@ -1077,6 +1227,72 @@
       }
     },
     "/sessions/{session_id}/screenshots/{screenshot_id}": {
+      "delete": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Delete Session Screenshot",
+        "operationId": "delete_session_screenshot_sessions__session_id__screenshots__screenshot_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "screenshot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Screenshot Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "get": {
         "tags": [
           "sessions"
@@ -2400,6 +2616,37 @@
         ],
         "title": "LoginRequest"
       },
+      "ManualReviewUpdate": {
+        "properties": {
+          "transcript_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript Text"
+          },
+          "custom_instruction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Instruction"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ManualReviewUpdate"
+      },
       "Recording": {
         "properties": {
           "schema_version": {
@@ -2465,6 +2712,22 @@
           "has_audio": {
             "type": "boolean",
             "title": "Has Audio"
+          },
+          "manual_mode": {
+            "type": "boolean",
+            "title": "Manual Mode",
+            "default": false
+          },
+          "custom_sop_instruction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Sop Instruction"
           },
           "error_message": {
             "anyOf": [
@@ -2553,6 +2816,11 @@
             "type": "boolean",
             "title": "Has Audio",
             "default": false
+          },
+          "manual_mode": {
+            "type": "boolean",
+            "title": "Manual Mode",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -2561,6 +2829,25 @@
           "workflow_name"
         ],
         "title": "RecordingCreate"
+      },
+      "RecordingGenerateSOP": {
+        "properties": {
+          "custom_instruction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Instruction"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RecordingGenerateSOP"
       },
       "RecordingRetryRequest": {
         "properties": {
@@ -2591,6 +2878,7 @@
           "transcribing_audio",
           "processing_screenshots",
           "aligning_evidence",
+          "awaiting_manual_review",
           "generating_sop",
           "sop_failed",
           "ready_for_review",
@@ -2882,7 +3170,8 @@
               "click_rectangle",
               "scroll_focus",
               "pointer_focus",
-              "manual_box"
+              "manual_box",
+              "text_box"
             ],
             "title": "Type"
           },
@@ -2958,7 +3247,8 @@
               "click_rectangle",
               "scroll_focus",
               "pointer_focus",
-              "manual_box"
+              "manual_box",
+              "text_box"
             ],
             "title": "Type"
           },
