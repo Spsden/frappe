@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useConnection } from '../features/connection/useConnection'
@@ -19,6 +20,12 @@ const routeTitles: Record<string, string> = {
   '/sop-library': 'SOP Library',
   '/analytics': 'Analytics',
   '/settings': 'Settings'
+}
+
+const LAST_SESSION_PATH_KEY = 'worktrace:last-session-path'
+
+function isSessionDetailPath(pathname: string): boolean {
+  return /^\/sessions\/[^/]+(?:\/sop)?$/.test(pathname)
 }
 
 function NavIcon({ name }: { name: IconName }) {
@@ -77,6 +84,9 @@ function NavIcon({ name }: { name: IconName }) {
 
 export function AppShell() {
   const location = useLocation()
+  const [lastSessionPath, setLastSessionPath] = useState(() =>
+    sessionStorage.getItem(LAST_SESSION_PATH_KEY) ?? '/sessions'
+  )
   const pageTitle = routeTitles[location.pathname] ?? 'WorkTrace'
   const { status: connection } = useConnection()
   const health = useServices(connection.state === 'connected')
@@ -97,6 +107,16 @@ export function AppShell() {
           ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.55)]'
           : 'bg-white/30'
 
+  useEffect(() => {
+    if (isSessionDetailPath(location.pathname)) {
+      sessionStorage.setItem(LAST_SESSION_PATH_KEY, location.pathname)
+      setLastSessionPath(location.pathname)
+    } else if (location.pathname === '/sessions') {
+      sessionStorage.removeItem(LAST_SESSION_PATH_KEY)
+      setLastSessionPath('/sessions')
+    }
+  }, [location.pathname])
+
   return (
     <div className="min-h-screen bg-[#070707] text-white md:grid md:grid-cols-[240px_minmax(0,1fr)]">
       <aside className="border-b border-white/10 bg-[#1b1b1b] md:fixed md:inset-y-0 md:w-60 md:border-b-0 md:border-r">
@@ -109,23 +129,26 @@ export function AppShell() {
           </div>
 
           <nav className="flex gap-1 overflow-x-auto px-3 pb-4 md:flex-col md:overflow-visible md:pb-0">
-            {navigation.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  [
-                    'flex min-w-max items-center gap-3 rounded-md border-l-2 px-4 py-3 text-sm font-medium transition',
-                    isActive
-                      ? 'border-white bg-white/12 text-white'
-                      : 'border-transparent text-white/65 hover:bg-white/6 hover:text-white'
-                  ].join(' ')
-                }
-              >
-                <NavIcon name={item.icon} />
-                {item.label}
-              </NavLink>
-            ))}
+            {navigation.map((item) => {
+              const to = item.icon === 'sessions' ? lastSessionPath : item.to
+              return (
+                <NavLink
+                  key={item.to}
+                  to={to}
+                  className={({ isActive }) =>
+                    [
+                      'flex min-w-max items-center gap-3 rounded-md border-l-2 px-4 py-3 text-sm font-medium transition',
+                      isActive
+                        ? 'border-white bg-white/12 text-white'
+                        : 'border-transparent text-white/65 hover:bg-white/6 hover:text-white'
+                    ].join(' ')
+                  }
+                >
+                  <NavIcon name={item.icon} />
+                  {item.label}
+                </NavLink>
+              )
+            })}
           </nav>
 
           <div className="mt-auto hidden border-t border-white/10 p-5 md:block">
