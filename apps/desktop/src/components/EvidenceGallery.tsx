@@ -1,10 +1,11 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
   AnnotationInput,
   BackendAnnotation,
   BackendScreenshotEvidence
 } from '../../shared/recording'
+import pointerUrl from '../assets/pointer.png'
 
 interface EvidenceGalleryProps {
   remoteSessionId: string | null
@@ -19,6 +20,7 @@ interface LoadedScreenshot {
 type AnnotationType = AnnotationInput['type']
 type ToolMode = 'move' | 'box' | 'text' | 'erase'
 type Bounds = { x: number; y: number; width: number; height: number }
+type SelectedAnnotation = { screenshotId: string; index: number } | null
 type VisualAnno = {
   type: AnnotationType
   bounds: Bounds
@@ -56,6 +58,11 @@ const TYPE_STYLES: Record<AnnotationType, { rgb: string; tag: string; label: str
 }
 
 const MIN_SIZE = 8
+const MAX_HISTORY = 500
+const POINTER_ORIGINAL_EDGE = 2048
+const POINTER_CROPPED_MAX_EDGE = 1601
+const POINTER_HOTSPOT_X = 926 / POINTER_ORIGINAL_EDGE
+const POINTER_HOTSPOT_Y = 224 / POINTER_ORIGINAL_EDGE
 
 function toInput(annotation: BackendAnnotation): AnnotationInput {
   return {
@@ -95,61 +102,6 @@ function cloneEdits(edits: Record<string, AnnotationInput[]>): Record<string, An
   )
 }
 
-/**
- * Build a hand-drawn curved arrow that lands on the click target (tx, ty).
- * The shaft bows off-axis and the head's angle tracks the incoming tangent,
- * so the marker reads as an annotation rather than a rigid connector.
- * Origin sits to the lower-left of the target (flipped if it would collide)
- * and is clamped within the screenshot so the arrow never leaves the frame.
- */
-function buildHandArrow(
-  tx: number,
-  ty: number,
-  w: number,
-  h: number
-): { shaft: string; head: string } {
-  const margin = 30
-
-  let ox = tx - 150
-  let oy = ty + 120
-  ox = clamp(ox, margin, w - margin)
-  oy = clamp(oy, margin, h - margin)
-  if (Math.hypot(tx - ox, ty - oy) < 70) {
-    ox = clamp(tx + 150, margin, w - margin)
-    oy = clamp(ty - 120, margin, h - margin)
-  }
-
-  const dx = tx - ox
-  const dy = ty - oy
-  const len = Math.hypot(dx, dy) || 1
-  const ux = dx / len
-  const uy = dy / len
-  const perpX = -uy
-  const perpY = ux
-  const bow = Math.min(len * 0.22, 70)
-
-  const c1x = ox + ux * len * 0.35 + perpX * bow * 0.4
-  const c1y = oy + uy * len * 0.35 + perpY * bow * 0.4
-  const c2x = ox + ux * len * 0.7 + perpX * bow
-  const c2y = oy + uy * len * 0.7 + perpY * bow
-  const shaft = `M ${ox} ${oy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${tx} ${ty}`
-
-  const inLen = Math.hypot(tx - c2x, ty - c2y) || 1
-  const iux = (tx - c2x) / inLen
-  const iuy = (ty - c2y) / inLen
-  const headLen = Math.min(34, Math.max(18, len * 0.16))
-  const ang = (26 * Math.PI) / 180
-  const cosA = Math.cos(ang)
-  const sinA = Math.sin(ang)
-  const h1x = tx + (-iux * cosA + iuy * sinA) * headLen
-  const h1y = ty + (-iux * sinA - iuy * cosA) * headLen
-  const h2x = tx + (-iux * cosA - iuy * sinA) * headLen
-  const h2y = ty + (iux * sinA - iuy * cosA) * headLen
-  const head = `M ${h1x} ${h1y} L ${tx} ${ty} L ${h2x} ${h2y}`
-
-  return { shaft, head }
-}
-
 function pct(value: number, dim: number): string {
   return `${(value / dim) * 100}%`
 }
@@ -163,24 +115,22 @@ function AnnotationVisual({ anno, width, height }: { anno: VisualAnno; width: nu
   if (isArrow) {
     const tx = anno.bounds.x + anno.bounds.width / 2
     const ty = anno.bounds.y + anno.bounds.height / 2
-    const arrow = buildHandArrow(tx, ty, width, height)
+    const croppedEdge = Math.max(48, Math.min(width, height) / 18)
+    const originalEdge = croppedEdge * (POINTER_ORIGINAL_EDGE / POINTER_CROPPED_MAX_EDGE)
     return (
-      <svg
-        className="pointer-events-none absolute inset-0 h-full w-full"
-        viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
-        fill="none"
-      >
-        <path d={arrow.shaft} stroke={`rgba(${style.rgb}, 0.3)`} strokeWidth={12} strokeLinecap="round" />
-        <path d={arrow.shaft} stroke={`rgb(${style.rgb})`} strokeWidth={4.5} strokeLinecap="round" />
-        <path
-          d={arrow.head}
-          stroke={`rgb(${style.rgb})`}
-          strokeWidth={4.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+      <img
+        src={pointerUrl}
+        alt=""
+        draggable={false}
+        className="pointer-events-none absolute select-none"
+        style={{
+          left: pct(tx, width),
+          top: pct(ty, height),
+          width: pct(originalEdge, width),
+          height: pct(originalEdge, height),
+          transform: `translate(-${POINTER_HOTSPOT_X * 100}%, -${POINTER_HOTSPOT_Y * 100}%)`
+        }}
+      />
     )
   }
 
@@ -228,6 +178,12 @@ type DragState =
   | { mode: 'move'; index: number; start: Bounds; origin: Bounds }
   | { mode: 'resize'; index: number; corner: ResizeCorner; origin: Bounds }
   | { mode: 'draw'; index: number; start: Bounds; last: Bounds; annotationType: AnnotationType }
+type PaletteDragState = {
+  startX: number
+  startY: number
+  originX: number
+  originY: number
+}
 
 function resizeBounds(origin: Bounds, corner: ResizeCorner, px: number, py: number, w: number, h: number): Bounds {
   let { x, y, width, height } = origin
@@ -255,8 +211,10 @@ interface FrameProps {
   url: string
   editMode: boolean
   toolMode: ToolMode
+  selectedIndex: number | null
   annotations: AnnotationInput[]
   onChange: (next: AnnotationInput[]) => void
+  onSelect: (index: number | null) => void
   onClear: () => void
   onDelete: () => void
 }
@@ -266,8 +224,10 @@ function ScreenshotFrame({
   url,
   editMode,
   toolMode,
+  selectedIndex,
   annotations,
   onChange,
+  onSelect,
   onClear,
   onDelete
 }: FrameProps) {
@@ -299,6 +259,7 @@ function ScreenshotFrame({
 
   const removeAt = (index: number) => {
     onChange(annotationsRef.current.filter((_, i) => i !== index))
+    onSelect(null)
   }
 
   const handleMove = (event: PointerEvent) => {
@@ -341,16 +302,17 @@ function ScreenshotFrame({
     window.removeEventListener('pointerup', endDrag)
     dragRef.current = null
     if (drag?.mode === 'draw' && (drag.last.width < MIN_SIZE || drag.last.height < MIN_SIZE)) {
-      onChange(annotationsRef.current.filter((_, i) => i !== drag.index))
-    } else if (drag?.mode === 'draw' && drag.annotationType === 'text_box') {
-      const current = annotationsRef.current[drag.index]
-      const text = window.prompt('Text for this callout', current?.label || '')
-      if (text !== null) {
-        onChange(
-          annotationsRef.current.map((item, i) =>
-            i === drag.index ? { ...item, label: text.trim() || 'Note' } : item
+      if (drag.annotationType === 'text_box') {
+        replaceAt(
+          drag.index,
+          clampBounds(
+            { x: drag.start.x, y: drag.start.y, width: 220, height: 72 },
+            evidence.width,
+            evidence.height
           )
         )
+      } else {
+        onChange(annotationsRef.current.filter((_, i) => i !== drag.index))
       }
     }
   }
@@ -374,10 +336,11 @@ function ScreenshotFrame({
       {
         type: annotationType,
         bounds: start,
-        label: annotationType === 'text_box' ? 'Note' : null,
+        label: annotationType === 'text_box' ? '' : null,
         source: 'manual'
       }
     ])
+    onSelect(index)
     beginDrag(event, { mode: 'draw', index, start, last: start, annotationType })
   }
 
@@ -395,9 +358,7 @@ function ScreenshotFrame({
         <img src={url} alt={`Screenshot ${evidence.sequence}`} className="block w-full" />
         {/* highlight visuals (read + edit) */}
         {visuals.map((anno, i) => (
-          <Fragment key={`v-${i}`}>
-            <AnnotationVisual anno={anno} width={evidence.width} height={evidence.height} />
-          </Fragment>
+          <AnnotationVisual key={`v-${i}`} anno={anno} width={evidence.width} height={evidence.height} />
         ))}
         {/* draw capture layer */}
         {editMode && (toolMode === 'box' || toolMode === 'text') && (
@@ -412,11 +373,18 @@ function ScreenshotFrame({
           <>
             {annotations.map((item, index) => {
               const style = TYPE_STYLES[item.type] ?? TYPE_STYLES.click_rectangle
+              const selected = selectedIndex === index
+              const isText = item.type === 'text_box'
               return (
                 <div
                   key={`e-${index}`}
                   className={[
-                    'absolute border border-dashed border-white/70',
+                    'absolute border',
+                    isText
+                      ? 'border-transparent'
+                      : selected
+                        ? 'border-solid border-white/90'
+                        : 'border-dashed border-white/70',
                     toolMode === 'erase' ? 'cursor-not-allowed hover:bg-red-500/20' : 'cursor-move'
                   ].join(' ')}
                   style={{
@@ -432,6 +400,7 @@ function ScreenshotFrame({
                       removeAt(index)
                       return
                     }
+                    onSelect(index)
                     beginDrag(event, {
                       mode: 'move',
                       index,
@@ -440,7 +409,7 @@ function ScreenshotFrame({
                     })
                   }}
                 >
-                  {toolMode === 'move' &&
+                  {toolMode === 'move' && selected &&
                     (['nw', 'ne', 'sw', 'se'] as ResizeCorner[]).map((corner) => (
                       <span
                         key={corner}
@@ -450,9 +419,10 @@ function ScreenshotFrame({
                           top: corner.includes('n') ? '0%' : '100%',
                           backgroundColor: `rgb(${style.rgb})`
                         }}
-                        onPointerDown={(event) =>
+                        onPointerDown={(event) => {
+                          onSelect(index)
                           beginDrag(event, { mode: 'resize', index, corner, origin: { ...item.bounds } })
-                        }
+                        }}
                       />
                     ))}
                 </div>
@@ -534,6 +504,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
 
   const [editMode, setEditMode] = useState(false)
   const [toolMode, setToolMode] = useState<ToolMode>('move')
+  const [selectedAnnotation, setSelectedAnnotation] = useState<SelectedAnnotation>(null)
   const [edits, setEdits] = useState<Record<string, AnnotationInput[]>>({})
   const [dirty, setDirty] = useState<Set<string>>(new Set())
   const [history, setHistory] = useState<Record<string, AnnotationInput[]>[]>([])
@@ -541,6 +512,11 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
   const [saving, setSaving] = useState(false)
   const [offsetX, setOffsetX] = useState('')
   const [offsetY, setOffsetY] = useState('')
+  const [palettePosition, setPalettePosition] = useState(() => ({
+    x: typeof window === 'undefined' ? 24 : Math.max(24, window.innerWidth - 288),
+    y: 96
+  }))
+  const paletteDragRef = useRef<PaletteDragState | null>(null)
 
   useEffect(() => {
     if (!remoteSessionId) {
@@ -596,6 +572,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
     setHistory([])
     setFuture([])
     setToolMode('move')
+    setSelectedAnnotation(null)
     setEditMode(true)
   }
 
@@ -606,6 +583,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
     setDirty(new Set())
     setHistory([])
     setFuture([])
+    setSelectedAnnotation(null)
   }
 
   const markDirty = (id: string) => {
@@ -617,9 +595,69 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
     })
   }
 
+  const selectedInput =
+    selectedAnnotation ?
+      edits[selectedAnnotation.screenshotId]?.[selectedAnnotation.index] ?? null
+    : null
+
+  const selectedFrame = selectedAnnotation
+    ? screenshots.find((item) => item.evidence.id === selectedAnnotation.screenshotId)
+    : null
+
+  const updateSelectedAnnotation = (updater: (item: AnnotationInput) => AnnotationInput) => {
+    if (!selectedAnnotation || !selectedFrame) return
+    setEdits((prev) => {
+      const list = prev[selectedAnnotation.screenshotId]
+      const current = list?.[selectedAnnotation.index]
+      if (!list || !current) return prev
+      setHistory((historyItems) => [
+        ...historyItems.slice(-(MAX_HISTORY - 1)),
+        cloneEdits(prev)
+      ])
+      setFuture([])
+      return {
+        ...prev,
+        [selectedAnnotation.screenshotId]: list.map((item, index) =>
+          index === selectedAnnotation.index ? updater(item) : item
+        )
+      }
+    })
+    markDirty(selectedAnnotation.screenshotId)
+  }
+
+  const beginPaletteDrag = (event: React.PointerEvent) => {
+    event.preventDefault()
+    paletteDragRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: palettePosition.x,
+      originY: palettePosition.y
+    }
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const drag = paletteDragRef.current
+      if (!drag) return
+      const width = 240
+      const height = 360
+      setPalettePosition({
+        x: clamp(drag.originX + moveEvent.clientX - drag.startX, 8, window.innerWidth - width - 8),
+        y: clamp(drag.originY + moveEvent.clientY - drag.startY, 8, window.innerHeight - height)
+      })
+    }
+
+    const endDrag = () => {
+      paletteDragRef.current = null
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', endDrag)
+    }
+
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', endDrag)
+  }
+
   const handleFrameChange = (id: string, next: AnnotationInput[]) => {
     setEdits((prev) => {
-      setHistory((current) => [...current.slice(-49), cloneEdits(prev)])
+      setHistory((current) => [...current.slice(-(MAX_HISTORY - 1)), cloneEdits(prev)])
       setFuture([])
       return { ...prev, [id]: next }
     })
@@ -628,16 +666,17 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
 
   const clearFrame = (id: string) => {
     setEdits((prev) => {
-      setHistory((current) => [...current.slice(-49), cloneEdits(prev)])
+      setHistory((current) => [...current.slice(-(MAX_HISTORY - 1)), cloneEdits(prev)])
       setFuture([])
       return { ...prev, [id]: [] }
     })
     markDirty(id)
+    setSelectedAnnotation((current) => (current?.screenshotId === id ? null : current))
   }
 
   const clearAll = () => {
     setEdits((prev) => {
-      setHistory((current) => [...current.slice(-49), cloneEdits(prev)])
+      setHistory((current) => [...current.slice(-(MAX_HISTORY - 1)), cloneEdits(prev)])
       setFuture([])
       const next: Record<string, AnnotationInput[]> = {}
       for (const { evidence } of screenshots) next[evidence.id] = []
@@ -645,6 +684,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
     })
     setDirty(new Set(screenshots.map(({ evidence }) => evidence.id)))
     setToolMode('box')
+    setSelectedAnnotation(null)
   }
 
   const resetAll = () => {
@@ -657,12 +697,13 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
     setHistory([])
     setFuture([])
     setToolMode('move')
+    setSelectedAnnotation(null)
   }
 
   const undo = () => {
     const previous = history.at(-1)
     if (!previous) return
-    setFuture((nextFuture) => [cloneEdits(edits), ...nextFuture.slice(0, 49)])
+    setFuture((nextFuture) => [cloneEdits(edits), ...nextFuture.slice(0, MAX_HISTORY - 1)])
     setHistory((current) => current.slice(0, -1))
     setEdits(cloneEdits(previous))
     setDirty(new Set(screenshots.map(({ evidence }) => evidence.id)))
@@ -671,7 +712,10 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
   const redo = () => {
     const next = future[0]
     if (!next) return
-    setHistory((nextHistory) => [...nextHistory.slice(-49), cloneEdits(edits)])
+    setHistory((nextHistory) => [
+      ...nextHistory.slice(-(MAX_HISTORY - 1)),
+      cloneEdits(edits)
+    ])
     setFuture((current) => current.slice(1))
     setEdits(cloneEdits(next))
     setDirty(new Set(screenshots.map(({ evidence }) => evidence.id)))
@@ -682,7 +726,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
     const dy = Number(offsetY) || 0
     if (!dx && !dy) return
     setEdits((prev) => {
-      setHistory((current) => [...current.slice(-49), cloneEdits(prev)])
+      setHistory((current) => [...current.slice(-(MAX_HISTORY - 1)), cloneEdits(prev)])
       setFuture([])
       const next: Record<string, AnnotationInput[]> = {}
       for (const { evidence } of screenshots) {
@@ -731,6 +775,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
       setToolMode('move')
       setHistory([])
       setFuture([])
+      setSelectedAnnotation(null)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not save edits.')
     } finally {
@@ -761,6 +806,9 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
         next.delete(screenshotId)
         return next
       })
+      setSelectedAnnotation((current) =>
+        current?.screenshotId === screenshotId ? null : current
+      )
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not delete screenshot.')
     } finally {
@@ -798,8 +846,15 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
       )}
 
       {editMode && (
-        <aside className="fixed right-6 top-24 z-30 w-60 rounded-2xl border border-white/12 bg-[#090909]/95 p-4 shadow-[0_22px_80px_rgba(0,0,0,0.65)] backdrop-blur">
-          <div className="flex items-center justify-between">
+        <aside
+          className="fixed z-30 max-h-[calc(100vh-32px)] w-60 overflow-y-auto rounded-2xl border border-white/12 bg-[#090909]/95 p-4 shadow-[0_22px_80px_rgba(0,0,0,0.65)] backdrop-blur"
+          style={{ left: palettePosition.x, top: palettePosition.y }}
+        >
+          <div
+            className="flex cursor-move select-none items-center justify-between"
+            onPointerDown={beginPaletteDrag}
+            title="Drag editor panel"
+          >
             <div>
               <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">
                 Editor
@@ -823,6 +878,28 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
               Erase mark
             </ToolButton>
           </div>
+
+          {selectedInput?.type === 'text_box' && (
+            <div className="mt-4 rounded-xl border border-violet-300/15 bg-violet-400/[0.06] p-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-violet-200/70">
+                Selected text
+              </p>
+              <textarea
+                value={selectedInput.label ?? ''}
+                onChange={(event) =>
+                  updateSelectedAnnotation((item) => ({ ...item, label: event.target.value }))
+                }
+                placeholder="Type the note shown on this screenshot"
+                className="mt-2 min-h-24 w-full resize-y rounded-lg border border-white/10 bg-black/45 px-3 py-2 text-xs leading-5 text-white outline-none placeholder:text-white/25 focus:border-violet-300/45"
+              />
+            </div>
+          )}
+
+          {toolMode === 'text' && selectedInput?.type !== 'text_box' && (
+            <p className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-5 text-white/42">
+              Click or drag on a screenshot to place a note, then type here.
+            </p>
+          )}
 
           <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
             <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/38">
@@ -918,8 +995,12 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
             url={url}
             editMode={editMode}
             toolMode={toolMode}
+            selectedIndex={selectedAnnotation?.screenshotId === evidence.id ? selectedAnnotation.index : null}
             annotations={annotations}
             onChange={(next) => handleFrameChange(evidence.id, next)}
+            onSelect={(index) =>
+              setSelectedAnnotation(index === null ? null : { screenshotId: evidence.id, index })
+            }
             onClear={() => clearFrame(evidence.id)}
             onDelete={() => void deleteFrame(evidence.id)}
           />
