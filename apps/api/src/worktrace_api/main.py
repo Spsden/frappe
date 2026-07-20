@@ -662,15 +662,7 @@ async def replace_screenshot_annotations(
     (overriding event-derived highlights). The Electron editor sends the final
     annotated PNG it rendered, so the backend stores the reviewed image without
     re-rendering it and risking renderer drift. The raw screenshot is preserved."""
-    require_session(repo, session_id)
-    screenshot = next(
-        (
-            item
-            for item in repo.get_screenshots_for_session(session_id)
-            if item.id == screenshot_id
-        ),
-        None,
-    )
+    screenshot = repo.get_screenshot(session_id, screenshot_id)
     if screenshot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
 
@@ -785,15 +777,7 @@ def get_session_screenshot_image(
     repo: Repository = Depends(repository),
 ) -> Response:
     """Serve the raw screenshot bytes for overlay rendering or annotated bytes for SOP."""
-    require_session(repo, session_id)
-    screenshot = next(
-        (
-            item
-            for item in repo.get_screenshots_for_session(session_id)
-            if item.id == screenshot_id
-        ),
-        None,
-    )
+    screenshot = repo.get_screenshot(session_id, screenshot_id)
     if screenshot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
     storage = ChunkStorage(

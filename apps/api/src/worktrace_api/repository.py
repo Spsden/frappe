@@ -357,6 +357,15 @@ class Repository:
         ).all()
         return [self._screenshot_from_record(r) for r in records]
 
+    def get_screenshot(self, session_id: UUID, screenshot_id: UUID) -> Screenshot | None:
+        record = self.db.scalar(
+            tenant_query(ScreenshotRecord, self.tenant_id).where(
+                ScreenshotRecord.session_id == str(session_id),
+                ScreenshotRecord.id == str(screenshot_id),
+            )
+        )
+        return self._screenshot_from_record(record) if record else None
+
     def update_screenshot_annotation(
         self, screenshot_id: UUID, annotated_key: str | None, status: str
     ) -> None:

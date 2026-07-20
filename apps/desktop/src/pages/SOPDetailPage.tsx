@@ -9,6 +9,7 @@ import {
   statusForSession
 } from '../features/recording/sessionStatus'
 import { StepProgress } from '../components/StepProgress'
+import { mapWithConcurrency } from '../utils/async'
 
 // ─── Markdown renderer (simple, no external deps) ────────────────────────────
 // Converts the LLM-generated Markdown document into safe HTML without any
@@ -381,8 +382,10 @@ export function SOPDetailPage() {
     const loadImages = async () => {
       setImagesLoading(true)
       const entries: Record<string, string> = {}
-      await Promise.all(
-        screenshotIds.map(async (screenshotId) => {
+      await mapWithConcurrency(
+        screenshotIds,
+        4,
+        async (screenshotId) => {
           try {
             const buffer = await window.api.recording.getSopScreenshotImage(
               sessionId,
@@ -396,7 +399,7 @@ export function SOPDetailPage() {
           } catch {
             // skip failed images
           }
-        })
+        }
       )
       if (!cancelled) {
         setImageUrls(entries)

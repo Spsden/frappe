@@ -5,6 +5,7 @@ import type {
   BackendAnnotation,
   BackendScreenshotEvidence
 } from '../../shared/recording'
+import { mapWithConcurrency } from '../utils/async'
 import pointerUrl from '../assets/pointer.png'
 
 interface EvidenceGalleryProps {
@@ -766,8 +767,10 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
       try {
         const evidence = await window.api.recording.getSessionScreenshots(remoteSessionId)
         if (cancelled) return
-        const loaded = await Promise.all(
-          evidence.map(async (item) => {
+        const loaded = await mapWithConcurrency(
+          evidence,
+          4,
+          async (item) => {
             const buffer = await window.api.recording.getScreenshotImage(
               remoteSessionId,
               item.id
@@ -776,7 +779,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
             const url = URL.createObjectURL(blob)
             objectUrls.push(url)
             return { evidence: item, url }
-          })
+          }
         )
         if (!cancelled) setScreenshots(loaded)
       } catch (caught) {
