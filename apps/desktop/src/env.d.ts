@@ -9,6 +9,7 @@ declare global {
     api: {
       getAppVersion: () => Promise<string>
       getSurajLol: () => Promise<string>
+      getKanakVersion: () => Promise<string>
       getSomeOtherThing: () => string
       connection: ConnectionApi
       recording: RecordingApi

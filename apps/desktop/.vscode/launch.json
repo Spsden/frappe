@@ -1,0 +1,46 @@
+{
+  // Debug the Electron MAIN + PRELOAD processes with breakpoints in TS source.
+  //
+  // Renderer (React) debugging: open DevTools in the running Electron window
+  // (View → Toggle Developer Tools, or Cmd+Opt+I).
+  //
+  // Setup: open THIS folder (apps/desktop) as the VS Code workspace root so
+  // ${workspaceFolder} resolves correctly.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Starts the dev bundle (creates .dev/WorkTrace AI.app if needed,
+      // watches main + preload, launches Electron with --inspect-brk=9229).
+      // Electron pauses at first line until the attach config connects.
+      "name": "Dev (inspect-brk :9229)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run debug",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      // Attaches the VS Code Node debugger to Electron's inspector port.
+      // sourceMaps + outFiles let breakpoints in main/**/*.ts bind to out/main/index.js.
+      "name": "Attach to Electron (:9229)",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "address": "localhost",
+      "cwd": "${workspaceFolder}",
+      "sourceMaps": true,
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/out/**/*"
+      ],
+      "timeout": 60000,
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ],
+  "compounds": [
+    {
+      // One-click: start the dev bundle AND attach. F5 with this selected.
+      "name": "Debug Electron (main + preload)",
+      "configurations": ["Dev (inspect-brk :9229)", "Attach to Electron (:9229)"]
+    }
+  ]
+}

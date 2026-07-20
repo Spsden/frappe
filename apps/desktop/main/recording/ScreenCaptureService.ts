@@ -145,6 +145,8 @@ export class ScreenCaptureService {
       return
     }
 
+
+    console.log("suraj is hereee");
     this.captureInProgress = true
 
     try {
@@ -174,7 +176,9 @@ export class ScreenCaptureService {
         this.options.thumbnailHeight
       )
 
-      this.runCalibration(now, changeScore)
+      // Calibration disabled temporarily so capture behavior uses the base
+      // threshold directly while we compare it against the newer adaptive logic.
+      // this.runCalibration(now, changeScore)
 
       // 4-D: input-gated sensitivity. Recent input means the user just acted —
       // expect a visual consequence, so use the base threshold. During idle,
