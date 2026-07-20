@@ -18,6 +18,7 @@ export type BackendRecordingStatus =
   | 'transcribing_audio'
   | 'processing_screenshots'
   | 'aligning_evidence'
+  | 'awaiting_manual_review'
   | 'generating_sop'
   | 'sop_failed'
   | 'ready_for_review'
@@ -80,6 +81,7 @@ export interface RecordingOptions {
   captureMode: CaptureMode
   displayId?: string
   recordAudio: boolean
+  manualMode: boolean
   audioTimesliceMs: number
   sampleIntervalMs: number
   settleDurationMs: number
@@ -102,6 +104,7 @@ export interface RecordingOptions {
 export const defaultRecordingOptions: RecordingOptions = {
   captureMode: 'full-desktop',
   recordAudio: true,
+  manualMode: false,
   audioTimesliceMs: 2500,
   sampleIntervalMs: 250,
   settleDurationMs: 400,
@@ -141,6 +144,8 @@ export interface BackendRecording {
   uploaded_chunk_count: number
   uploaded_bytes: number
   has_audio: boolean
+  manual_mode: boolean
+  custom_sop_instruction: string | null
   error_message: string | null
   created_at: string
   completed_at: string | null
@@ -176,7 +181,7 @@ export interface BackendWorkflowSession {
 export interface BackendAnnotation {
   event_id: string | null
   event_type: string | null
-  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus' | 'manual_box'
+  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus' | 'manual_box' | 'text_box'
   coordinate_space: 'screenshot_pixels' | 'global_screen'
   bounds: { x: number; y: number; width: number; height: number }
   confidence: number
@@ -187,7 +192,7 @@ export interface BackendAnnotation {
 
 /** Author-supplied annotation payload for the evidence editor save flow. */
 export interface AnnotationInput {
-  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus' | 'manual_box'
+  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus' | 'manual_box' | 'text_box'
   bounds: { x: number; y: number; width: number; height: number }
   label?: string | null
   role?: string | null
@@ -319,8 +324,19 @@ export interface RecordingApi {
   saveScreenshotAnnotations: (
     backendSessionId: string,
     screenshotId: string,
-    annotations: AnnotationInput[]
+    annotations: AnnotationInput[],
+    annotatedImage: ArrayBuffer
   ) => Promise<BackendScreenshotEvidence>
+  deleteScreenshot: (backendSessionId: string, screenshotId: string) => Promise<void>
+  saveManualReview: (
+    recordingId: string,
+    transcriptText: string | null,
+    customInstruction: string | null
+  ) => Promise<BackendRecording>
+  generateSop: (
+    recordingId: string,
+    customInstruction?: string | null
+  ) => Promise<BackendRecording>
   openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') => Promise<void>
   onStateChanged: (listener: (state: RecordingState) => void) => () => void
 }
@@ -342,6 +358,9 @@ export const recordingIpc = {
   getScreenshotImage: 'recording:get-screenshot-image',
   getSopScreenshotImage: 'recording:get-sop-screenshot-image',
   saveScreenshotAnnotations: 'recording:save-screenshot-annotations',
+  deleteScreenshot: 'recording:delete-screenshot',
+  saveManualReview: 'recording:save-manual-review',
+  generateSop: 'recording:generate-sop',
   openPermissionSettings: 'recording:open-permission-settings',
   stateChanged: 'recording:state-changed',
   frameSample: 'recording:frame-sample',

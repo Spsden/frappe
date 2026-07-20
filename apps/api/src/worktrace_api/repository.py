@@ -25,7 +25,9 @@ from worktrace_api.schemas import (
     Feedback,
     Recording,
     RecordingStatus,
+    RecordingTranscript,
     Screenshot,
+    TranscriptSegment,
     WorkflowSession,
 )
 
@@ -78,6 +80,7 @@ class Repository:
         source_type: CaptureSource,
         has_audio: bool,
         recording_id: UUID | None = None,
+        manual_mode: bool = False,
     ) -> Recording:
         recording_id = recording_id or uuid4()
         recording = Recording(
@@ -89,6 +92,7 @@ class Repository:
             uploaded_chunk_count=0,
             uploaded_bytes=0,
             has_audio=has_audio,
+            manual_mode=manual_mode,
             created_at=datetime.now(UTC),
         )
         self.db.add(
@@ -101,6 +105,7 @@ class Repository:
                 uploaded_chunk_count=0,
                 uploaded_bytes=0,
                 has_audio=has_audio,
+                manual_mode=manual_mode,
                 created_at=recording.created_at,
             )
         )
@@ -352,6 +357,15 @@ class Repository:
         ).all()
         return [self._screenshot_from_record(r) for r in records]
 
+    def get_screenshot(self, session_id: UUID, screenshot_id: UUID) -> Screenshot | None:
+        record = self.db.scalar(
+            tenant_query(ScreenshotRecord, self.tenant_id).where(
+                ScreenshotRecord.session_id == str(session_id),
+                ScreenshotRecord.id == str(screenshot_id),
+            )
+        )
+        return self._screenshot_from_record(record) if record else None
+
     def update_screenshot_annotation(
         self, screenshot_id: UUID, annotated_key: str | None, status: str
     ) -> None:
@@ -378,6 +392,27 @@ class Repository:
         if record:
             record.annotations = annotations
             self.db.commit()
+
+    def delete_screenshot(self, session_id: UUID, screenshot_id: UUID) -> Screenshot | None:
+        record = self.db.scalar(
+            tenant_query(ScreenshotRecord, self.tenant_id)
+            .where(
+                ScreenshotRecord.session_id == str(session_id),
+                ScreenshotRecord.id == str(screenshot_id),
+            )
+        )
+        if not record:
+            return None
+        screenshot = self._screenshot_from_record(record)
+        self.db.execute(
+            delete(ScreenshotRecord).where(
+                ScreenshotRecord.tenant_id == str(self.tenant_id),
+                ScreenshotRecord.session_id == str(session_id),
+                ScreenshotRecord.id == str(screenshot_id),
+            )
+        )
+        self.db.commit()
+        return screenshot
 
     def link_recording_session(
         self, recording_id: UUID, session_id: UUID, status: RecordingStatus
@@ -409,6 +444,71 @@ class Repository:
         record.error_message = error_message
         self.db.commit()
         return self._recording_from_record(record)
+
+    def set_recording_custom_instruction(
+        self, recording_id: UUID, custom_instruction: str | None
+    ) -> Recording | None:
+        record = self.db.scalar(
+            tenant_query(RecordingRecord, self.tenant_id).where(
+                RecordingRecord.id == str(recording_id)
+            )
+        )
+        if not record:
+            return None
+        record.custom_sop_instruction = custom_instruction.strip() if custom_instruction else None
+        record.error_message = None
+        self.db.commit()
+        return self._recording_from_record(record)
+
+    def save_manual_review(
+        self,
+        recording_id: UUID,
+        transcript_text: str | None = None,
+        custom_instruction: str | None = None,
+    ) -> Recording:
+        recording = self.db.scalar(
+            tenant_query(RecordingRecord, self.tenant_id).where(
+                RecordingRecord.id == str(recording_id)
+            )
+        )
+        if not recording:
+            raise LookupError("Recording not found")
+        if not recording.session_id:
+            raise ValueError("Recording has no processed session yet")
+
+        recording.custom_sop_instruction = (
+            custom_instruction.strip() if custom_instruction else None
+        )
+
+        if transcript_text is not None:
+            session = self.db.scalar(
+                tenant_query(WorkflowSessionRecord, self.tenant_id).where(
+                    WorkflowSessionRecord.id == recording.session_id
+                )
+            )
+            if not session:
+                raise LookupError("Session not found")
+            current = dict(session.transcript or {})
+            text = transcript_text.strip()
+            transcript = RecordingTranscript(
+                status="completed" if text or current else "not_recorded",
+                text=text,
+                segments=[
+                    TranscriptSegment(
+                        start_ms=0,
+                        end_ms=max(0, session.duration_ms),
+                        text=text,
+                    )
+                ]
+                if text
+                else [],
+                audio_chunk_count=int(current.get("audio_chunk_count") or 0),
+                audio_reference=current.get("audio_reference"),
+            )
+            session.transcript = transcript.model_dump(mode="json")
+
+        self.db.commit()
+        return self._recording_from_record(recording)
 
     def get_session(self, session_id: UUID) -> WorkflowSession | None:
         record = self.db.scalar(
@@ -640,6 +740,8 @@ class Repository:
                 "uploaded_chunk_count": record.uploaded_chunk_count,
                 "uploaded_bytes": record.uploaded_bytes,
                 "has_audio": record.has_audio,
+                "manual_mode": getattr(record, "manual_mode", False),
+                "custom_sop_instruction": getattr(record, "custom_sop_instruction", None),
                 "error_message": record.error_message,
                 "created_at": record.created_at,
                 "completed_at": record.completed_at,

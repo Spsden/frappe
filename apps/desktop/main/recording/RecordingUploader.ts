@@ -35,7 +35,8 @@ export class RecordingUploader {
     const remoteRecording = await this.apiClient.createRecording({
       id: manifest.id,
       workflowName: manifest.name,
-      hasAudio: audioChunks.length > 0
+      hasAudio: audioChunks.length > 0,
+      manualMode: Boolean(manifest.options.manualMode)
     })
 
     let chunkIndex = 0

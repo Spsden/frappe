@@ -4,6 +4,11 @@ import type { SettingsApi } from '../shared/settings'
 
 export {}
 
+declare module '*.png' {
+  const src: string
+  export default src
+}
+
 declare global {
   interface Window {
     api: {

@@ -29,11 +29,30 @@ export function RecorderCard() {
   const [audioEnabled, setAudioEnabled] = useState<boolean>(
     () => localStorage.getItem('worktrace:mic-enabled') !== 'false'
   )
+  const [manualMode, setManualMode] = useState(false)
   const [saveName, setSaveName] = useState('Untitled workflow')
 
   useEffect(() => {
     localStorage.setItem('worktrace:mic-enabled', String(audioEnabled))
   }, [audioEnabled])
+
+  useEffect(() => {
+    let active = true
+    const loadFlags = async () => {
+      try {
+        const flags = await window.api.settings.getFlags()
+        if (active) setManualMode(flags.manualMode)
+      } catch {
+        // Capture still works with default flags if settings cannot be read.
+      }
+    }
+    void loadFlags()
+    const off = window.api.settings.onFlagsChanged((flags) => setManualMode(flags.manualMode))
+    return () => {
+      active = false
+      off()
+    }
+  }, [])
   const { status } = state
   const isRecording = status === 'recording'
   const isPaused = status === 'paused'
@@ -60,8 +79,8 @@ export function RecorderCard() {
       return
     }
 
-    void start({ recordAudio: audioEnabled })
-  }, [audioEnabled, isAwaitingSave, isPaused, isRecording, start, stop])
+    void start({ recordAudio: audioEnabled, manualMode })
+  }, [audioEnabled, isAwaitingSave, isPaused, isRecording, manualMode, start, stop])
 
   const saveRecording = useCallback(() => {
     void save(saveName)
@@ -155,7 +174,9 @@ export function RecorderCard() {
               : 'Your desktop activity is being captured without microphone narration. Complete the workflow naturally, then stop when you are finished.'
             : isAwaitingSave
               ? 'Capture is stopped. Give this workflow a useful name, then save it for backend processing or discard the local evidence.'
-            : 'Click below to start recording your desktop activity. Audio narration can be enabled or disabled before capture starts.'}
+            : manualMode
+              ? 'Click below to capture evidence for manual review. SOP generation will wait until you approve the transcript and annotations.'
+              : 'Click below to start recording your desktop activity. Audio narration can be enabled or disabled before capture starts.'}
         </p>
 
         <button
@@ -293,6 +314,12 @@ export function RecorderCard() {
           </span>
           <span className="hidden h-5 w-px bg-white/15 sm:block" />
           <span>{audioEnabled ? 'Mic Audio On' : 'Mic Audio Off'}</span>
+          {manualMode && (
+            <>
+              <span className="hidden h-5 w-px bg-white/15 sm:block" />
+              <span>Manual Review On</span>
+            </>
+          )}
         </div>
       </div>
     </section>

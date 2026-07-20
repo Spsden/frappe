@@ -98,14 +98,31 @@ contextBridge.exposeInMainWorld('api', {
     saveScreenshotAnnotations: (
       backendSessionId: string,
       screenshotId: string,
-      annotations: AnnotationInput[]
+      annotations: AnnotationInput[],
+      annotatedImage: ArrayBuffer
     ) =>
       ipcRenderer.invoke(
         recordingIpc.saveScreenshotAnnotations,
         backendSessionId,
         screenshotId,
-        annotations
+        annotations,
+        annotatedImage
       ) as Promise<BackendScreenshotEvidence>,
+    deleteScreenshot: (backendSessionId: string, screenshotId: string) =>
+      ipcRenderer.invoke(recordingIpc.deleteScreenshot, backendSessionId, screenshotId),
+    saveManualReview: (
+      recordingId: string,
+      transcriptText: string | null,
+      customInstruction: string | null
+    ) =>
+      ipcRenderer.invoke(
+        recordingIpc.saveManualReview,
+        recordingId,
+        transcriptText,
+        customInstruction
+      ),
+    generateSop: (recordingId: string, customInstruction?: string | null) =>
+      ipcRenderer.invoke(recordingIpc.generateSop, recordingId, customInstruction ?? null),
     openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') =>
       ipcRenderer.invoke(recordingIpc.openPermissionSettings, permission),
     onStateChanged: (listener: (state: RecordingState) => void) => {

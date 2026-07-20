@@ -6,6 +6,11 @@ export interface ExperimentalFlags {
    * Off by default; Phase 3 coordinate-based capture is the baseline.
    */
   accessibilityCapture: boolean
+  /**
+   * Holds completed evidence after annotation/transcription so a human can
+   * adjust screenshots/transcript before LLM SOP generation starts.
+   */
+  manualMode: boolean
 }
 
 export type ExperimentalFlag = keyof ExperimentalFlags

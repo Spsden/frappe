@@ -3,7 +3,8 @@ import { dirname, join } from 'node:path'
 import type { ExperimentalFlags } from '../../shared/settings'
 
 const DEFAULT_FLAGS: ExperimentalFlags = {
-  accessibilityCapture: false
+  accessibilityCapture: false,
+  manualMode: false
 }
 
 /**
@@ -36,7 +37,8 @@ export class ExperimentalSettingsStore {
     try {
       const raw = JSON.parse(await readFile(this.settingsPath, 'utf8')) as Partial<ExperimentalFlags>
       return {
-        accessibilityCapture: Boolean(raw.accessibilityCapture)
+        accessibilityCapture: Boolean(raw.accessibilityCapture),
+        manualMode: Boolean(raw.manualMode)
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {

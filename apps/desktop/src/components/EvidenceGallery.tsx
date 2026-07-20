@@ -1,12 +1,16 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import type {
   AnnotationInput,
   BackendAnnotation,
   BackendScreenshotEvidence
 } from '../../shared/recording'
+import { mapWithConcurrency } from '../utils/async'
+import pointerUrl from '../assets/pointer.png'
 
 interface EvidenceGalleryProps {
   remoteSessionId: string | null
+  editable?: boolean
 }
 
 interface LoadedScreenshot {
@@ -15,7 +19,9 @@ interface LoadedScreenshot {
 }
 
 type AnnotationType = AnnotationInput['type']
+type ToolMode = 'move' | 'pointer' | 'box' | 'text' | 'erase'
 type Bounds = { x: number; y: number; width: number; height: number }
+type SelectedAnnotation = { screenshotId: string; index: number } | null
 type VisualAnno = {
   type: AnnotationType
   bounds: Bounds
@@ -44,10 +50,22 @@ const TYPE_STYLES: Record<AnnotationType, { rgb: string; tag: string; label: str
     rgb: '16, 185, 129',
     tag: 'bg-emerald-500/25 text-emerald-200',
     label: 'Box'
+  },
+  text_box: {
+    rgb: '168, 85, 247',
+    tag: 'bg-violet-500/25 text-violet-200',
+    label: 'Text'
   }
 }
 
 const MIN_SIZE = 8
+const MAX_HISTORY = 500
+const POINTER_ORIGINAL_EDGE = 2048
+const POINTER_CROPPED_MAX_EDGE = 1601
+const POINTER_HOTSPOT_X = 926 / POINTER_ORIGINAL_EDGE
+const POINTER_HOTSPOT_Y = 224 / POINTER_ORIGINAL_EDGE
+const CLICK_TARGET_WIDTH = 96
+const CLICK_TARGET_HEIGHT = 72
 
 function toInput(annotation: BackendAnnotation): AnnotationInput {
   return {
@@ -75,63 +93,224 @@ function clampBounds(bounds: Bounds, width: number, height: number): Bounds {
   }
 }
 
-/**
- * Build a hand-drawn curved arrow that lands on the click target (tx, ty).
- * The shaft bows off-axis and the head's angle tracks the incoming tangent,
- * so the marker reads as an annotation rather than a rigid connector.
- * Origin sits to the lower-left of the target (flipped if it would collide)
- * and is clamped within the screenshot so the arrow never leaves the frame.
- */
-function buildHandArrow(
-  tx: number,
-  ty: number,
-  w: number,
-  h: number
-): { shaft: string; head: string } {
-  const margin = 30
+function pointerBoundsAt(x: number, y: number, width: number, height: number): Bounds {
+  return clampBounds(
+    {
+      x: x - CLICK_TARGET_WIDTH / 2,
+      y: y - CLICK_TARGET_HEIGHT / 2,
+      width: CLICK_TARGET_WIDTH,
+      height: CLICK_TARGET_HEIGHT
+    },
+    width,
+    height
+  )
+}
 
-  let ox = tx - 150
-  let oy = ty + 120
-  ox = clamp(ox, margin, w - margin)
-  oy = clamp(oy, margin, h - margin)
-  if (Math.hypot(tx - ox, ty - oy) < 70) {
-    ox = clamp(tx + 150, margin, w - margin)
-    oy = clamp(ty - 120, margin, h - margin)
-  }
-
-  const dx = tx - ox
-  const dy = ty - oy
-  const len = Math.hypot(dx, dy) || 1
-  const ux = dx / len
-  const uy = dy / len
-  const perpX = -uy
-  const perpY = ux
-  const bow = Math.min(len * 0.22, 70)
-
-  const c1x = ox + ux * len * 0.35 + perpX * bow * 0.4
-  const c1y = oy + uy * len * 0.35 + perpY * bow * 0.4
-  const c2x = ox + ux * len * 0.7 + perpX * bow
-  const c2y = oy + uy * len * 0.7 + perpY * bow
-  const shaft = `M ${ox} ${oy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${tx} ${ty}`
-
-  const inLen = Math.hypot(tx - c2x, ty - c2y) || 1
-  const iux = (tx - c2x) / inLen
-  const iuy = (ty - c2y) / inLen
-  const headLen = Math.min(34, Math.max(18, len * 0.16))
-  const ang = (26 * Math.PI) / 180
-  const cosA = Math.cos(ang)
-  const sinA = Math.sin(ang)
-  const h1x = tx + (-iux * cosA + iuy * sinA) * headLen
-  const h1y = ty + (-iux * sinA - iuy * cosA) * headLen
-  const h2x = tx + (-iux * cosA - iuy * sinA) * headLen
-  const h2y = ty + (iux * sinA - iuy * cosA) * headLen
-  const head = `M ${h1x} ${h1y} L ${tx} ${ty} L ${h2x} ${h2y}`
-
-  return { shaft, head }
+function cloneEdits(edits: Record<string, AnnotationInput[]>): Record<string, AnnotationInput[]> {
+  return Object.fromEntries(
+    Object.entries(edits).map(([id, annotations]) => [
+      id,
+      annotations.map((annotation) => ({
+        ...annotation,
+        bounds: { ...annotation.bounds }
+      }))
+    ])
+  )
 }
 
 function pct(value: number, dim: number): string {
   return `${(value / dim) * 100}%`
+}
+
+function rgba(rgb: string, alpha: number): string {
+  return `rgba(${rgb}, ${alpha})`
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Could not load screenshot image.'))
+    image.src = src
+  })
+}
+
+function roundedRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  const r = Math.min(radius, width / 2, height / 2)
+  context.beginPath()
+  context.moveTo(x + r, y)
+  context.lineTo(x + width - r, y)
+  context.quadraticCurveTo(x + width, y, x + width, y + r)
+  context.lineTo(x + width, y + height - r)
+  context.quadraticCurveTo(x + width, y + height, x + width - r, y + height)
+  context.lineTo(x + r, y + height)
+  context.quadraticCurveTo(x, y + height, x, y + height - r)
+  context.lineTo(x, y + r)
+  context.quadraticCurveTo(x, y, x + r, y)
+  context.closePath()
+}
+
+function drawCanvasBox(
+  context: CanvasRenderingContext2D,
+  bounds: Bounds,
+  rgb: string,
+  rounded: boolean
+) {
+  context.save()
+  const x = bounds.x
+  const y = bounds.y
+  const width = bounds.width
+  const height = bounds.height
+  const halo = 6
+
+  context.lineWidth = 3
+  context.strokeStyle = rgba(rgb, 0.24)
+  if (rounded) {
+    roundedRect(context, x - halo, y - halo, width + halo * 2, height + halo * 2, 12)
+  } else {
+    context.beginPath()
+    context.rect(x - halo, y - halo, width + halo * 2, height + halo * 2)
+  }
+  context.stroke()
+
+  context.fillStyle = rgba(rgb, 0.18)
+  context.strokeStyle = rgba(rgb, 0.88)
+  if (rounded) {
+    roundedRect(context, x, y, width, height, 8)
+  } else {
+    context.beginPath()
+    context.rect(x, y, width, height)
+  }
+  context.fill()
+  context.stroke()
+  context.restore()
+}
+
+function wrapCanvasText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number
+): string[] {
+  const lines: string[] = []
+  for (const rawLine of text.split(/\r?\n/)) {
+    const words = rawLine.split(/\s+/).filter(Boolean)
+    if (words.length === 0) {
+      lines.push('')
+      continue
+    }
+    let current = ''
+    for (const word of words) {
+      const candidate = `${current} ${word}`.trim()
+      if (current && context.measureText(candidate).width > maxWidth) {
+        lines.push(current)
+        current = word
+      } else {
+        current = candidate
+      }
+    }
+    if (current) lines.push(current)
+  }
+  return lines.length ? lines : [text]
+}
+
+function trimCanvasLine(
+  context: CanvasRenderingContext2D,
+  line: string,
+  maxWidth: number
+): string {
+  if (context.measureText(line).width <= maxWidth) return line
+  let trimmed = line
+  while (trimmed && context.measureText(`${trimmed}…`).width > maxWidth) {
+    trimmed = trimmed.slice(0, -1)
+  }
+  return trimmed ? `${trimmed}…` : '…'
+}
+
+function drawCanvasTextBox(context: CanvasRenderingContext2D, bounds: Bounds, rgb: string, label?: string | null) {
+  const x = bounds.x
+  const y = bounds.y
+  const width = Math.max(80, bounds.width)
+  const height = Math.max(32, bounds.height)
+  const fontSize = Math.round(Math.min(72, Math.max(32, Math.min(height * 0.55, width * 0.16))))
+  const paddingX = Math.max(16, Math.round(fontSize * 0.65))
+  const paddingY = Math.max(12, Math.round(fontSize * 0.45))
+  const lineHeight = Math.round(fontSize * 1.25)
+  const maxTextWidth = Math.max(20, width - paddingX * 2)
+  const maxLines = Math.max(1, Math.floor((height - paddingY * 2) / lineHeight))
+
+  context.save()
+  context.fillStyle = 'rgba(8, 8, 8, 0.84)'
+  context.strokeStyle = rgba(rgb, 0.92)
+  context.lineWidth = Math.max(3, Math.round(fontSize * 0.12))
+  roundedRect(context, x, y, width, height, Math.max(10, Math.round(fontSize * 0.45)))
+  context.fill()
+  context.stroke()
+
+  context.font = `700 ${fontSize}px Inter, Arial, sans-serif`
+  context.fillStyle = 'rgba(255, 255, 255, 0.96)'
+  context.textBaseline = 'top'
+
+  const text = (label || 'Note').trim() || 'Note'
+  const lines = wrapCanvasText(context, text, maxTextWidth).slice(0, maxLines)
+  const fitted = lines.map((line, index) =>
+    index === lines.length - 1 ? trimCanvasLine(context, line, maxTextWidth) : line
+  )
+  fitted.forEach((line, index) => {
+    context.fillText(line, x + paddingX, y + paddingY + index * lineHeight)
+  })
+  context.restore()
+}
+
+async function renderAnnotatedPng(
+  evidence: BackendScreenshotEvidence,
+  url: string,
+  annotations: AnnotationInput[]
+): Promise<ArrayBuffer> {
+  const [baseImage, pointerImage] = await Promise.all([loadImage(url), loadImage(pointerUrl)])
+  const canvas = document.createElement('canvas')
+  canvas.width = evidence.width
+  canvas.height = evidence.height
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Could not create image renderer.')
+
+  context.drawImage(baseImage, 0, 0, evidence.width, evidence.height)
+
+  for (const annotation of annotations) {
+    const style = TYPE_STYLES[annotation.type] ?? TYPE_STYLES.click_rectangle
+    const bounds = annotation.bounds
+    if (annotation.type === 'click_rectangle') {
+      const tx = bounds.x + bounds.width / 2
+      const ty = bounds.y + bounds.height / 2
+      const croppedEdge = Math.max(48, Math.min(evidence.width, evidence.height) / 18)
+      const originalEdge = croppedEdge * (POINTER_ORIGINAL_EDGE / POINTER_CROPPED_MAX_EDGE)
+      context.drawImage(
+        pointerImage,
+        tx - originalEdge * POINTER_HOTSPOT_X,
+        ty - originalEdge * POINTER_HOTSPOT_Y,
+        originalEdge,
+        originalEdge
+      )
+    } else if (annotation.type === 'text_box') {
+      drawCanvasTextBox(context, bounds, style.rgb, annotation.label)
+    } else {
+      drawCanvasBox(context, bounds, style.rgb, annotation.type !== 'manual_box')
+    }
+  }
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((nextBlob) => {
+      if (nextBlob) resolve(nextBlob)
+      else reject(new Error('Could not render annotated PNG.'))
+    }, 'image/png')
+  })
+  return blob.arrayBuffer()
 }
 
 /** Renders the highlight visual (arrow for clicks, glow box otherwise). */
@@ -143,24 +322,40 @@ function AnnotationVisual({ anno, width, height }: { anno: VisualAnno; width: nu
   if (isArrow) {
     const tx = anno.bounds.x + anno.bounds.width / 2
     const ty = anno.bounds.y + anno.bounds.height / 2
-    const arrow = buildHandArrow(tx, ty, width, height)
+    const croppedEdge = Math.max(48, Math.min(width, height) / 18)
+    const originalEdge = croppedEdge * (POINTER_ORIGINAL_EDGE / POINTER_CROPPED_MAX_EDGE)
     return (
-      <svg
-        className="pointer-events-none absolute inset-0 h-full w-full"
-        viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
-        fill="none"
+      <img
+        src={pointerUrl}
+        alt=""
+        draggable={false}
+        className="pointer-events-none absolute select-none"
+        style={{
+          left: pct(tx, width),
+          top: pct(ty, height),
+          width: pct(originalEdge, width),
+          height: pct(originalEdge, height),
+          transform: `translate(-${POINTER_HOTSPOT_X * 100}%, -${POINTER_HOTSPOT_Y * 100}%)`
+        }}
+      />
+    )
+  }
+
+  if (anno.type === 'text_box') {
+    return (
+      <div
+        className="pointer-events-none absolute rounded-xl border border-violet-300/70 bg-black/80 px-3 py-2 shadow-[0_0_24px_rgba(168,85,247,0.3)]"
+        style={{
+          left: pct(anno.bounds.x, width),
+          top: pct(anno.bounds.y, height),
+          width: pct(anno.bounds.width, width),
+          minHeight: pct(anno.bounds.height, height)
+        }}
       >
-        <path d={arrow.shaft} stroke={`rgba(${style.rgb}, 0.3)`} strokeWidth={12} strokeLinecap="round" />
-        <path d={arrow.shaft} stroke={`rgb(${style.rgb})`} strokeWidth={4.5} strokeLinecap="round" />
-        <path
-          d={arrow.head}
-          stroke={`rgb(${style.rgb})`}
-          strokeWidth={4.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+        <p className="text-[11px] font-bold leading-4 text-white/90">
+          {anno.label || 'Note'}
+        </p>
+      </div>
     )
   }
 
@@ -189,7 +384,13 @@ type ResizeCorner = 'nw' | 'ne' | 'sw' | 'se'
 type DragState =
   | { mode: 'move'; index: number; start: Bounds; origin: Bounds }
   | { mode: 'resize'; index: number; corner: ResizeCorner; origin: Bounds }
-  | { mode: 'draw'; index: number; start: Bounds; last: Bounds }
+  | { mode: 'draw'; index: number; start: Bounds; last: Bounds; annotationType: AnnotationType }
+type PaletteDragState = {
+  startX: number
+  startY: number
+  originX: number
+  originY: number
+}
 
 function resizeBounds(origin: Bounds, corner: ResizeCorner, px: number, py: number, w: number, h: number): Bounds {
   let { x, y, width, height } = origin
@@ -216,13 +417,27 @@ interface FrameProps {
   evidence: BackendScreenshotEvidence
   url: string
   editMode: boolean
-  drawMode: boolean
+  toolMode: ToolMode
+  selectedIndex: number | null
   annotations: AnnotationInput[]
   onChange: (next: AnnotationInput[]) => void
+  onSelect: (index: number | null) => void
   onClear: () => void
+  onDelete: () => void
 }
 
-function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onChange, onClear }: FrameProps) {
+function ScreenshotFrame({
+  evidence,
+  url,
+  editMode,
+  toolMode,
+  selectedIndex,
+  annotations,
+  onChange,
+  onSelect,
+  onClear,
+  onDelete
+}: FrameProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
   // Mirror annotations into a ref so window-level pointer handlers (which
@@ -247,6 +462,11 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
 
   const replaceAt = (index: number, bounds: Bounds) => {
     onChange(annotationsRef.current.map((item, i) => (i === index ? { ...item, bounds } : item)))
+  }
+
+  const removeAt = (index: number) => {
+    onChange(annotationsRef.current.filter((_, i) => i !== index))
+    onSelect(null)
   }
 
   const handleMove = (event: PointerEvent) => {
@@ -289,7 +509,18 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
     window.removeEventListener('pointerup', endDrag)
     dragRef.current = null
     if (drag?.mode === 'draw' && (drag.last.width < MIN_SIZE || drag.last.height < MIN_SIZE)) {
-      onChange(annotationsRef.current.filter((_, i) => i !== drag.index))
+      if (drag.annotationType === 'text_box') {
+        replaceAt(
+          drag.index,
+          clampBounds(
+            { x: drag.start.x, y: drag.start.y, width: 220, height: 72 },
+            evidence.width,
+            evidence.height
+          )
+        )
+      } else {
+        onChange(annotationsRef.current.filter((_, i) => i !== drag.index))
+      }
     }
   }
 
@@ -302,12 +533,41 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
   }
 
   const beginDraw = (event: React.PointerEvent) => {
-    if (!drawMode) return
+    if (toolMode !== 'box' && toolMode !== 'text') return
     const { x, y } = toCoords(event.clientX, event.clientY)
     const start = { x, y, width: 0, height: 0 }
     const index = annotations.length
-    onChange([...annotations, { type: 'manual_box', bounds: start, source: 'manual' }])
-    beginDrag(event, { mode: 'draw', index, start, last: start })
+    const annotationType: AnnotationType = toolMode === 'text' ? 'text_box' : 'manual_box'
+    onChange([
+      ...annotations,
+      {
+        type: annotationType,
+        bounds: start,
+        label: annotationType === 'text_box' ? '' : null,
+        source: 'manual'
+      }
+    ])
+    onSelect(index)
+    beginDrag(event, { mode: 'draw', index, start, last: start, annotationType })
+  }
+
+  const addPointer = (event: React.PointerEvent) => {
+    if (toolMode !== 'pointer') return
+    event.preventDefault()
+    event.stopPropagation()
+    const { x, y } = toCoords(event.clientX, event.clientY)
+    const index = annotations.length
+    onChange([
+      ...annotations,
+      {
+        type: 'click_rectangle',
+        bounds: pointerBoundsAt(x, y, evidence.width, evidence.height),
+        label: null,
+        role: null,
+        source: 'manual'
+      }
+    ])
+    onSelect(index)
   }
 
   const visuals: VisualAnno[] = annotations.map((item) => ({
@@ -324,56 +584,80 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
         <img src={url} alt={`Screenshot ${evidence.sequence}`} className="block w-full" />
         {/* highlight visuals (read + edit) */}
         {visuals.map((anno, i) => (
-          <Fragment key={`v-${i}`}>
-            <AnnotationVisual anno={anno} width={evidence.width} height={evidence.height} />
-          </Fragment>
+          <AnnotationVisual key={`v-${i}`} anno={anno} width={evidence.width} height={evidence.height} />
         ))}
         {/* draw capture layer */}
-        {editMode && drawMode && (
+        {editMode && toolMode === 'pointer' && (
+          <div
+            className="absolute inset-0 cursor-copy"
+            onPointerDown={addPointer}
+            title="Click to add a pointer"
+          />
+        )}
+        {editMode && (toolMode === 'box' || toolMode === 'text') && (
           <div
             className="absolute inset-0 cursor-crosshair"
             onPointerDown={beginDraw}
-            title="Drag to draw a highlight box"
+            title={toolMode === 'text' ? 'Drag to add a text callout' : 'Drag to draw a highlight box'}
           />
         )}
         {/* edit handles (move/resize) */}
-        {editMode && !drawMode && (
+        {editMode && (toolMode === 'move' || toolMode === 'erase') && (
           <>
             {annotations.map((item, index) => {
               const style = TYPE_STYLES[item.type] ?? TYPE_STYLES.click_rectangle
+              const selected = selectedIndex === index
+              const isText = item.type === 'text_box'
               return (
                 <div
                   key={`e-${index}`}
-                  className="absolute cursor-move border border-dashed border-white/70"
+                  className={[
+                    'absolute border',
+                    isText
+                      ? 'border-transparent'
+                      : selected
+                        ? 'border-solid border-white/90'
+                        : 'border-dashed border-white/70',
+                    toolMode === 'erase' ? 'cursor-not-allowed hover:bg-red-500/20' : 'cursor-move'
+                  ].join(' ')}
                   style={{
                     left: pct(item.bounds.x, evidence.width),
                     top: pct(item.bounds.y, evidence.height),
                     width: pct(item.bounds.width, evidence.width),
                     height: pct(item.bounds.height, evidence.height)
                   }}
-                  onPointerDown={(event) =>
+                  onPointerDown={(event) => {
+                    if (toolMode === 'erase') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      removeAt(index)
+                      return
+                    }
+                    onSelect(index)
                     beginDrag(event, {
                       mode: 'move',
                       index,
                       start: toCoords(event.clientX, event.clientY),
                       origin: { ...item.bounds }
                     })
-                  }
+                  }}
                 >
-                  {(['nw', 'ne', 'sw', 'se'] as ResizeCorner[]).map((corner) => (
-                    <span
-                      key={corner}
-                      className="absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white"
-                      style={{
-                        left: corner.includes('w') ? '0%' : '100%',
-                        top: corner.includes('n') ? '0%' : '100%',
-                        backgroundColor: `rgb(${style.rgb})`
-                      }}
-                      onPointerDown={(event) =>
-                        beginDrag(event, { mode: 'resize', index, corner, origin: { ...item.bounds } })
-                      }
-                    />
-                  ))}
+                  {toolMode === 'move' && selected &&
+                    (['nw', 'ne', 'sw', 'se'] as ResizeCorner[]).map((corner) => (
+                      <span
+                        key={corner}
+                        className="absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white"
+                        style={{
+                          left: corner.includes('w') ? '0%' : '100%',
+                          top: corner.includes('n') ? '0%' : '100%',
+                          backgroundColor: `rgb(${style.rgb})`
+                        }}
+                        onPointerDown={(event) => {
+                          onSelect(index)
+                          beginDrag(event, { mode: 'resize', index, corner, origin: { ...item.bounds } })
+                        }}
+                      />
+                    ))}
                 </div>
               )
             })}
@@ -390,6 +674,15 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
               onClick={onClear}
             >
               Clear
+            </button>
+          )}
+          {editMode && (
+            <button
+              type="button"
+              className="rounded border border-red-500/20 px-2 py-0.5 text-red-300/75 transition hover:bg-red-500/10 hover:text-red-200"
+              onClick={onDelete}
+            >
+              Delete frame
             </button>
           )}
           <span>
@@ -409,21 +702,55 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
  *
  * The editor (toggle via the toolbar) lets the user drag highlights to fix
  * imprecise placements, apply a global (x, y) offset across every frame, clear
- * highlights and draw manual boxes. Saving persists the edited sets and
- * re-bakes the backend's annotated PNGs.
+ * highlights and draw manual boxes. Saving persists the edited sets plus the
+ * final annotated PNG rendered by this editor, so the backend stores exactly
+ * what the reviewer saw.
  */
-export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
+function ToolButton({
+  active,
+  children,
+  onClick
+}: {
+  active?: boolean
+  children: ReactNode
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className={[
+        'rounded-xl px-3 py-2 text-left text-xs font-black uppercase tracking-[0.12em] transition',
+        active
+          ? 'bg-white text-black'
+          : 'border border-white/10 bg-white/[0.04] text-white/62 hover:bg-white/[0.08] hover:text-white'
+      ].join(' ')}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  )
+}
+
+export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGalleryProps) {
   const [screenshots, setScreenshots] = useState<LoadedScreenshot[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [editMode, setEditMode] = useState(false)
-  const [drawMode, setDrawMode] = useState(false)
+  const [toolMode, setToolMode] = useState<ToolMode>('move')
+  const [selectedAnnotation, setSelectedAnnotation] = useState<SelectedAnnotation>(null)
   const [edits, setEdits] = useState<Record<string, AnnotationInput[]>>({})
   const [dirty, setDirty] = useState<Set<string>>(new Set())
+  const [history, setHistory] = useState<Record<string, AnnotationInput[]>[]>([])
+  const [future, setFuture] = useState<Record<string, AnnotationInput[]>[]>([])
   const [saving, setSaving] = useState(false)
   const [offsetX, setOffsetX] = useState('')
   const [offsetY, setOffsetY] = useState('')
+  const [palettePosition, setPalettePosition] = useState(() => ({
+    x: typeof window === 'undefined' ? 24 : Math.max(24, window.innerWidth - 288),
+    y: 96
+  }))
+  const paletteDragRef = useRef<PaletteDragState | null>(null)
 
   useEffect(() => {
     if (!remoteSessionId) {
@@ -440,8 +767,10 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
       try {
         const evidence = await window.api.recording.getSessionScreenshots(remoteSessionId)
         if (cancelled) return
-        const loaded = await Promise.all(
-          evidence.map(async (item) => {
+        const loaded = await mapWithConcurrency(
+          evidence,
+          4,
+          async (item) => {
             const buffer = await window.api.recording.getScreenshotImage(
               remoteSessionId,
               item.id
@@ -450,7 +779,7 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
             const url = URL.createObjectURL(blob)
             objectUrls.push(url)
             return { evidence: item, url }
-          })
+          }
         )
         if (!cancelled) setScreenshots(loaded)
       } catch (caught) {
@@ -476,15 +805,21 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
     }
     setEdits(initial)
     setDirty(new Set())
-    setDrawMode(false)
+    setHistory([])
+    setFuture([])
+    setToolMode('move')
+    setSelectedAnnotation(null)
     setEditMode(true)
   }
 
   const cancelEdit = () => {
     setEditMode(false)
-    setDrawMode(false)
+    setToolMode('move')
     setEdits({})
     setDirty(new Set())
+    setHistory([])
+    setFuture([])
+    setSelectedAnnotation(null)
   }
 
   const markDirty = (id: string) => {
@@ -496,26 +831,130 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
     })
   }
 
+  const selectedInput =
+    selectedAnnotation ?
+      edits[selectedAnnotation.screenshotId]?.[selectedAnnotation.index] ?? null
+    : null
+
+  const selectedFrame = selectedAnnotation
+    ? screenshots.find((item) => item.evidence.id === selectedAnnotation.screenshotId)
+    : null
+
+  const updateSelectedAnnotation = (updater: (item: AnnotationInput) => AnnotationInput) => {
+    if (!selectedAnnotation || !selectedFrame) return
+    setEdits((prev) => {
+      const list = prev[selectedAnnotation.screenshotId]
+      const current = list?.[selectedAnnotation.index]
+      if (!list || !current) return prev
+      setHistory((historyItems) => [
+        ...historyItems.slice(-(MAX_HISTORY - 1)),
+        cloneEdits(prev)
+      ])
+      setFuture([])
+      return {
+        ...prev,
+        [selectedAnnotation.screenshotId]: list.map((item, index) =>
+          index === selectedAnnotation.index ? updater(item) : item
+        )
+      }
+    })
+    markDirty(selectedAnnotation.screenshotId)
+  }
+
+  const beginPaletteDrag = (event: React.PointerEvent) => {
+    event.preventDefault()
+    paletteDragRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: palettePosition.x,
+      originY: palettePosition.y
+    }
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const drag = paletteDragRef.current
+      if (!drag) return
+      const width = 240
+      const height = 360
+      setPalettePosition({
+        x: clamp(drag.originX + moveEvent.clientX - drag.startX, 8, window.innerWidth - width - 8),
+        y: clamp(drag.originY + moveEvent.clientY - drag.startY, 8, window.innerHeight - height)
+      })
+    }
+
+    const endDrag = () => {
+      paletteDragRef.current = null
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', endDrag)
+    }
+
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', endDrag)
+  }
+
   const handleFrameChange = (id: string, next: AnnotationInput[]) => {
-    setEdits((prev) => ({ ...prev, [id]: next }))
+    setEdits((prev) => {
+      setHistory((current) => [...current.slice(-(MAX_HISTORY - 1)), cloneEdits(prev)])
+      setFuture([])
+      return { ...prev, [id]: next }
+    })
     markDirty(id)
   }
 
   const clearFrame = (id: string) => {
-    setEdits((prev) => ({ ...prev, [id]: [] }))
+    setEdits((prev) => {
+      setHistory((current) => [...current.slice(-(MAX_HISTORY - 1)), cloneEdits(prev)])
+      setFuture([])
+      return { ...prev, [id]: [] }
+    })
     markDirty(id)
+    setSelectedAnnotation((current) => (current?.screenshotId === id ? null : current))
   }
 
   const clearAll = () => {
-    const next: Record<string, AnnotationInput[]> = {}
-    const nextDirty = new Set(dirty)
+    setEdits((prev) => {
+      setHistory((current) => [...current.slice(-(MAX_HISTORY - 1)), cloneEdits(prev)])
+      setFuture([])
+      const next: Record<string, AnnotationInput[]> = {}
+      for (const { evidence } of screenshots) next[evidence.id] = []
+      return next
+    })
+    setDirty(new Set(screenshots.map(({ evidence }) => evidence.id)))
+    setToolMode('box')
+    setSelectedAnnotation(null)
+  }
+
+  const resetAll = () => {
+    const initial: Record<string, AnnotationInput[]> = {}
     for (const { evidence } of screenshots) {
-      next[evidence.id] = []
-      nextDirty.add(evidence.id)
+      initial[evidence.id] = evidence.annotations.map(toInput)
     }
-    setEdits(next)
-    setDirty(nextDirty)
-    setDrawMode(true)
+    setEdits(initial)
+    setDirty(new Set())
+    setHistory([])
+    setFuture([])
+    setToolMode('move')
+    setSelectedAnnotation(null)
+  }
+
+  const undo = () => {
+    const previous = history.at(-1)
+    if (!previous) return
+    setFuture((nextFuture) => [cloneEdits(edits), ...nextFuture.slice(0, MAX_HISTORY - 1)])
+    setHistory((current) => current.slice(0, -1))
+    setEdits(cloneEdits(previous))
+    setDirty(new Set(screenshots.map(({ evidence }) => evidence.id)))
+  }
+
+  const redo = () => {
+    const next = future[0]
+    if (!next) return
+    setHistory((nextHistory) => [
+      ...nextHistory.slice(-(MAX_HISTORY - 1)),
+      cloneEdits(edits)
+    ])
+    setFuture((current) => current.slice(1))
+    setEdits(cloneEdits(next))
+    setDirty(new Set(screenshots.map(({ evidence }) => evidence.id)))
   }
 
   const applyGlobalOffset = () => {
@@ -523,6 +962,8 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
     const dy = Number(offsetY) || 0
     if (!dx && !dy) return
     setEdits((prev) => {
+      setHistory((current) => [...current.slice(-(MAX_HISTORY - 1)), cloneEdits(prev)])
+      setFuture([])
       const next: Record<string, AnnotationInput[]> = {}
       for (const { evidence } of screenshots) {
         const annos = prev[evidence.id] ?? []
@@ -547,7 +988,7 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
   const saveAll = async () => {
     if (!remoteSessionId || dirty.size === 0) {
       setEditMode(false)
-      setDrawMode(false)
+      setToolMode('move')
       return
     }
     setSaving(true)
@@ -555,10 +996,14 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
     try {
       for (const id of dirty) {
         const annotations = edits[id] ?? []
+        const frame = screenshots.find((item) => item.evidence.id === id)
+        if (!frame) continue
+        const annotatedImage = await renderAnnotatedPng(frame.evidence, frame.url, annotations)
         const saved = await window.api.recording.saveScreenshotAnnotations(
           remoteSessionId,
           id,
-          annotations
+          annotations,
+          annotatedImage
         )
         setScreenshots((prev) =>
           prev.map((item) => (item.evidence.id === id ? { ...item, evidence: saved } : item))
@@ -567,9 +1012,45 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
       setEdits({})
       setDirty(new Set())
       setEditMode(false)
-      setDrawMode(false)
+      setToolMode('move')
+      setHistory([])
+      setFuture([])
+      setSelectedAnnotation(null)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not save edits.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const deleteFrame = async (screenshotId: string) => {
+    if (!remoteSessionId) return
+    const confirmed = window.confirm('Delete this screenshot from the session?')
+    if (!confirmed) return
+    setSaving(true)
+    setError(null)
+    try {
+      await window.api.recording.deleteScreenshot(remoteSessionId, screenshotId)
+      setScreenshots((prev) => {
+        const removed = prev.find((item) => item.evidence.id === screenshotId)
+        if (removed) URL.revokeObjectURL(removed.url)
+        return prev.filter((item) => item.evidence.id !== screenshotId)
+      })
+      setEdits((prev) => {
+        const next = { ...prev }
+        delete next[screenshotId]
+        return next
+      })
+      setDirty((prev) => {
+        const next = new Set(prev)
+        next.delete(screenshotId)
+        return next
+      })
+      setSelectedAnnotation((current) =>
+        current?.screenshotId === screenshotId ? null : current
+      )
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not delete screenshot.')
     } finally {
       setSaving(false)
     }
@@ -594,96 +1075,163 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-2">
-        {!editMode ? (
-          <button
-            type="button"
-            className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/10 hover:text-white"
-            onClick={enterEdit}
+      {editable && !editMode && (
+        <button
+          type="button"
+          className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-white/80 transition hover:bg-white/10 hover:text-white"
+          onClick={enterEdit}
+        >
+          Edit evidence
+        </button>
+      )}
+
+      {editMode && (
+        <aside
+          className="fixed z-30 max-h-[calc(100vh-32px)] w-60 overflow-y-auto rounded-2xl border border-white/12 bg-[#090909]/95 p-4 shadow-[0_22px_80px_rgba(0,0,0,0.65)] backdrop-blur"
+          style={{ left: palettePosition.x, top: palettePosition.y }}
+        >
+          <div
+            className="flex cursor-move select-none items-center justify-between"
+            onPointerDown={beginPaletteDrag}
+            title="Drag editor panel"
           >
-            Edit annotations
-          </button>
-        ) : (
-          <>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition ${
-                  !drawMode ? 'bg-white/15 text-white' : 'text-white/60 hover:bg-white/5'
-                }`}
-                onClick={() => setDrawMode(false)}
-              >
-                Move / Resize
-              </button>
-              <button
-                type="button"
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition ${
-                  drawMode ? 'bg-white/15 text-white' : 'text-white/60 hover:bg-white/5'
-                }`}
-                onClick={() => setDrawMode(true)}
-              >
-                Draw box
-              </button>
+            <div>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">
+                Editor
+              </p>
+              <p className="mt-1 text-xs text-white/40">{dirty.size} unsaved frame{dirty.size === 1 ? '' : 's'}</p>
             </div>
+            <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
+          </div>
 
-            <div className="mx-1 h-5 w-px bg-white/10" />
+          <div className="mt-4 grid gap-2">
+            <ToolButton active={toolMode === 'move'} onClick={() => setToolMode('move')}>
+              Move pointer
+            </ToolButton>
+            <ToolButton active={toolMode === 'pointer'} onClick={() => setToolMode('pointer')}>
+              Add pointer
+            </ToolButton>
+            <ToolButton active={toolMode === 'box'} onClick={() => setToolMode('box')}>
+              Draw box
+            </ToolButton>
+            <ToolButton active={toolMode === 'text'} onClick={() => setToolMode('text')}>
+              Add text
+            </ToolButton>
+            <ToolButton active={toolMode === 'erase'} onClick={() => setToolMode('erase')}>
+              Erase mark
+            </ToolButton>
+          </div>
 
-            <label className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wide text-white/45">
-              offset
+          {toolMode === 'pointer' && (
+            <p className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-5 text-white/42">
+              Click anywhere on a screenshot to drop a new hand pointer.
+            </p>
+          )}
+
+          {selectedInput?.type === 'text_box' && (
+            <div className="mt-4 rounded-xl border border-violet-300/15 bg-violet-400/[0.06] p-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-violet-200/70">
+                Selected text
+              </p>
+              <textarea
+                value={selectedInput.label ?? ''}
+                onChange={(event) =>
+                  updateSelectedAnnotation((item) => ({ ...item, label: event.target.value }))
+                }
+                placeholder="Type the note shown on this screenshot"
+                className="mt-2 min-h-24 w-full resize-y rounded-lg border border-white/10 bg-black/45 px-3 py-2 text-xs leading-5 text-white outline-none placeholder:text-white/25 focus:border-violet-300/45"
+              />
+            </div>
+          )}
+
+          {toolMode === 'text' && selectedInput?.type !== 'text_box' && (
+            <p className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-5 text-white/42">
+              Click or drag on a screenshot to place a note, then type here.
+            </p>
+          )}
+
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/38">
+              Offset all
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
               <input
                 type="number"
                 value={offsetX}
                 onChange={(event) => setOffsetX(event.target.value)}
                 placeholder="x"
-                className="w-12 rounded border border-white/10 bg-black/40 px-1.5 py-1 text-xs text-white outline-none focus:border-white/30"
+                className="rounded-lg border border-white/10 bg-black/40 px-2 py-2 text-xs text-white outline-none focus:border-white/30"
               />
               <input
                 type="number"
                 value={offsetY}
                 onChange={(event) => setOffsetY(event.target.value)}
                 placeholder="y"
-                className="w-12 rounded border border-white/10 bg-black/40 px-1.5 py-1 text-xs text-white outline-none focus:border-white/30"
+                className="rounded-lg border border-white/10 bg-black/40 px-2 py-2 text-xs text-white outline-none focus:border-white/30"
               />
-              <button
-                type="button"
-                className="rounded-md border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/70 transition hover:bg-white/5 hover:text-white"
-                onClick={applyGlobalOffset}
-              >
-                Apply to all
-              </button>
-            </label>
-
-            <div className="mx-1 h-5 w-px bg-white/10" />
-
+            </div>
             <button
               type="button"
-              className="rounded-md border border-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/60 transition hover:bg-white/5 hover:text-white"
+              className="mt-2 w-full rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition hover:bg-white/8 hover:text-white"
+              onClick={applyGlobalOffset}
+            >
+              Apply offset
+            </button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/65 transition hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-35"
+              onClick={undo}
+              disabled={history.length === 0}
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/65 transition hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-35"
+              onClick={redo}
+              disabled={future.length === 0}
+            >
+              Redo
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/65 transition hover:bg-white/8"
+              onClick={resetAll}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-red-500/20 px-3 py-2 text-xs font-bold text-red-300/80 transition hover:bg-red-500/10"
               onClick={clearAll}
             >
               Clear all
             </button>
+          </div>
 
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                type="button"
-                className="rounded-md border border-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/60 transition hover:bg-white/5 hover:text-white"
-                onClick={cancelEdit}
-                disabled={saving}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-md bg-emerald-500/90 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-black transition hover:bg-emerald-400 disabled:opacity-50"
-                onClick={saveAll}
-                disabled={saving || dirty.size === 0}
-              >
-                {saving ? 'Saving…' : `Save${dirty.size > 0 ? ` (${dirty.size})` : ''}`}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
+          <div className="mt-4 grid gap-2">
+            <button
+              type="button"
+              className="rounded-xl bg-emerald-400 px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
+              onClick={saveAll}
+              disabled={saving || dirty.size === 0}
+            >
+              {saving ? 'Saving…' : `Save${dirty.size > 0 ? ` (${dirty.size})` : ''}`}
+            </button>
+            <button
+              type="button"
+              className="rounded-xl border border-white/10 px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-white/55 transition hover:bg-white/8 hover:text-white"
+              onClick={cancelEdit}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          </div>
+        </aside>
+      )}
 
       {error && <p className="text-sm text-red-300/80">{error}</p>}
 
@@ -695,10 +1243,15 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
             evidence={evidence}
             url={url}
             editMode={editMode}
-            drawMode={drawMode}
+            toolMode={toolMode}
+            selectedIndex={selectedAnnotation?.screenshotId === evidence.id ? selectedAnnotation.index : null}
             annotations={annotations}
             onChange={(next) => handleFrameChange(evidence.id, next)}
+            onSelect={(index) =>
+              setSelectedAnnotation(index === null ? null : { screenshotId: evidence.id, index })
+            }
             onClear={() => clearFrame(evidence.id)}
+            onDelete={() => void deleteFrame(evidence.id)}
           />
         )
       })}

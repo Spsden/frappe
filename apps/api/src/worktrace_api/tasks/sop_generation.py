@@ -85,7 +85,13 @@ def _align_narration(screenshot, next_screenshot, session_created_at, segments) 
     return " ".join(texts).strip() or None
 
 
-def _build_step_prompt(ctx: dict, workflow_name: str, position: int, total: int) -> str:
+def _build_step_prompt(
+    ctx: dict,
+    workflow_name: str,
+    position: int,
+    total: int,
+    custom_instruction: str | None = None,
+) -> str:
     """
     Build the text portion of the per-step multimodal prompt.
     All available event fields are included so GPT-4o can pick the
@@ -112,21 +118,27 @@ def _build_step_prompt(ctx: dict, workflow_name: str, position: int, total: int)
         if narration
         else "No narration recorded for this step."
     )
+    custom_instruction_block = (
+        f"\nCUSTOM SOP INSTRUCTION FROM REVIEWER:\n{custom_instruction.strip()}\n"
+        if custom_instruction and custom_instruction.strip()
+        else ""
+    )
 
     return (
         f"You are a technical writer creating a Standard Operating Procedure (SOP).\n\n"
         f"Workflow: \"{workflow_name}\"\n"
         f"You are writing Step {position} of {total}.\n\n"
+        f"{custom_instruction_block}"
         f"CONTEXT:\n"
         f"- Application: {app_name}\n"
         f"- Action performed: {event_type}\n"
         f"- Element interacted with: {element_ref}\n"
         f"- {narration_line}\n\n"
         f"The attached screenshot shows the screen state BEFORE this action.\n"
-        f"A red bounding box highlights the exact element that was interacted with.\n\n"
+        f"The visible annotation marks the element or area that was interacted with.\n\n"
         f"Write ONE clear, specific instruction for this step.\n"
         f"Rules:\n"
-        f"- Use the element label visible inside or near the red box as your primary reference.\n"
+        f"- Use visible labels near the annotation as your primary reference.\n"
         f"- Reference the application name where helpful.\n"
         f"- Be specific: instead of 'click the button', write "
         f"'click the [label] button in [location]'.\n"
@@ -142,13 +154,16 @@ def _generate_step_instruction(
     workflow_name: str,
     position: int,
     total: int,
+    custom_instruction: str | None = None,
 ) -> str:
     """
     Call GPT-4o once for a single step.
     If an annotated image is available, sends a multimodal message
     (text + image_url). Falls back to text-only when image is None.
     """
-    prompt_text = _build_step_prompt(ctx, workflow_name, position, total)
+    prompt_text = _build_step_prompt(
+        ctx, workflow_name, position, total, custom_instruction
+    )
 
     if image_b64:
         # Multimodal: text + base-64 embedded image
@@ -180,6 +195,7 @@ def _generate_sop_markdown(
     client: openai.OpenAI,
     workflow_name: str,
     step_instructions: list[dict],
+    custom_instruction: str | None = None,
 ) -> str:
     """
     Single aggregating LLM call: take all per-step instructions and
@@ -192,9 +208,17 @@ def _generate_sop_markdown(
         for item in step_instructions
     )
 
+    custom_instruction_block = (
+        f"Reviewer instruction to follow while composing the final SOP:\n"
+        f"{custom_instruction.strip()}\n\n"
+        if custom_instruction and custom_instruction.strip()
+        else ""
+    )
+
     prompt = (
         f"You are a technical writer. Below are the numbered steps of a Standard "
         f"Operating Procedure for the workflow: \"{workflow_name}\".\n\n"
+        f"{custom_instruction_block}"
         f"{steps_text}\n\n"
         f"Write a complete, professional Markdown SOP document that includes:\n"
         f"1. A title header: # {workflow_name}\n"
@@ -248,12 +272,14 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
         # 1. Load data from DB
         # ------------------------------------------------------------------
         repo.set_recording_status(recording_uuid, RecordingStatus.GENERATING_SOP)
+        recording = repo.get_recording(recording_uuid)
+        custom_instruction = recording.custom_sop_instruction if recording else None
         session = repo.get_session(session_uuid)
         if not session:
             logger.error("Session %s not found — aborting SOP generation.", session_id)
             repo.set_recording_status(
                 recording_uuid,
-                RecordingStatus.FAILED,
+                RecordingStatus.SOP_FAILED,
                 "Session not found for SOP generation",
             )
             return
@@ -269,7 +295,7 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
             )
             repo.set_recording_status(
                 recording_uuid,
-                RecordingStatus.FAILED,
+                RecordingStatus.SOP_FAILED,
                 "No annotated screenshots were produced",
             )
             return
@@ -338,6 +364,7 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
                 workflow_name=session.workflow_name,
                 position=ctx["position"],
                 total=total_steps,
+                custom_instruction=custom_instruction,
             )
 
             step_instructions.append({
@@ -361,6 +388,7 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
             client=client,
             workflow_name=session.workflow_name,
             step_instructions=step_instructions,
+            custom_instruction=custom_instruction,
         )
 
         logger.info(

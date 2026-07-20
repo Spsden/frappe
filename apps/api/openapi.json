@@ -514,6 +514,156 @@
         }
       }
     },
+    "/recordings/{recording_id}/manual-review": {
+      "put": {
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Save Manual Review",
+        "operationId": "save_manual_review_recordings__recording_id__manual_review_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Recording Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualReviewUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recording"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recordings/{recording_id}/generate-sop": {
+      "post": {
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Generate Recording Sop",
+        "operationId": "generate_recording_sop_recordings__recording_id__generate_sop_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Recording Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingGenerateSOP"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recording"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recordings/{recording_id}/status": {
       "get": {
         "tags": [
@@ -996,7 +1146,7 @@
           "sessions"
         ],
         "summary": "Replace Screenshot Annotations",
-        "description": "Replace a screenshot's annotation set with the user-edited/manual set.\n\nThe supplied set becomes the authoritative annotations for the frame\n(overriding event-derived highlights), and the ``*-annotated.png`` is\nre-baked so the stored imagery matches the on-screen overlays. The raw\nscreenshot is preserved.",
+        "description": "Replace a screenshot's annotation set with the user-edited/manual set.\n\nThe supplied set becomes the authoritative annotations for the frame\n(overriding event-derived highlights). The Electron editor sends the final\nannotated PNG it rendered, so the backend stores the reviewed image without\nre-rendering it and risking renderer drift. The raw screenshot is preserved.",
         "operationId": "replace_screenshot_annotations_sessions__session_id__screenshots__screenshot_id__annotations_put",
         "security": [
           {
@@ -1045,9 +1195,9 @@
         "requestBody": {
           "required": true,
           "content": {
-            "application/json": {
+            "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/ScreenshotAnnotationSet"
+                "$ref": "#/components/schemas/Body_replace_screenshot_annotations_sessions__session_id__screenshots__screenshot_id__annotations_put"
               }
             }
           }
@@ -1077,6 +1227,72 @@
       }
     },
     "/sessions/{session_id}/screenshots/{screenshot_id}": {
+      "delete": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Delete Session Screenshot",
+        "operationId": "delete_session_screenshot_sessions__session_id__screenshots__screenshot_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "screenshot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Screenshot Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "get": {
         "tags": [
           "sessions"
@@ -1939,6 +2155,25 @@
         ],
         "title": "AuthSession"
       },
+      "Body_replace_screenshot_annotations_sessions__session_id__screenshots__screenshot_id__annotations_put": {
+        "properties": {
+          "annotations": {
+            "type": "string",
+            "title": "Annotations"
+          },
+          "annotated_image": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Annotated Image"
+          }
+        },
+        "type": "object",
+        "required": [
+          "annotations",
+          "annotated_image"
+        ],
+        "title": "Body_replace_screenshot_annotations_sessions__session_id__screenshots__screenshot_id__annotations_put"
+      },
       "Body_upload_recording_chunk_recordings__recording_id__chunks__chunk_index__put": {
         "properties": {
           "content_type": {
@@ -2400,6 +2635,37 @@
         ],
         "title": "LoginRequest"
       },
+      "ManualReviewUpdate": {
+        "properties": {
+          "transcript_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript Text"
+          },
+          "custom_instruction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Instruction"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ManualReviewUpdate"
+      },
       "Recording": {
         "properties": {
           "schema_version": {
@@ -2465,6 +2731,22 @@
           "has_audio": {
             "type": "boolean",
             "title": "Has Audio"
+          },
+          "manual_mode": {
+            "type": "boolean",
+            "title": "Manual Mode",
+            "default": false
+          },
+          "custom_sop_instruction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Sop Instruction"
           },
           "error_message": {
             "anyOf": [
@@ -2553,6 +2835,11 @@
             "type": "boolean",
             "title": "Has Audio",
             "default": false
+          },
+          "manual_mode": {
+            "type": "boolean",
+            "title": "Manual Mode",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -2561,6 +2848,25 @@
           "workflow_name"
         ],
         "title": "RecordingCreate"
+      },
+      "RecordingGenerateSOP": {
+        "properties": {
+          "custom_instruction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Instruction"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RecordingGenerateSOP"
       },
       "RecordingRetryRequest": {
         "properties": {
@@ -2591,6 +2897,7 @@
           "transcribing_audio",
           "processing_screenshots",
           "aligning_evidence",
+          "awaiting_manual_review",
           "generating_sop",
           "sop_failed",
           "ready_for_review",
@@ -2882,7 +3189,8 @@
               "click_rectangle",
               "scroll_focus",
               "pointer_focus",
-              "manual_box"
+              "manual_box",
+              "text_box"
             ],
             "title": "Type"
           },
@@ -2949,82 +3257,6 @@
         ],
         "title": "ScreenshotAnnotation",
         "description": "A single renderable highlight on a screenshot (Phase 3 overlay source).\n\n``event_id``/``event_type`` are optional because a ``manual_box`` highlight\nis authored by the user in the evidence editor and is not tied to a recorded\ninput event."
-      },
-      "ScreenshotAnnotationInput": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "click_rectangle",
-              "scroll_focus",
-              "pointer_focus",
-              "manual_box"
-            ],
-            "title": "Type"
-          },
-          "bounds": {
-            "$ref": "#/components/schemas/TargetBounds"
-          },
-          "label": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 500
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Label"
-          },
-          "role": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 100
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Role"
-          },
-          "source": {
-            "type": "string",
-            "enum": [
-              "event_pointer",
-              "fallback_coordinate",
-              "accessibility",
-              "manual"
-            ],
-            "title": "Source",
-            "default": "manual"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "type",
-          "bounds"
-        ],
-        "title": "ScreenshotAnnotationInput",
-        "description": "Author-supplied annotation for the evidence editor save flow. Only the\nrenderable fields are accepted; server-side bookkeeping (coordinate space,\nconfidence) is normalized by the endpoint."
-      },
-      "ScreenshotAnnotationSet": {
-        "properties": {
-          "annotations": {
-            "items": {
-              "$ref": "#/components/schemas/ScreenshotAnnotationInput"
-            },
-            "type": "array",
-            "maxItems": 50,
-            "title": "Annotations"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "ScreenshotAnnotationSet",
-        "description": "Full replacement set of annotations for a single screenshot. An empty\nlist means \"cleared\" (no highlights). Once saved, this set is the\nauthoritative source for the frame, overriding event-derived annotations."
       },
       "ScreenshotEvidence": {
         "properties": {

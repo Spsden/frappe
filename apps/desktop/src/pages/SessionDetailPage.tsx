@@ -39,7 +39,17 @@ function formatTimestamp(ms: number) {
   return `${minutes}:${remainder.toString().padStart(2, '0')}`
 }
 
-function TranscriptPanel({ session }: { session: BackendWorkflowSession | null }) {
+function TranscriptPanel({
+  session,
+  editable,
+  value,
+  onChange
+}: {
+  session: BackendWorkflowSession | null
+  editable?: boolean
+  value?: string
+  onChange?: (value: string) => void
+}) {
   if (!session) {
     return (
       <p className="text-sm text-white/45">
@@ -50,7 +60,17 @@ function TranscriptPanel({ session }: { session: BackendWorkflowSession | null }
 
   const transcript: BackendTranscript | null = session.transcript
   if (!transcript || transcript.status === 'not_recorded') {
-    return <p className="text-sm text-white/45">No audio narration was recorded.</p>
+    if (!editable) {
+      return <p className="text-sm text-white/45">No audio narration was recorded.</p>
+    }
+    return (
+      <textarea
+        value={value ?? ''}
+        onChange={(event) => onChange?.(event.target.value)}
+        placeholder="No audio was recorded. Add reviewer notes for the SOP if useful."
+        className="min-h-36 w-full resize-y rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/25 focus:border-white/30"
+      />
+    )
   }
 
   return (
@@ -59,15 +79,33 @@ function TranscriptPanel({ session }: { session: BackendWorkflowSession | null }
         Status · {transcript.status}
       </p>
       {transcript.text ? (
-        <p className="text-sm leading-6 text-white/70">{transcript.text}</p>
+        editable ? (
+          <textarea
+            value={value ?? ''}
+            onChange={(event) => onChange?.(event.target.value)}
+            className="min-h-44 w-full resize-y rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/25 focus:border-white/30"
+            placeholder="Review and edit the transcript..."
+          />
+        ) : (
+          <p className="text-sm leading-6 text-white/70">{transcript.text}</p>
+        )
       ) : (
-        <p className="text-sm text-white/45">
-          {transcript.status === 'pending_transcription'
-            ? 'Audio is queued for transcription.'
-            : 'No transcript text available.'}
-        </p>
+        editable ? (
+          <textarea
+            value={value ?? ''}
+            onChange={(event) => onChange?.(event.target.value)}
+            className="min-h-44 w-full resize-y rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/25 focus:border-white/30"
+            placeholder="Transcript is empty. Add context for the SOP..."
+          />
+        ) : (
+          <p className="text-sm text-white/45">
+            {transcript.status === 'pending_transcription'
+              ? 'Audio is queued for transcription.'
+              : 'No transcript text available.'}
+          </p>
+        )
       )}
-      {transcript.segments.length > 0 && (
+      {!editable && transcript.segments.length > 0 && (
         <ul className="space-y-1.5">
           {transcript.segments.map((segment, index) => (
             <li key={index} className="flex gap-3 text-sm text-white/55">
@@ -91,8 +129,11 @@ export function SessionDetailPage() {
   const [session, setSession] = useState<RecordedSessionSummary | null>(null)
   const [backendSession, setBackendSession] = useState<BackendWorkflowSession | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [acting, setActing] = useState<'upload' | 'sop' | 'delete' | null>(null)
+  const [acting, setActing] = useState<'upload' | 'sop' | 'review' | 'delete' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [transcriptDraft, setTranscriptDraft] = useState('')
+  const [customInstruction, setCustomInstruction] = useState('')
+  const [reviewDirty, setReviewDirty] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -135,6 +176,17 @@ export function SessionDetailPage() {
     }
   }, [id, recordingState])
 
+  useEffect(() => {
+    if (reviewDirty) return
+    const transcript = backendSession?.transcript
+    const transcriptText =
+      transcript?.text ??
+      transcript?.segments.map((segment) => segment.text).join('\n') ??
+      ''
+    setTranscriptDraft(transcriptText)
+    setCustomInstruction(session?.backend?.recording.custom_sop_instruction ?? '')
+  }, [backendSession, reviewDirty, session?.backend?.recording.custom_sop_instruction])
+
   const retry = async () => {
     setActing('upload')
     setError(null)
@@ -154,6 +206,70 @@ export function SessionDetailPage() {
       await window.api.recording.retry(id, 'sop')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'SOP retry failed.')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  const saveReview = async () => {
+    if (!session?.remoteRecordingId) return
+    setActing('review')
+    setError(null)
+    try {
+      const recording = await window.api.recording.saveManualReview(
+        session.remoteRecordingId,
+        transcriptDraft,
+        customInstruction
+      )
+      setSession((current) =>
+        current
+          ? {
+              ...current,
+              remoteStatus: recording.status,
+              backend: current.backend
+                ? { ...current.backend, recording }
+                : current.backend
+            }
+          : current
+      )
+      setReviewDirty(false)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not save review.')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  const generateSop = async () => {
+    if (!session?.remoteRecordingId) return
+    setActing('sop')
+    setError(null)
+    try {
+      if (reviewDirty) {
+        await window.api.recording.saveManualReview(
+          session.remoteRecordingId,
+          transcriptDraft,
+          customInstruction
+        )
+        setReviewDirty(false)
+      }
+      const recording = await window.api.recording.generateSop(
+        session.remoteRecordingId,
+        customInstruction
+      )
+      setSession((current) =>
+        current
+          ? {
+              ...current,
+              remoteStatus: recording.status,
+              backend: current.backend
+                ? { ...current.backend, recording }
+                : current.backend
+            }
+          : current
+      )
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not start SOP generation.')
     } finally {
       setActing(null)
     }
@@ -205,6 +321,12 @@ export function SessionDetailPage() {
   const retryable = canRetrySession(session)
   const sopRetryable = canRetrySop(session)
   const deletable = canDeleteSession(session)
+  const backendRecording = session.backend?.recording
+  const currentStatus = statusForSession(session)
+  const isManualReview =
+    Boolean(backendRecording?.manual_mode) &&
+    (currentStatus === 'awaiting_manual_review' || currentStatus === 'sop_failed')
+  const sopReady = currentStatus === 'ready_for_review' || currentStatus === 'completed'
 
   return (
     <main className="space-y-6 px-6 py-8 md:px-8">
@@ -234,7 +356,7 @@ export function SessionDetailPage() {
             </h2>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {session.remoteSessionId && (
+            {session.remoteSessionId && sopReady && (
               <button
                 type="button"
                 onClick={() => navigate(`/sessions/${id}/sop`)}
@@ -243,7 +365,17 @@ export function SessionDetailPage() {
                 View SOP
               </button>
             )}
-            {sopRetryable && (
+            {isManualReview && (
+              <button
+                type="button"
+                disabled={acting !== null}
+                onClick={() => void generateSop()}
+                className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-emerald-300 transition hover:bg-emerald-500/18 disabled:cursor-wait disabled:opacity-40"
+              >
+                {acting === 'sop' ? 'Starting' : 'Generate SOP'}
+              </button>
+            )}
+            {sopRetryable && !isManualReview && (
               <button
                 type="button"
                 disabled={acting !== null}
@@ -316,6 +448,58 @@ export function SessionDetailPage() {
         </div>
       </section>
 
+      {isManualReview && (
+        <section className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.045] p-6 shadow-[0_18px_65px_rgba(0,0,0,0.35)]">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-300">
+                Manual review
+              </p>
+              <h3 className="mt-2 text-2xl font-black tracking-[-0.035em]">
+                Evidence is ready for human edits
+              </h3>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-white/55">
+                Adjust annotations, clean up the transcript, and add a short instruction for the SOP prompt.
+                Saving writes the review state back to the backend.
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={acting !== null || !reviewDirty}
+                onClick={() => void saveReview()}
+                className="rounded-xl border border-white/12 bg-white/[0.04] px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-white/75 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {acting === 'review' ? 'Saving' : reviewDirty ? 'Save review' : 'Saved'}
+              </button>
+              <button
+                type="button"
+                disabled={acting !== null}
+                onClick={() => void generateSop()}
+                className="rounded-xl bg-emerald-400 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-black transition hover:bg-emerald-300 disabled:cursor-wait disabled:opacity-50"
+              >
+                {acting === 'sop' ? 'Starting' : 'Generate SOP'}
+              </button>
+            </div>
+          </div>
+
+          <label className="mt-5 block">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
+              Custom SOP instruction
+            </span>
+            <textarea
+              value={customInstruction}
+              onChange={(event) => {
+                setCustomInstruction(event.target.value)
+                setReviewDirty(true)
+              }}
+              placeholder="Example: make this SOP concise, mention checks before approval, use finance-team wording..."
+              className="mt-3 min-h-24 w-full resize-y rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/25 focus:border-emerald-300/50"
+            />
+          </label>
+        </section>
+      )}
+
       <section className="rounded-2xl border border-white/10 bg-[#090909] p-6">
         <div className="flex items-center justify-between gap-4">
           <h3 className="text-lg font-black tracking-[-0.02em]">Transcript</h3>
@@ -324,7 +508,15 @@ export function SessionDetailPage() {
           </span>
         </div>
         <div className="mt-5">
-          <TranscriptPanel session={backendSession} />
+          <TranscriptPanel
+            session={backendSession}
+            editable={isManualReview}
+            value={transcriptDraft}
+            onChange={(value) => {
+              setTranscriptDraft(value)
+              setReviewDirty(true)
+            }}
+          />
         </div>
       </section>
 
@@ -343,7 +535,7 @@ export function SessionDetailPage() {
           ) : null}
         </div>
         <div className="mt-5">
-          <EvidenceGallery remoteSessionId={session.remoteSessionId} />
+          <EvidenceGallery remoteSessionId={session.remoteSessionId} editable={isManualReview} />
         </div>
       </section>
     </main>
