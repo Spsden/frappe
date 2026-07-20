@@ -40,13 +40,37 @@ class RecordingProcessor:
         from worktrace_api.tasks.pipeline import process_recording
 
         if not broker_available(get_settings().redis_url):
-            return False, "Background queue is offline; start Redis and retry SOP generation."
+            return False, "Background queue is offline; start Redis and retry processing."
 
         try:
             process_recording.delay(str(recording_id), str(session_id), str(tenant_id))
         except Exception as exc:
             logger.warning(
                 "async processing pipeline dispatch failed for recording %s",
+                recording_id,
+                exc_info=True,
+            )
+            return False, f"Could not queue processing: {exc}"
+        return True, None
+
+    def enqueue_sop_generation(
+        self,
+        recording_id: UUID,
+        session_id: UUID,
+        tenant_id: UUID,
+    ) -> tuple[bool, str | None]:
+        from worktrace_api.core.celery_app import broker_available
+        from worktrace_api.settings import get_settings
+        from worktrace_api.tasks.sop_generation import generate_sop_with_ai
+
+        if not broker_available(get_settings().redis_url):
+            return False, "Background queue is offline; start Redis and retry SOP generation."
+
+        try:
+            generate_sop_with_ai.delay(str(recording_id), str(session_id), str(tenant_id))
+        except Exception as exc:
+            logger.warning(
+                "async SOP generation dispatch failed for recording %s",
                 recording_id,
                 exc_info=True,
             )

@@ -25,6 +25,7 @@ _storage: ChunkStorage | None = None
 # is fully past the upload/validate phases, so the assembled audio + transcript
 # are the source of truth from here on.
 _AUDIO_CHUNK_SAFE_STATUSES = {
+    RecordingStatus.AWAITING_MANUAL_REVIEW,
     RecordingStatus.READY_FOR_REVIEW,
     RecordingStatus.COMPLETED,
 }

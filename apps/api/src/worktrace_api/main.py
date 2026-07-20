@@ -50,9 +50,11 @@ from worktrace_api.schemas import (
     Feedback,
     FeedbackCreate,
     LoginRequest,
+    ManualReviewUpdate,
     Recording,
     RecordingComplete,
     RecordingCreate,
+    RecordingGenerateSOP,
     RecordingRetryRequest,
     RecordingRetryTarget,
     RecordingStatus,
@@ -120,6 +122,7 @@ processing_stages = [
     RecordingStatus.TRANSCRIBING_AUDIO,
     RecordingStatus.PROCESSING_SCREENSHOTS,
     RecordingStatus.ALIGNING_EVIDENCE,
+    RecordingStatus.AWAITING_MANUAL_REVIEW,
     RecordingStatus.GENERATING_SOP,
     RecordingStatus.SOP_FAILED,
     RecordingStatus.READY_FOR_REVIEW,
@@ -240,6 +243,7 @@ def create_recording(
                 existing.workflow_name != payload.workflow_name
                 or existing.source_type != payload.source_type
                 or existing.has_audio != payload.has_audio
+                or existing.manual_mode != payload.manual_mode
             ):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -253,6 +257,7 @@ def create_recording(
             payload.source_type,
             payload.has_audio,
             payload.id,
+            payload.manual_mode,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -393,13 +398,84 @@ def _retry_sop_generation(recording_id: UUID, repo: Repository) -> Recording:
             detail="SOP retry is only available after SOP generation fails",
         )
 
-    queued_status = (
-        RecordingStatus.TRANSCRIBING_AUDIO
-        if recording.has_audio
-        else RecordingStatus.PROCESSING_SCREENSHOTS
+    updated = repo.set_recording_status(
+        recording_id,
+        RecordingStatus.GENERATING_SOP,
+    ) or recording
+    queued, error_message = recording_processor.enqueue_sop_generation(
+        recording_id,
+        recording.session_id,
+        repo.tenant_id,
     )
-    updated = repo.set_recording_status(recording_id, queued_status) or recording
-    queued, error_message = recording_processor.enqueue_pipeline(
+    if not queued:
+        repo.set_recording_status(
+            recording_id,
+            RecordingStatus.SOP_FAILED,
+            error_message or "Could not queue SOP generation",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=error_message or "Could not queue SOP generation",
+        )
+    return updated
+
+
+@app.put(
+    "/recordings/{recording_id}/manual-review",
+    response_model=Recording,
+    tags=["recordings"],
+)
+def save_manual_review(
+    recording_id: UUID,
+    payload: ManualReviewUpdate,
+    repo: Repository = Depends(repository),
+) -> Recording:
+    try:
+        return repo.save_manual_review(
+            recording_id,
+            transcript_text=payload.transcript_text,
+            custom_instruction=payload.custom_instruction,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@app.post(
+    "/recordings/{recording_id}/generate-sop",
+    response_model=Recording,
+    tags=["recordings"],
+)
+def generate_recording_sop(
+    recording_id: UUID,
+    payload: RecordingGenerateSOP,
+    repo: Repository = Depends(repository),
+) -> Recording:
+    recording = repo.get_recording(recording_id)
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+    if not recording.session_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Recording has no processed session yet",
+        )
+    if recording.status not in {
+        RecordingStatus.AWAITING_MANUAL_REVIEW,
+        RecordingStatus.SOP_FAILED,
+        RecordingStatus.READY_FOR_REVIEW,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Recording is not ready for manual SOP generation",
+        )
+
+    updated = (
+        repo.set_recording_custom_instruction(recording_id, payload.custom_instruction)
+        or recording
+    )
+    updated = repo.set_recording_status(recording_id, RecordingStatus.GENERATING_SOP) or updated
+    queued, error_message = recording_processor.enqueue_sop_generation(
         recording_id,
         recording.session_id,
         repo.tenant_id,
@@ -644,6 +720,31 @@ def replace_screenshot_annotations(
     )
 
 
+@app.delete(
+    "/sessions/{session_id}/screenshots/{screenshot_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["sessions"],
+)
+def delete_session_screenshot(
+    session_id: UUID,
+    screenshot_id: UUID,
+    repo: Repository = Depends(repository),
+) -> Response:
+    require_session(repo, session_id)
+    screenshot = repo.delete_screenshot(session_id, screenshot_id)
+    if screenshot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
+
+    storage = ChunkStorage(
+        root=settings.recording_storage_path,
+        max_chunk_bytes=settings.max_chunk_bytes,
+    )
+    storage.delete(screenshot.storage_key)
+    if screenshot.annotated_storage_key:
+        storage.delete(screenshot.annotated_storage_key)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @app.get("/sessions/{session_id}/screenshots/{screenshot_id}", tags=["sessions"])
 def get_session_screenshot_image(
     session_id: UUID,
@@ -677,7 +778,8 @@ def get_session_screenshot_image(
             status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot image not available"
         )
     return Response(
-        content=storage.read(key_to_serve), media_type=screenshot.media_type
+        content=storage.read(key_to_serve),
+        media_type="image/png" if type == "annotated" else screenshot.media_type,
     )
 
 

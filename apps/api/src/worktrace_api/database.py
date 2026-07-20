@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     create_engine,
     event,
@@ -174,6 +175,8 @@ class RecordingRecord(TenantRecord, Base):
     uploaded_chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_bytes: Mapped[int] = mapped_column(Integer, default=0)
     has_audio: Mapped[bool] = mapped_column(Boolean, default=False)
+    manual_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+    custom_sop_instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)

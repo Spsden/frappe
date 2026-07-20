@@ -8,6 +8,7 @@ shown by the evidence editor. Each annotation type renders distinctly:
   click coordinate.
 * ``scroll_focus`` / ``pointer_focus`` -> a soft glow box (rounded, tinted).
 * ``manual_box`` -> a crisp user-drawn rectangle (emerald).
+* ``text_box`` -> a reviewer-authored note box.
 
 The raw screenshot is never modified; the rendered bytes are written to the
 separate ``*-annotated.png`` artifact.
@@ -19,13 +20,14 @@ import io
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 _ANNOTATION_RGB: dict[str, tuple[int, int, int]] = {
     "click_rectangle": (239, 68, 68),
     "scroll_focus": (56, 189, 248),
     "pointer_focus": (251, 191, 36),
     "manual_box": (16, 185, 129),
+    "text_box": (168, 85, 247),
 }
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
@@ -118,6 +120,45 @@ def _draw_box(
         draw.rectangle(box, fill=fill, outline=outline, width=3)
 
 
+def _draw_text_box(
+    draw: ImageDraw.ImageDraw,
+    bounds: dict[str, Any],
+    rgb: tuple[int, int, int],
+    label: str | None,
+) -> None:
+    x = float(bounds.get("x", 0))
+    y = float(bounds.get("y", 0))
+    w = max(80.0, float(bounds.get("width", 0)))
+    h = max(32.0, float(bounds.get("height", 0)))
+    box = [x, y, x + w, y + h]
+    draw.rounded_rectangle(
+        box,
+        radius=10,
+        fill=_rgba((8, 8, 8), 215),
+        outline=_rgba(rgb, 235),
+        width=3,
+    )
+
+    text = (label or "Note").strip() or "Note"
+    font = ImageFont.load_default()
+    max_chars = max(12, int((w - 24) / 7))
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if len(candidate) > max_chars and current:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+
+    for index, line in enumerate(lines[:4]):
+        draw.text((x + 12, y + 10 + index * 14), line, fill=_rgba((255, 255, 255), 245), font=font)
+
+
 def render_annotated_png(image_bytes: bytes, annotations: list[dict[str, Any]]) -> bytes:
     """Render every annotation onto a copy of ``image_bytes`` and return PNG bytes."""
     with Image.open(io.BytesIO(image_bytes)) as img:
@@ -130,6 +171,8 @@ def render_annotated_png(image_bytes: bytes, annotations: list[dict[str, Any]]) 
             bounds = annotation.get("bounds") or {}
             if ann_type == "click_rectangle":
                 _paste_pointer(img, bounds, width, height)
+            elif ann_type == "text_box":
+                _draw_text_box(draw, bounds, rgb, annotation.get("label"))
             else:
                 _draw_box(draw, bounds, rgb, rounded=ann_type != "manual_box")
         output = io.BytesIO()

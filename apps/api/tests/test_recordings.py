@@ -2,7 +2,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from conftest import TEST_TENANT_ID
@@ -10,6 +10,14 @@ from sqlalchemy.exc import IntegrityError
 from test_api import auth_headers
 
 from worktrace_api.database import RecordingRecord, SessionLocal
+from worktrace_api.repository import Repository
+from worktrace_api.schemas import (
+    CaptureSource,
+    EventType,
+    RecordingStatus,
+    SessionEvent,
+    WorkflowSession,
+)
 
 
 def create_recording(
@@ -17,8 +25,13 @@ def create_recording(
     has_audio=True,
     recording_id=None,
     workflow_name="Approve invoice",
+    manual_mode=False,
 ):
-    payload = {"workflow_name": workflow_name, "has_audio": has_audio}
+    payload = {
+        "workflow_name": workflow_name,
+        "has_audio": has_audio,
+        "manual_mode": manual_mode,
+    }
     if recording_id:
         payload["id"] = str(recording_id)
     response = client.post(
@@ -28,6 +41,7 @@ def create_recording(
     )
     assert response.status_code == 201
     assert response.json()["source_type"] == "desktop"
+    assert response.json()["manual_mode"] is manual_mode
     if recording_id:
         assert response.json()["id"] == str(recording_id)
     return response.json()
@@ -198,6 +212,7 @@ def test_resumable_chunk_upload_and_status_pipeline(client):
         "validating",
         "processing_screenshots",
         "aligning_evidence",
+        "awaiting_manual_review",
         "generating_sop",
         "sop_failed",
         "ready_for_review",
@@ -748,6 +763,123 @@ def test_retry_sop_is_recoverable_but_requires_background_queue(client):
     current = client.get(f"/recordings/{recording['id']}/status", headers=auth_headers())
     assert current.status_code == 200
     assert current.json()["recording"]["status"] == "sop_failed"
+
+
+def test_manual_review_saves_transcript_and_prompt(client):
+    tenant_id = UUID(TEST_TENANT_ID)
+    recording_id = uuid4()
+    session_id = uuid4()
+    event = SessionEvent(
+        tenant_id=tenant_id,
+        event_type=EventType.CLICK,
+        application="ERP Desktop",
+        x=10,
+        y=20,
+    )
+
+    with SessionLocal() as db:
+        repo = Repository(db, tenant_id)
+        recording = repo.create_recording(
+            "Manual invoice review",
+            CaptureSource.DESKTOP,
+            has_audio=True,
+            recording_id=recording_id,
+            manual_mode=True,
+        )
+        session = WorkflowSession(
+            tenant_id=tenant_id,
+            id=session_id,
+            recording_id=recording.id,
+            source_type=CaptureSource.DESKTOP,
+            workflow_name="Manual invoice review",
+            duration_ms=15_000,
+            events=[event],
+        )
+        repo.save_session(session)
+        repo.link_recording_session(
+            recording.id,
+            session.id,
+            RecordingStatus.AWAITING_MANUAL_REVIEW,
+        )
+
+    saved = client.put(
+        f"/recordings/{recording_id}/manual-review",
+        headers=auth_headers(),
+        json={
+            "transcript_text": "Click approve only after checking the vendor total.",
+            "custom_instruction": "Use short checklist language.",
+        },
+    )
+
+    assert saved.status_code == 200
+    assert saved.json()["manual_mode"] is True
+    assert saved.json()["custom_sop_instruction"] == "Use short checklist language."
+
+    session = client.get(f"/sessions/{session_id}", headers=auth_headers())
+    assert session.status_code == 200
+    transcript = session.json()["transcript"]
+    assert transcript["status"] == "completed"
+    assert transcript["text"] == "Click approve only after checking the vendor total."
+    assert transcript["segments"] == [
+        {
+            "start_ms": 0,
+            "end_ms": 15000,
+            "text": "Click approve only after checking the vendor total.",
+            "speaker": None,
+        }
+    ]
+
+
+def test_manual_generate_sop_queues_only_sop_stage(client):
+    tenant_id = UUID(TEST_TENANT_ID)
+    recording_id = uuid4()
+    session_id = uuid4()
+    event = SessionEvent(
+        tenant_id=tenant_id,
+        event_type=EventType.CLICK,
+        application="ERP Desktop",
+        x=10,
+        y=20,
+    )
+
+    with SessionLocal() as db:
+        repo = Repository(db, tenant_id)
+        recording = repo.create_recording(
+            "Generate reviewed SOP",
+            CaptureSource.DESKTOP,
+            has_audio=False,
+            recording_id=recording_id,
+            manual_mode=True,
+        )
+        session = WorkflowSession(
+            tenant_id=tenant_id,
+            id=session_id,
+            recording_id=recording.id,
+            source_type=CaptureSource.DESKTOP,
+            workflow_name="Generate reviewed SOP",
+            events=[event],
+        )
+        repo.save_session(session)
+        repo.link_recording_session(
+            recording.id,
+            session.id,
+            RecordingStatus.AWAITING_MANUAL_REVIEW,
+        )
+
+    response = client.post(
+        f"/recordings/{recording_id}/generate-sop",
+        headers=auth_headers(),
+        json={"custom_instruction": "Mention audit evidence."},
+    )
+
+    assert response.status_code == 409
+    assert "queue is offline" in response.json()["detail"]
+    current = client.get(f"/recordings/{recording_id}/status", headers=auth_headers())
+    assert current.status_code == 200
+    assert current.json()["recording"]["status"] == "sop_failed"
+    assert current.json()["recording"]["custom_sop_instruction"] == (
+        "Mention audit evidence."
+    )
 
 
 def test_broker_available_returns_false_for_unreachable_host():

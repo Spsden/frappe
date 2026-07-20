@@ -11,12 +11,11 @@ import hashlib
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
-
 from conftest import TEST_TENANT_ID
+from sqlalchemy import select
 from test_api import auth_headers
 
-from worktrace_api.database import SessionLocal, ScreenshotRecord
+from worktrace_api.database import ScreenshotRecord, SessionLocal
 from worktrace_api.recordings import ChunkStorage
 from worktrace_api.repository import Repository
 from worktrace_api.schemas import (
@@ -311,6 +310,11 @@ def test_replace_annotations_rebakes_annotated_png(client):
                 "type": "manual_box",
                 "bounds": {"x": 300.0, "y": 200.0, "width": 120.0, "height": 90.0},
             },
+            {
+                "type": "text_box",
+                "bounds": {"x": 440.0, "y": 260.0, "width": 160.0, "height": 64.0},
+                "label": "Check this total",
+            },
         ]
     }
     response = client.put(
@@ -332,6 +336,27 @@ def test_replace_annotations_rebakes_annotated_png(client):
         annotated_path = storage.resolve_storage_key(record.annotated_storage_key)
         assert annotated_path.exists()
         assert annotated_path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_delete_session_screenshot_removes_row_and_files(client):
+    session_id, screenshot_id, _event_id = _seed_session_with_screenshot()
+    settings = get_settings()
+    storage = ChunkStorage(
+        root=settings.recording_storage_path, max_chunk_bytes=settings.max_chunk_bytes
+    )
+    storage_key = f"{TENANT}/{session_id}/{screenshot_id}.png"
+    assert storage.resolve_storage_key(storage_key).exists()
+
+    response = client.delete(
+        f"/sessions/{session_id}/screenshots/{screenshot_id}",
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 204
+    assert not storage.resolve_storage_key(storage_key).exists()
+    listing = client.get(f"/sessions/{session_id}/screenshots", headers=auth_headers())
+    assert listing.status_code == 200
+    assert listing.json() == []
 
 
 def test_replace_annotations_requires_auth(client):
