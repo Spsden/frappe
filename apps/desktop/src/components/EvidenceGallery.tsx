@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import type {
   AnnotationInput,
   BackendAnnotation,
@@ -7,6 +8,7 @@ import type {
 
 interface EvidenceGalleryProps {
   remoteSessionId: string | null
+  editable?: boolean
 }
 
 interface LoadedScreenshot {
@@ -15,6 +17,7 @@ interface LoadedScreenshot {
 }
 
 type AnnotationType = AnnotationInput['type']
+type ToolMode = 'move' | 'box' | 'text' | 'erase'
 type Bounds = { x: number; y: number; width: number; height: number }
 type VisualAnno = {
   type: AnnotationType
@@ -44,6 +47,11 @@ const TYPE_STYLES: Record<AnnotationType, { rgb: string; tag: string; label: str
     rgb: '16, 185, 129',
     tag: 'bg-emerald-500/25 text-emerald-200',
     label: 'Box'
+  },
+  text_box: {
+    rgb: '168, 85, 247',
+    tag: 'bg-violet-500/25 text-violet-200',
+    label: 'Text'
   }
 }
 
@@ -73,6 +81,18 @@ function clampBounds(bounds: Bounds, width: number, height: number): Bounds {
     width: w,
     height: h
   }
+}
+
+function cloneEdits(edits: Record<string, AnnotationInput[]>): Record<string, AnnotationInput[]> {
+  return Object.fromEntries(
+    Object.entries(edits).map(([id, annotations]) => [
+      id,
+      annotations.map((annotation) => ({
+        ...annotation,
+        bounds: { ...annotation.bounds }
+      }))
+    ])
+  )
 }
 
 /**
@@ -164,6 +184,24 @@ function AnnotationVisual({ anno, width, height }: { anno: VisualAnno; width: nu
     )
   }
 
+  if (anno.type === 'text_box') {
+    return (
+      <div
+        className="pointer-events-none absolute rounded-xl border border-violet-300/70 bg-black/80 px-3 py-2 shadow-[0_0_24px_rgba(168,85,247,0.3)]"
+        style={{
+          left: pct(anno.bounds.x, width),
+          top: pct(anno.bounds.y, height),
+          width: pct(anno.bounds.width, width),
+          minHeight: pct(anno.bounds.height, height)
+        }}
+      >
+        <p className="text-[11px] font-bold leading-4 text-white/90">
+          {anno.label || 'Note'}
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div
       className="pointer-events-none absolute rounded-sm"
@@ -189,7 +227,7 @@ type ResizeCorner = 'nw' | 'ne' | 'sw' | 'se'
 type DragState =
   | { mode: 'move'; index: number; start: Bounds; origin: Bounds }
   | { mode: 'resize'; index: number; corner: ResizeCorner; origin: Bounds }
-  | { mode: 'draw'; index: number; start: Bounds; last: Bounds }
+  | { mode: 'draw'; index: number; start: Bounds; last: Bounds; annotationType: AnnotationType }
 
 function resizeBounds(origin: Bounds, corner: ResizeCorner, px: number, py: number, w: number, h: number): Bounds {
   let { x, y, width, height } = origin
@@ -216,13 +254,23 @@ interface FrameProps {
   evidence: BackendScreenshotEvidence
   url: string
   editMode: boolean
-  drawMode: boolean
+  toolMode: ToolMode
   annotations: AnnotationInput[]
   onChange: (next: AnnotationInput[]) => void
   onClear: () => void
+  onDelete: () => void
 }
 
-function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onChange, onClear }: FrameProps) {
+function ScreenshotFrame({
+  evidence,
+  url,
+  editMode,
+  toolMode,
+  annotations,
+  onChange,
+  onClear,
+  onDelete
+}: FrameProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
   // Mirror annotations into a ref so window-level pointer handlers (which
@@ -247,6 +295,10 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
 
   const replaceAt = (index: number, bounds: Bounds) => {
     onChange(annotationsRef.current.map((item, i) => (i === index ? { ...item, bounds } : item)))
+  }
+
+  const removeAt = (index: number) => {
+    onChange(annotationsRef.current.filter((_, i) => i !== index))
   }
 
   const handleMove = (event: PointerEvent) => {
@@ -290,6 +342,16 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
     dragRef.current = null
     if (drag?.mode === 'draw' && (drag.last.width < MIN_SIZE || drag.last.height < MIN_SIZE)) {
       onChange(annotationsRef.current.filter((_, i) => i !== drag.index))
+    } else if (drag?.mode === 'draw' && drag.annotationType === 'text_box') {
+      const current = annotationsRef.current[drag.index]
+      const text = window.prompt('Text for this callout', current?.label || '')
+      if (text !== null) {
+        onChange(
+          annotationsRef.current.map((item, i) =>
+            i === drag.index ? { ...item, label: text.trim() || 'Note' } : item
+          )
+        )
+      }
     }
   }
 
@@ -302,12 +364,21 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
   }
 
   const beginDraw = (event: React.PointerEvent) => {
-    if (!drawMode) return
+    if (toolMode !== 'box' && toolMode !== 'text') return
     const { x, y } = toCoords(event.clientX, event.clientY)
     const start = { x, y, width: 0, height: 0 }
     const index = annotations.length
-    onChange([...annotations, { type: 'manual_box', bounds: start, source: 'manual' }])
-    beginDrag(event, { mode: 'draw', index, start, last: start })
+    const annotationType: AnnotationType = toolMode === 'text' ? 'text_box' : 'manual_box'
+    onChange([
+      ...annotations,
+      {
+        type: annotationType,
+        bounds: start,
+        label: annotationType === 'text_box' ? 'Note' : null,
+        source: 'manual'
+      }
+    ])
+    beginDrag(event, { mode: 'draw', index, start, last: start, annotationType })
   }
 
   const visuals: VisualAnno[] = annotations.map((item) => ({
@@ -329,51 +400,61 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
           </Fragment>
         ))}
         {/* draw capture layer */}
-        {editMode && drawMode && (
+        {editMode && (toolMode === 'box' || toolMode === 'text') && (
           <div
             className="absolute inset-0 cursor-crosshair"
             onPointerDown={beginDraw}
-            title="Drag to draw a highlight box"
+            title={toolMode === 'text' ? 'Drag to add a text callout' : 'Drag to draw a highlight box'}
           />
         )}
         {/* edit handles (move/resize) */}
-        {editMode && !drawMode && (
+        {editMode && toolMode !== 'box' && toolMode !== 'text' && (
           <>
             {annotations.map((item, index) => {
               const style = TYPE_STYLES[item.type] ?? TYPE_STYLES.click_rectangle
               return (
                 <div
                   key={`e-${index}`}
-                  className="absolute cursor-move border border-dashed border-white/70"
+                  className={[
+                    'absolute border border-dashed border-white/70',
+                    toolMode === 'erase' ? 'cursor-not-allowed hover:bg-red-500/20' : 'cursor-move'
+                  ].join(' ')}
                   style={{
                     left: pct(item.bounds.x, evidence.width),
                     top: pct(item.bounds.y, evidence.height),
                     width: pct(item.bounds.width, evidence.width),
                     height: pct(item.bounds.height, evidence.height)
                   }}
-                  onPointerDown={(event) =>
+                  onPointerDown={(event) => {
+                    if (toolMode === 'erase') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      removeAt(index)
+                      return
+                    }
                     beginDrag(event, {
                       mode: 'move',
                       index,
                       start: toCoords(event.clientX, event.clientY),
                       origin: { ...item.bounds }
                     })
-                  }
+                  }}
                 >
-                  {(['nw', 'ne', 'sw', 'se'] as ResizeCorner[]).map((corner) => (
-                    <span
-                      key={corner}
-                      className="absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white"
-                      style={{
-                        left: corner.includes('w') ? '0%' : '100%',
-                        top: corner.includes('n') ? '0%' : '100%',
-                        backgroundColor: `rgb(${style.rgb})`
-                      }}
-                      onPointerDown={(event) =>
-                        beginDrag(event, { mode: 'resize', index, corner, origin: { ...item.bounds } })
-                      }
-                    />
-                  ))}
+                  {toolMode === 'move' &&
+                    (['nw', 'ne', 'sw', 'se'] as ResizeCorner[]).map((corner) => (
+                      <span
+                        key={corner}
+                        className="absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white"
+                        style={{
+                          left: corner.includes('w') ? '0%' : '100%',
+                          top: corner.includes('n') ? '0%' : '100%',
+                          backgroundColor: `rgb(${style.rgb})`
+                        }}
+                        onPointerDown={(event) =>
+                          beginDrag(event, { mode: 'resize', index, corner, origin: { ...item.bounds } })
+                        }
+                      />
+                    ))}
                 </div>
               )
             })}
@@ -390,6 +471,15 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
               onClick={onClear}
             >
               Clear
+            </button>
+          )}
+          {editMode && (
+            <button
+              type="button"
+              className="rounded border border-red-500/20 px-2 py-0.5 text-red-300/75 transition hover:bg-red-500/10 hover:text-red-200"
+              onClick={onDelete}
+            >
+              Delete frame
             </button>
           )}
           <span>
@@ -412,15 +502,42 @@ function ScreenshotFrame({ evidence, url, editMode, drawMode, annotations, onCha
  * highlights and draw manual boxes. Saving persists the edited sets and
  * re-bakes the backend's annotated PNGs.
  */
-export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
+function ToolButton({
+  active,
+  children,
+  onClick
+}: {
+  active?: boolean
+  children: ReactNode
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className={[
+        'rounded-xl px-3 py-2 text-left text-xs font-black uppercase tracking-[0.12em] transition',
+        active
+          ? 'bg-white text-black'
+          : 'border border-white/10 bg-white/[0.04] text-white/62 hover:bg-white/[0.08] hover:text-white'
+      ].join(' ')}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  )
+}
+
+export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGalleryProps) {
   const [screenshots, setScreenshots] = useState<LoadedScreenshot[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [editMode, setEditMode] = useState(false)
-  const [drawMode, setDrawMode] = useState(false)
+  const [toolMode, setToolMode] = useState<ToolMode>('move')
   const [edits, setEdits] = useState<Record<string, AnnotationInput[]>>({})
   const [dirty, setDirty] = useState<Set<string>>(new Set())
+  const [history, setHistory] = useState<Record<string, AnnotationInput[]>[]>([])
+  const [future, setFuture] = useState<Record<string, AnnotationInput[]>[]>([])
   const [saving, setSaving] = useState(false)
   const [offsetX, setOffsetX] = useState('')
   const [offsetY, setOffsetY] = useState('')
@@ -476,15 +593,19 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
     }
     setEdits(initial)
     setDirty(new Set())
-    setDrawMode(false)
+    setHistory([])
+    setFuture([])
+    setToolMode('move')
     setEditMode(true)
   }
 
   const cancelEdit = () => {
     setEditMode(false)
-    setDrawMode(false)
+    setToolMode('move')
     setEdits({})
     setDirty(new Set())
+    setHistory([])
+    setFuture([])
   }
 
   const markDirty = (id: string) => {
@@ -497,25 +618,63 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
   }
 
   const handleFrameChange = (id: string, next: AnnotationInput[]) => {
-    setEdits((prev) => ({ ...prev, [id]: next }))
+    setEdits((prev) => {
+      setHistory((current) => [...current.slice(-49), cloneEdits(prev)])
+      setFuture([])
+      return { ...prev, [id]: next }
+    })
     markDirty(id)
   }
 
   const clearFrame = (id: string) => {
-    setEdits((prev) => ({ ...prev, [id]: [] }))
+    setEdits((prev) => {
+      setHistory((current) => [...current.slice(-49), cloneEdits(prev)])
+      setFuture([])
+      return { ...prev, [id]: [] }
+    })
     markDirty(id)
   }
 
   const clearAll = () => {
-    const next: Record<string, AnnotationInput[]> = {}
-    const nextDirty = new Set(dirty)
+    setEdits((prev) => {
+      setHistory((current) => [...current.slice(-49), cloneEdits(prev)])
+      setFuture([])
+      const next: Record<string, AnnotationInput[]> = {}
+      for (const { evidence } of screenshots) next[evidence.id] = []
+      return next
+    })
+    setDirty(new Set(screenshots.map(({ evidence }) => evidence.id)))
+    setToolMode('box')
+  }
+
+  const resetAll = () => {
+    const initial: Record<string, AnnotationInput[]> = {}
     for (const { evidence } of screenshots) {
-      next[evidence.id] = []
-      nextDirty.add(evidence.id)
+      initial[evidence.id] = evidence.annotations.map(toInput)
     }
-    setEdits(next)
-    setDirty(nextDirty)
-    setDrawMode(true)
+    setEdits(initial)
+    setDirty(new Set())
+    setHistory([])
+    setFuture([])
+    setToolMode('move')
+  }
+
+  const undo = () => {
+    const previous = history.at(-1)
+    if (!previous) return
+    setFuture((nextFuture) => [cloneEdits(edits), ...nextFuture.slice(0, 49)])
+    setHistory((current) => current.slice(0, -1))
+    setEdits(cloneEdits(previous))
+    setDirty(new Set(screenshots.map(({ evidence }) => evidence.id)))
+  }
+
+  const redo = () => {
+    const next = future[0]
+    if (!next) return
+    setHistory((nextHistory) => [...nextHistory.slice(-49), cloneEdits(edits)])
+    setFuture((current) => current.slice(1))
+    setEdits(cloneEdits(next))
+    setDirty(new Set(screenshots.map(({ evidence }) => evidence.id)))
   }
 
   const applyGlobalOffset = () => {
@@ -523,6 +682,8 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
     const dy = Number(offsetY) || 0
     if (!dx && !dy) return
     setEdits((prev) => {
+      setHistory((current) => [...current.slice(-49), cloneEdits(prev)])
+      setFuture([])
       const next: Record<string, AnnotationInput[]> = {}
       for (const { evidence } of screenshots) {
         const annos = prev[evidence.id] ?? []
@@ -547,7 +708,7 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
   const saveAll = async () => {
     if (!remoteSessionId || dirty.size === 0) {
       setEditMode(false)
-      setDrawMode(false)
+      setToolMode('move')
       return
     }
     setSaving(true)
@@ -567,9 +728,41 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
       setEdits({})
       setDirty(new Set())
       setEditMode(false)
-      setDrawMode(false)
+      setToolMode('move')
+      setHistory([])
+      setFuture([])
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not save edits.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const deleteFrame = async (screenshotId: string) => {
+    if (!remoteSessionId) return
+    const confirmed = window.confirm('Delete this screenshot from the session?')
+    if (!confirmed) return
+    setSaving(true)
+    setError(null)
+    try {
+      await window.api.recording.deleteScreenshot(remoteSessionId, screenshotId)
+      setScreenshots((prev) => {
+        const removed = prev.find((item) => item.evidence.id === screenshotId)
+        if (removed) URL.revokeObjectURL(removed.url)
+        return prev.filter((item) => item.evidence.id !== screenshotId)
+      })
+      setEdits((prev) => {
+        const next = { ...prev }
+        delete next[screenshotId]
+        return next
+      })
+      setDirty((prev) => {
+        const next = new Set(prev)
+        next.delete(screenshotId)
+        return next
+      })
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not delete screenshot.')
     } finally {
       setSaving(false)
     }
@@ -594,96 +787,125 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-2">
-        {!editMode ? (
-          <button
-            type="button"
-            className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/10 hover:text-white"
-            onClick={enterEdit}
-          >
-            Edit annotations
-          </button>
-        ) : (
-          <>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition ${
-                  !drawMode ? 'bg-white/15 text-white' : 'text-white/60 hover:bg-white/5'
-                }`}
-                onClick={() => setDrawMode(false)}
-              >
-                Move / Resize
-              </button>
-              <button
-                type="button"
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition ${
-                  drawMode ? 'bg-white/15 text-white' : 'text-white/60 hover:bg-white/5'
-                }`}
-                onClick={() => setDrawMode(true)}
-              >
-                Draw box
-              </button>
+      {editable && !editMode && (
+        <button
+          type="button"
+          className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-white/80 transition hover:bg-white/10 hover:text-white"
+          onClick={enterEdit}
+        >
+          Edit evidence
+        </button>
+      )}
+
+      {editMode && (
+        <aside className="fixed right-6 top-24 z-30 w-60 rounded-2xl border border-white/12 bg-[#090909]/95 p-4 shadow-[0_22px_80px_rgba(0,0,0,0.65)] backdrop-blur">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">
+                Editor
+              </p>
+              <p className="mt-1 text-xs text-white/40">{dirty.size} unsaved frame{dirty.size === 1 ? '' : 's'}</p>
             </div>
+            <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
+          </div>
 
-            <div className="mx-1 h-5 w-px bg-white/10" />
+          <div className="mt-4 grid gap-2">
+            <ToolButton active={toolMode === 'move'} onClick={() => setToolMode('move')}>
+              Move pointer
+            </ToolButton>
+            <ToolButton active={toolMode === 'box'} onClick={() => setToolMode('box')}>
+              Draw box
+            </ToolButton>
+            <ToolButton active={toolMode === 'text'} onClick={() => setToolMode('text')}>
+              Add text
+            </ToolButton>
+            <ToolButton active={toolMode === 'erase'} onClick={() => setToolMode('erase')}>
+              Erase mark
+            </ToolButton>
+          </div>
 
-            <label className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wide text-white/45">
-              offset
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/38">
+              Offset all
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
               <input
                 type="number"
                 value={offsetX}
                 onChange={(event) => setOffsetX(event.target.value)}
                 placeholder="x"
-                className="w-12 rounded border border-white/10 bg-black/40 px-1.5 py-1 text-xs text-white outline-none focus:border-white/30"
+                className="rounded-lg border border-white/10 bg-black/40 px-2 py-2 text-xs text-white outline-none focus:border-white/30"
               />
               <input
                 type="number"
                 value={offsetY}
                 onChange={(event) => setOffsetY(event.target.value)}
                 placeholder="y"
-                className="w-12 rounded border border-white/10 bg-black/40 px-1.5 py-1 text-xs text-white outline-none focus:border-white/30"
+                className="rounded-lg border border-white/10 bg-black/40 px-2 py-2 text-xs text-white outline-none focus:border-white/30"
               />
-              <button
-                type="button"
-                className="rounded-md border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/70 transition hover:bg-white/5 hover:text-white"
-                onClick={applyGlobalOffset}
-              >
-                Apply to all
-              </button>
-            </label>
-
-            <div className="mx-1 h-5 w-px bg-white/10" />
-
+            </div>
             <button
               type="button"
-              className="rounded-md border border-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/60 transition hover:bg-white/5 hover:text-white"
+              className="mt-2 w-full rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition hover:bg-white/8 hover:text-white"
+              onClick={applyGlobalOffset}
+            >
+              Apply offset
+            </button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/65 transition hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-35"
+              onClick={undo}
+              disabled={history.length === 0}
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/65 transition hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-35"
+              onClick={redo}
+              disabled={future.length === 0}
+            >
+              Redo
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/65 transition hover:bg-white/8"
+              onClick={resetAll}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-red-500/20 px-3 py-2 text-xs font-bold text-red-300/80 transition hover:bg-red-500/10"
               onClick={clearAll}
             >
               Clear all
             </button>
+          </div>
 
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                type="button"
-                className="rounded-md border border-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white/60 transition hover:bg-white/5 hover:text-white"
-                onClick={cancelEdit}
-                disabled={saving}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-md bg-emerald-500/90 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-black transition hover:bg-emerald-400 disabled:opacity-50"
-                onClick={saveAll}
-                disabled={saving || dirty.size === 0}
-              >
-                {saving ? 'Saving…' : `Save${dirty.size > 0 ? ` (${dirty.size})` : ''}`}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
+          <div className="mt-4 grid gap-2">
+            <button
+              type="button"
+              className="rounded-xl bg-emerald-400 px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
+              onClick={saveAll}
+              disabled={saving || dirty.size === 0}
+            >
+              {saving ? 'Saving…' : `Save${dirty.size > 0 ? ` (${dirty.size})` : ''}`}
+            </button>
+            <button
+              type="button"
+              className="rounded-xl border border-white/10 px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-white/55 transition hover:bg-white/8 hover:text-white"
+              onClick={cancelEdit}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          </div>
+        </aside>
+      )}
 
       {error && <p className="text-sm text-red-300/80">{error}</p>}
 
@@ -695,10 +917,11 @@ export function EvidenceGallery({ remoteSessionId }: EvidenceGalleryProps) {
             evidence={evidence}
             url={url}
             editMode={editMode}
-            drawMode={drawMode}
+            toolMode={toolMode}
             annotations={annotations}
             onChange={(next) => handleFrameChange(evidence.id, next)}
             onClear={() => clearFrame(evidence.id)}
+            onDelete={() => void deleteFrame(evidence.id)}
           />
         )
       })}
