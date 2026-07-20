@@ -18,7 +18,7 @@ interface LoadedScreenshot {
 }
 
 type AnnotationType = AnnotationInput['type']
-type ToolMode = 'move' | 'box' | 'text' | 'erase'
+type ToolMode = 'move' | 'pointer' | 'box' | 'text' | 'erase'
 type Bounds = { x: number; y: number; width: number; height: number }
 type SelectedAnnotation = { screenshotId: string; index: number } | null
 type VisualAnno = {
@@ -63,6 +63,8 @@ const POINTER_ORIGINAL_EDGE = 2048
 const POINTER_CROPPED_MAX_EDGE = 1601
 const POINTER_HOTSPOT_X = 926 / POINTER_ORIGINAL_EDGE
 const POINTER_HOTSPOT_Y = 224 / POINTER_ORIGINAL_EDGE
+const CLICK_TARGET_WIDTH = 96
+const CLICK_TARGET_HEIGHT = 72
 
 function toInput(annotation: BackendAnnotation): AnnotationInput {
   return {
@@ -88,6 +90,19 @@ function clampBounds(bounds: Bounds, width: number, height: number): Bounds {
     width: w,
     height: h
   }
+}
+
+function pointerBoundsAt(x: number, y: number, width: number, height: number): Bounds {
+  return clampBounds(
+    {
+      x: x - CLICK_TARGET_WIDTH / 2,
+      y: y - CLICK_TARGET_HEIGHT / 2,
+      width: CLICK_TARGET_WIDTH,
+      height: CLICK_TARGET_HEIGHT
+    },
+    width,
+    height
+  )
 }
 
 function cloneEdits(edits: Record<string, AnnotationInput[]>): Record<string, AnnotationInput[]> {
@@ -535,6 +550,25 @@ function ScreenshotFrame({
     beginDrag(event, { mode: 'draw', index, start, last: start, annotationType })
   }
 
+  const addPointer = (event: React.PointerEvent) => {
+    if (toolMode !== 'pointer') return
+    event.preventDefault()
+    event.stopPropagation()
+    const { x, y } = toCoords(event.clientX, event.clientY)
+    const index = annotations.length
+    onChange([
+      ...annotations,
+      {
+        type: 'click_rectangle',
+        bounds: pointerBoundsAt(x, y, evidence.width, evidence.height),
+        label: null,
+        role: null,
+        source: 'manual'
+      }
+    ])
+    onSelect(index)
+  }
+
   const visuals: VisualAnno[] = annotations.map((item) => ({
     type: item.type,
     bounds: item.bounds,
@@ -552,6 +586,13 @@ function ScreenshotFrame({
           <AnnotationVisual key={`v-${i}`} anno={anno} width={evidence.width} height={evidence.height} />
         ))}
         {/* draw capture layer */}
+        {editMode && toolMode === 'pointer' && (
+          <div
+            className="absolute inset-0 cursor-copy"
+            onPointerDown={addPointer}
+            title="Click to add a pointer"
+          />
+        )}
         {editMode && (toolMode === 'box' || toolMode === 'text') && (
           <div
             className="absolute inset-0 cursor-crosshair"
@@ -560,7 +601,7 @@ function ScreenshotFrame({
           />
         )}
         {/* edit handles (move/resize) */}
-        {editMode && toolMode !== 'box' && toolMode !== 'text' && (
+        {editMode && (toolMode === 'move' || toolMode === 'erase') && (
           <>
             {annotations.map((item, index) => {
               const style = TYPE_STYLES[item.type] ?? TYPE_STYLES.click_rectangle
@@ -1064,6 +1105,9 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
             <ToolButton active={toolMode === 'move'} onClick={() => setToolMode('move')}>
               Move pointer
             </ToolButton>
+            <ToolButton active={toolMode === 'pointer'} onClick={() => setToolMode('pointer')}>
+              Add pointer
+            </ToolButton>
             <ToolButton active={toolMode === 'box'} onClick={() => setToolMode('box')}>
               Draw box
             </ToolButton>
@@ -1074,6 +1118,12 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
               Erase mark
             </ToolButton>
           </div>
+
+          {toolMode === 'pointer' && (
+            <p className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-5 text-white/42">
+              Click anywhere on a screenshot to drop a new hand pointer.
+            </p>
+          )}
 
           {selectedInput?.type === 'text_box' && (
             <div className="mt-4 rounded-xl border border-violet-300/15 bg-violet-400/[0.06] p-3">
