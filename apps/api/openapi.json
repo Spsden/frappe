@@ -1007,7 +1007,7 @@
           "sessions"
         ],
         "summary": "Get Session Screenshot Image",
-        "description": "Serve the raw screenshot bytes for overlay rendering.",
+        "description": "Serve the raw screenshot bytes for overlay rendering or annotated bytes for SOP.",
         "operationId": "get_session_screenshot_image_sessions__session_id__screenshots__screenshot_id__get",
         "security": [
           {
@@ -1033,6 +1033,22 @@
               "type": "string",
               "format": "uuid",
               "title": "Screenshot Id"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
             }
           },
           {
@@ -2436,6 +2452,18 @@
       },
       "RecordingCreate": {
         "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "workflow_name": {
             "type": "string",
             "maxLength": 200,

@@ -118,6 +118,7 @@ export class InputEventService {
     this.active = true
     this.paused = false
     uIOhook.on('click', this.handleClick)
+    uIOhook.on('mousemove', this.handleMouseMove)
     uIOhook.on('keydown', this.handleKeyDown)
     uIOhook.on('wheel', this.handleWheel)
     uIOhook.start()
@@ -147,6 +148,7 @@ export class InputEventService {
     this.flushScrollBurst()
     this.clearTimers()
     uIOhook.off('click', this.handleClick)
+    uIOhook.off('mousemove', this.handleMouseMove)
     uIOhook.off('keydown', this.handleKeyDown)
     uIOhook.off('wheel', this.handleWheel)
     uIOhook.stop()
@@ -155,6 +157,8 @@ export class InputEventService {
   }
 
   private handleClick = (event: UiohookMouseEvent): void => {
+    console.log(`${event.x}, ${event.y}, clicked`)
+
     if (!this.shouldCapture() || this.callbacks?.shouldIgnorePoint(event.x, event.y)) {
       return
     }
@@ -178,6 +182,10 @@ export class InputEventService {
     }
 
     this.saveEvent('click', baseData, beforeScreenshotId)
+  }
+
+  private handleMouseMove = (event: UiohookMouseEvent): void => {
+    console.log(`${event.x}, ${event.y}`)
   }
 
   /**

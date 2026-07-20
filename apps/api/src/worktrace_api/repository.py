@@ -73,11 +73,16 @@ class Repository:
         return session
 
     def create_recording(
-        self, workflow_name: str, source_type: CaptureSource, has_audio: bool
+        self,
+        workflow_name: str,
+        source_type: CaptureSource,
+        has_audio: bool,
+        recording_id: UUID | None = None,
     ) -> Recording:
+        recording_id = recording_id or uuid4()
         recording = Recording(
             tenant_id=self.tenant_id,
-            id=uuid4(),
+            id=recording_id,
             workflow_name=workflow_name,
             source_type=source_type,
             status=RecordingStatus.RECORDING,
@@ -99,7 +104,11 @@ class Repository:
                 created_at=recording.created_at,
             )
         )
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise ValueError("Recording id already exists") from exc
         return recording
 
     def get_recording(self, recording_id: UUID) -> Recording | None:

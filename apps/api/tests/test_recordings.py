@@ -12,14 +12,24 @@ from test_api import auth_headers
 from worktrace_api.database import RecordingRecord, SessionLocal
 
 
-def create_recording(client, has_audio=True):
+def create_recording(
+    client,
+    has_audio=True,
+    recording_id=None,
+    workflow_name="Approve invoice",
+):
+    payload = {"workflow_name": workflow_name, "has_audio": has_audio}
+    if recording_id:
+        payload["id"] = str(recording_id)
     response = client.post(
         "/recordings",
         headers=auth_headers(),
-        json={"workflow_name": "Approve invoice", "has_audio": has_audio},
+        json=payload,
     )
     assert response.status_code == 201
     assert response.json()["source_type"] == "desktop"
+    if recording_id:
+        assert response.json()["id"] == str(recording_id)
     return response.json()
 
 
@@ -49,6 +59,39 @@ def upload_chunk(
             "metadata_json": json.dumps(metadata or {}),
         },
         files={"file": (filename or f"chunk-{index}.bin", payload, media_type)},
+    )
+
+
+def test_create_recording_accepts_client_supplied_id(client):
+    recording_id = uuid4()
+    recording = create_recording(client, recording_id=recording_id)
+
+    assert recording["id"] == str(recording_id)
+
+    retry = client.post(
+        "/recordings",
+        headers=auth_headers(),
+        json={
+            "id": str(recording_id),
+            "workflow_name": "Approve invoice",
+            "has_audio": True,
+        },
+    )
+    assert retry.status_code == 200
+    assert retry.json()["id"] == str(recording_id)
+
+    conflict = client.post(
+        "/recordings",
+        headers=auth_headers(),
+        json={
+            "id": str(recording_id),
+            "workflow_name": "Different workflow",
+            "has_audio": True,
+        },
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == (
+        "Recording id already exists with different metadata"
     )
 
 

@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from worktrace_api.annotation_render import render_annotated_png
 from worktrace_api.auth import (
     AuthenticationError,
     EmailAlreadyRegisteredError,
@@ -72,7 +73,6 @@ from worktrace_api.services import (
     generate_sop,
 )
 from worktrace_api.settings import get_settings
-from worktrace_api.annotation_render import render_annotated_png
 
 
 @asynccontextmanager
@@ -218,15 +218,41 @@ def logout(
 
 
 
-#The primary endpoint, here is where the recordng comes
+# Primary recording ingestion endpoint.
 @app.post(
     "/recordings",
     response_model=Recording,
     status_code=status.HTTP_201_CREATED,
     tags=["recordings"],
 )
-def create_recording(payload: RecordingCreate, repo: Repository = Depends(repository)) -> Recording:
-    return repo.create_recording(payload.workflow_name, payload.source_type, payload.has_audio)
+def create_recording(
+    payload: RecordingCreate,
+    response: Response,
+    repo: Repository = Depends(repository),
+) -> Recording:
+    if payload.id:
+        existing = repo.get_recording(payload.id)
+        if existing:
+            if (
+                existing.workflow_name != payload.workflow_name
+                or existing.source_type != payload.source_type
+                or existing.has_audio != payload.has_audio
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Recording id already exists with different metadata",
+                )
+            response.status_code = status.HTTP_200_OK
+            return existing
+    try:
+        return repo.create_recording(
+            payload.workflow_name,
+            payload.source_type,
+            payload.has_audio,
+            payload.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @app.put(
@@ -579,7 +605,11 @@ def get_session_screenshot_image(
         root=settings.recording_storage_path,
         max_chunk_bytes=settings.max_chunk_bytes,
     )
-    key_to_serve = screenshot.annotated_storage_key if type == "annotated" and screenshot.annotated_storage_key else screenshot.storage_key
+    key_to_serve = (
+        screenshot.annotated_storage_key
+        if type == "annotated" and screenshot.annotated_storage_key
+        else screenshot.storage_key
+    )
     if not key_to_serve or not storage.exists(key_to_serve):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot image not available"

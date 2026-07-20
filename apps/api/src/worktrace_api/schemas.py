@@ -346,6 +346,7 @@ class ChunkContentType(StrEnum):
 
 
 class RecordingCreate(StrictModel):
+    id: UUID | None = None
     workflow_name: str = Field(min_length=1, max_length=200)
     source_type: CaptureSource = CaptureSource.DESKTOP
     has_audio: bool = False

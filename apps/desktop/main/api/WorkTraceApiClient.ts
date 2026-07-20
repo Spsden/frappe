@@ -112,6 +112,7 @@ export class WorkTraceApiClient {
   }
 
   async createRecording(payload: {
+    id?: string
     workflowName: string
     hasAudio: boolean
   }): Promise<BackendRecording> {
@@ -119,6 +120,7 @@ export class WorkTraceApiClient {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        id: payload.id,
         workflow_name: payload.workflowName,
         source_type: 'desktop',
         has_audio: payload.hasAudio
