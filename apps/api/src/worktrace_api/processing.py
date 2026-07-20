@@ -509,9 +509,12 @@ def _map_pointer_to_screenshot(
         return None
 
     try:
-        display_scale = float(pointer.get("displayScaleFactor") or display.get("scaleFactor") or 1)
-        display_width = float(display_bounds["width"]) * display_scale
-        display_height = float(display_bounds["height"]) * display_scale
+        # Electron/uiohook pointer coordinates are display points (DIP), while
+        # screenshots are captured in physical pixels. Do not multiply the
+        # display bounds by scaleFactor here: doing so cancels the Retina scale.
+        # The image-to-bounds ratio is the effective point→pixel multiplier.
+        display_width = float(display_bounds["width"])
+        display_height = float(display_bounds["height"])
         image_width = float(image_size["width"])
         image_height = float(image_size["height"])
         x = float(point["x"])

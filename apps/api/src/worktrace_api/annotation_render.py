@@ -4,8 +4,8 @@ Re-bakes a screenshot PNG so the stored image reflects the on-screen overlays
 shown by the evidence editor. Each annotation type renders distinctly:
 
 * ``click_rectangle`` -> the branded pointer asset (``assets/pointer.png``)
-  pasted at the click target, anchored top-left so the arrow tip lands on
-  the exact click coordinate.
+  pasted at the click target, anchored so the fingertip lands on the exact
+  click coordinate.
 * ``scroll_focus`` / ``pointer_focus`` -> a soft glow box (rounded, tinted).
 * ``manual_box`` -> a crisp user-drawn rectangle (emerald).
 
@@ -31,21 +31,44 @@ _ANNOTATION_RGB: dict[str, tuple[int, int, int]] = {
 _ASSETS_DIR = Path(__file__).parent / "assets"
 _POINTER_PATH = _ASSETS_DIR / "pointer.png"
 
-# Pointer overlay cache keyed by edge size. The PNG is decoded once per size
+# Pointer overlay cache keyed by max edge size. The PNG is decoded once per size
 # and reused for every subsequent render in the process.
-_pointer_cache: dict[int, Image.Image] = {}
+_pointer_cache: dict[int, tuple[Image.Image, tuple[int, int]]] = {}
 
 
 def _rgba(rgb: tuple[int, int, int], alpha: int) -> tuple[int, int, int, int]:
     return (rgb[0], rgb[1], rgb[2], alpha)
 
 
-def _load_pointer(size: int) -> Image.Image:
-    """Load pointer.png downscaled to ``size``x``size`` (cached per size)."""
+def _detect_pointer_hotspot(pointer: Image.Image) -> tuple[int, int]:
+    """Find the fingertip hotspot from the first strongly visible alpha row."""
+    alpha = pointer.getchannel("A")
+    for y in range(pointer.height):
+        visible_x = [
+            x for x in range(pointer.width) if alpha.getpixel((x, y)) >= 64
+        ]
+        if visible_x:
+            return (round((visible_x[0] + visible_x[-1]) / 2), y)
+    return (pointer.width // 2, 0)
+
+
+def _load_pointer(size: int) -> tuple[Image.Image, tuple[int, int]]:
+    """Load pointer.png downscaled to fit within ``size`` px (cached per size).
+
+    The source asset has transparent padding, so crop to visible pixels before
+    scaling. That keeps the fingertip hotspot aligned to the click coordinate
+    instead of offsetting it by the asset's empty margin.
+    """
     cached = _pointer_cache.get(size)
     if cached is None:
         with Image.open(_POINTER_PATH) as img:
-            cached = img.convert("RGBA").resize((size, size), Image.Resampling.LANCZOS)
+            pointer = img.convert("RGBA")
+            visible_mask = pointer.getchannel("A").point(lambda value: 255 if value >= 8 else 0)
+            visible_box = visible_mask.getbbox()
+            if visible_box:
+                pointer = pointer.crop(visible_box)
+            pointer.thumbnail((size, size), Image.Resampling.LANCZOS)
+            cached = (pointer, _detect_pointer_hotspot(pointer))
         _pointer_cache[size] = cached
     return cached
 
@@ -56,17 +79,16 @@ def _paste_pointer(
     """Paste the pointer asset onto ``base`` at the click target.
 
     Size scales with the screenshot's shorter edge so the pointer stays
-    visible across resolutions (~75px on 1080p, ~120px on 1440p, ~180px on 4K).
-    The tip is anchored at the target's center, matching a standard arrow
-    cursor hotspot. The paste position is clamped to keep the whole pointer
-    inside the frame.
+    visible across resolutions (~60px on 1080p, ~80px on 1440p, ~120px on 4K).
+    The fingertip is anchored at the target's center. The paste position is
+    clamped to keep the whole pointer inside the frame.
     """
-    size = max(64, min(width, height) // 12)
-    pointer = _load_pointer(size)
+    size = max(48, min(width, height) // 18)
+    pointer, hotspot = _load_pointer(size)
     tx = int(bounds.get("x", 0) + bounds.get("width", 0) / 2)
     ty = int(bounds.get("y", 0) + bounds.get("height", 0) / 2)
-    paste_x = min(max(tx, 0), width - size)
-    paste_y = min(max(ty, 0), height - size)
+    paste_x = min(max(tx - hotspot[0], 0), max(0, width - pointer.width))
+    paste_y = min(max(ty - hotspot[1], 0), max(0, height - pointer.height))
     # Third arg = alpha mask; required so transparent pixels in the PNG stay
     # transparent instead of being painted as solid black.
     base.paste(pointer, (paste_x, paste_y), pointer)

@@ -61,6 +61,36 @@ def test_coordinate_box_used_when_no_accessibility_bounds():
     assert annotation["bounds"] == {"x": 432.0, "y": 284.0, "width": 96.0, "height": 72.0}
 
 
+def test_retina_display_points_are_scaled_to_screenshot_pixels():
+    retina_meta = {
+        "capture": {
+            "imageSize": {"width": 2940, "height": 1912},
+            "display": {
+                "id": "1",
+                "scaleFactor": 2,
+                "bounds": {"x": 0, "y": 0, "width": 1470, "height": 956},
+            },
+        }
+    }
+    data = {
+        "pointer": {
+            "coordinateSpace": "global-screen",
+            "x": 337,
+            "y": 395,
+            "displayId": "1",
+            "displayScaleFactor": 2,
+            "pointOnDisplay": {"x": 337, "y": 395},
+        }
+    }
+    annotation = _pointer_annotation(
+        EventType.CLICK, uuid4(), None, 337, 395, data, retina_meta
+    )
+
+    assert annotation["source"] == "event_pointer"
+    assert annotation["coordinate_space"] == "screenshot_pixels"
+    assert annotation["bounds"] == {"x": 626.0, "y": 754.0, "width": 96.0, "height": 72.0}
+
+
 def test_fallback_when_no_pointer_and_no_bounds():
     annotation = _pointer_annotation(EventType.CLICK, uuid4(), None, 480, 320, {}, None)
 

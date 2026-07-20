@@ -1,36 +1,11 @@
-import io
 from uuid import UUID
 
-from PIL import Image, ImageDraw
-
+from worktrace_api.annotation_render import render_annotated_png
 from worktrace_api.core.celery_app import celery_app
 from worktrace_api.recordings import ChunkStorage
 from worktrace_api.schemas import RecordingStatus
 from worktrace_api.settings import get_settings
 from worktrace_api.tasks._repo import make_repo
-
-
-def _draw_annotation_box(image_bytes: bytes, bounds: dict) -> bytes:
-    """Draw a visible bounding box on the image based on the provided coordinates."""
-    with Image.open(io.BytesIO(image_bytes)) as img:
-        img = img.convert("RGBA")
-
-        x, y = bounds["x"], bounds["y"]
-        w, h = bounds["width"], bounds["height"]
-
-        draw = ImageDraw.Draw(img)
-        outline_color = (255, 0, 0, 255)  # Solid Red
-        stroke_width = 4
-
-        draw.rectangle(
-            [x, y, x + w, y + h],
-            outline=outline_color,
-            width=stroke_width
-        )
-
-        output = io.BytesIO()
-        img.save(output, format="PNG")
-        return output.getvalue()
 
 
 @celery_app.task(bind=True, max_retries=3)
@@ -90,7 +65,7 @@ def annotate_screenshots(self, recording_id: str, session_id: str, tenant_id: st
                     f"for event {matching_event.id} "
                     f"center=({center_x}, {center_y}) bounds={bounds}"
                 )
-                annotated_bytes = _draw_annotation_box(original_bytes, bounds)
+                annotated_bytes = render_annotated_png(original_bytes, [annotation])
 
  
                 annotated_key = f"{screenshot.storage_key.rsplit('.', 1)[0]}-annotated.png"
