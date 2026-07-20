@@ -116,6 +116,7 @@ export class WorkTraceApiClient {
     id?: string
     workflowName: string
     hasAudio: boolean
+    manualMode: boolean
   }): Promise<BackendRecording> {
     const response = await this.request('/recordings', {
       method: 'POST',
@@ -124,7 +125,8 @@ export class WorkTraceApiClient {
         id: payload.id,
         workflow_name: payload.workflowName,
         source_type: 'desktop',
-        has_audio: payload.hasAudio
+        has_audio: payload.hasAudio,
+        manual_mode: payload.manualMode
       })
     })
     return (await response.json()) as BackendRecording
@@ -231,6 +233,40 @@ export class WorkTraceApiClient {
       }
     )
     return (await response.json()) as BackendScreenshotEvidence
+  }
+
+  async deleteScreenshot(sessionId: string, screenshotId: string): Promise<void> {
+    await this.request(`/sessions/${sessionId}/screenshots/${screenshotId}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async saveManualReview(
+    recordingId: string,
+    transcriptText: string | null,
+    customInstruction: string | null
+  ): Promise<BackendRecording> {
+    const response = await this.request(`/recordings/${recordingId}/manual-review`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        transcript_text: transcriptText,
+        custom_instruction: customInstruction
+      })
+    })
+    return (await response.json()) as BackendRecording
+  }
+
+  async generateSop(
+    recordingId: string,
+    customInstruction: string | null = null
+  ): Promise<BackendRecording> {
+    const response = await this.request(`/recordings/${recordingId}/generate-sop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_instruction: customInstruction })
+    })
+    return (await response.json()) as BackendRecording
   }
 
   async request(path: string, init: RequestInit = {}): Promise<Response> {

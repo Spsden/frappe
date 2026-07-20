@@ -67,6 +67,25 @@ export function registerRecordingIpc(
     ) => library.saveScreenshotAnnotations(backendSessionId, screenshotId, annotations)
   )
   ipcMain.handle(
+    recordingIpc.deleteScreenshot,
+    (_event, backendSessionId: string, screenshotId: string) =>
+      library.deleteScreenshot(backendSessionId, screenshotId)
+  )
+  ipcMain.handle(
+    recordingIpc.saveManualReview,
+    (
+      _event,
+      recordingId: string,
+      transcriptText: string | null,
+      customInstruction: string | null
+    ) => library.saveManualReview(recordingId, transcriptText, customInstruction)
+  )
+  ipcMain.handle(
+    recordingIpc.generateSop,
+    (_event, recordingId: string, customInstruction: string | null) =>
+      library.generateSop(recordingId, customInstruction)
+  )
+  ipcMain.handle(
     recordingIpc.openPermissionSettings,
     (_event, permission: 'accessibility' | 'screen' | 'microphone') => {
       if (process.platform !== 'darwin') {
@@ -103,6 +122,9 @@ export function registerRecordingIpc(
     ipcMain.removeHandler(recordingIpc.getSessionSops)
     ipcMain.removeHandler(recordingIpc.getSopScreenshotImage)
     ipcMain.removeHandler(recordingIpc.saveScreenshotAnnotations)
+    ipcMain.removeHandler(recordingIpc.deleteScreenshot)
+    ipcMain.removeHandler(recordingIpc.saveManualReview)
+    ipcMain.removeHandler(recordingIpc.generateSop)
     ipcMain.removeHandler(recordingIpc.openPermissionSettings)
   }
 }

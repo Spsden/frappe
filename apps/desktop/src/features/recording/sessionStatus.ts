@@ -11,6 +11,7 @@ export const stageLabels: Record<BackendRecordingStatus, string> = {
   transcribing_audio: 'Transcribing',
   processing_screenshots: 'Annotating',
   aligning_evidence: 'Aligning',
+  awaiting_manual_review: 'Review evidence',
   generating_sop: 'Creating SOP',
   sop_failed: 'SOP needs retry',
   ready_for_review: 'Ready',
@@ -91,7 +92,7 @@ export function statusDot(session: RecordedSessionSummary) {
   ) {
     return 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.55)]'
   }
-  if (status === 'ready_for_review' || status === 'completed') {
+  if (status === 'awaiting_manual_review' || status === 'ready_for_review' || status === 'completed') {
     return 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.55)]'
   }
   if (status === 'local') {

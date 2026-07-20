@@ -116,10 +116,10 @@ function ExperimentalSection() {
     }
   }, [])
 
-  const toggle = async (value: boolean) => {
+  const toggle = async (flag: keyof ExperimentalFlags, value: boolean) => {
     setBusy(true)
     try {
-      await window.api.settings.setFlag('accessibilityCapture', value)
+      await window.api.settings.setFlag(flag, value)
     } finally {
       setBusy(false)
     }
@@ -128,22 +128,53 @@ function ExperimentalSection() {
   return (
     <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.025] p-5">
       <p className="text-xs font-bold">Experimental</p>
-      <p className="mt-2 text-xs leading-5 text-white/45">
-        Accessibility-aware capture (experimental): when enabled, clicks also read the focused UI
-        element via the platform accessibility API for element-level highlight precision. Requires
-        Accessibility permission and affects the next recording.
-      </p>
-      <label className="mt-4 flex items-center gap-3 text-sm">
-        <input
-          type="checkbox"
-          className="size-4 accent-emerald-400"
+      <div className="mt-4 space-y-4">
+        <FlagToggle
+          title="Manual mode"
+          description="Pause after annotation and transcription so you can adjust evidence before creating the SOP."
+          checked={flags?.manualMode ?? false}
           disabled={busy || flags === null}
-          checked={flags?.accessibilityCapture ?? false}
-          onChange={(event) => void toggle(event.target.checked)}
+          onChange={(value) => void toggle('manualMode', value)}
         />
-        <span className="text-white/80">Enable accessibility capture</span>
-      </label>
+        <FlagToggle
+          title="Accessibility capture"
+          description="Also query the focused UI element for more precise click bounds. Requires Accessibility permission and affects the next recording."
+          checked={flags?.accessibilityCapture ?? false}
+          disabled={busy || flags === null}
+          onChange={(value) => void toggle('accessibilityCapture', value)}
+        />
+      </div>
     </div>
+  )
+}
+
+function FlagToggle({
+  title,
+  description,
+  checked,
+  disabled,
+  onChange
+}: {
+  title: string
+  description: string
+  checked: boolean
+  disabled: boolean
+  onChange: (value: boolean) => void
+}) {
+  return (
+    <label className="flex items-start justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3">
+      <span>
+        <span className="block text-sm font-bold text-white/85">{title}</span>
+        <span className="mt-1 block text-xs leading-5 text-white/45">{description}</span>
+      </span>
+      <input
+        type="checkbox"
+        className="mt-1 size-4 shrink-0 accent-emerald-400"
+        disabled={disabled}
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+    </label>
   )
 }
 
