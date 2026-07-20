@@ -336,6 +336,8 @@ async def upload_recording_chunk(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
+
+#means recording is complete and ready for processing.
 @app.post(
     "/recordings/{recording_id}/complete",
     response_model=Recording,

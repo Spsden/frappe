@@ -1,0 +1,34 @@
+# Debug override for running the FastAPI service inside Docker while attaching
+# a local debugger to port 5678.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+#
+# Optional: pause FastAPI until the debugger attaches:
+#   DEBUGPY_WAIT_FOR_CLIENT=true docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+
+services:
+  api:
+    ports:
+      - "8000:8000"
+      - "5678:5678"
+    environment:
+      DEBUGPY_WAIT_FOR_CLIENT: ${DEBUGPY_WAIT_FOR_CLIENT:-false}
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        WAIT_FLAG=""
+        if [ "$${DEBUGPY_WAIT_FOR_CLIENT}" = "true" ]; then
+          WAIT_FLAG="--wait-for-client"
+          echo "FastAPI debugpy is waiting for debugger on 0.0.0.0:5678"
+        else
+          echo "FastAPI debugpy is listening on 0.0.0.0:5678"
+        fi
+        exec python -m debugpy --listen 0.0.0.0:5678 --configure-subProcess true $${WAIT_FLAG} \
+          -m uvicorn worktrace_api.main:app \
+          --host 0.0.0.0 \
+          --port 8000 \
+          --reload \
+          --reload-dir /app/src

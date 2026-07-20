@@ -47,6 +47,7 @@ class RecordingProcessor:
 
             repo.set_recording_status(recording_id, RecordingStatus.PROCESSING_SCREENSHOTS)
             session_id = uuid5(recording_id, "workflow-session")
+            ##PYTHON TUPLE UNPACKING, WOAHHHHH WHERE HAS THIS BEEN ALL MY LIFE, I LOVE IT
             (
                 screenshots,
                 screenshot_ids,

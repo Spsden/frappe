@@ -14,3 +14,7 @@ docker compose up        # everything (api + worker + redis)
 docker compose up -d     # detached
 docker compose logs -f worker
 docker compose down      # data (sqlite + recordings) is bind-mounted on host, so it survives
+
+
+
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build

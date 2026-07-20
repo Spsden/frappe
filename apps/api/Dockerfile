@@ -29,7 +29,8 @@ COPY migrations ./migrations
 # --system installs into system site-packages (no venv). Cache mount lets
 # the resolved-wheel cache survive across `docker compose build` runs.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system -e .
+    uv pip install --system -e . && \
+    uv pip install --system "debugpy>=1.8,<2"
 
 EXPOSE 8000
 
