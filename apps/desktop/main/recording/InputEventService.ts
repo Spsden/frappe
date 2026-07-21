@@ -157,7 +157,7 @@ export class InputEventService {
   }
 
   private handleClick = (event: UiohookMouseEvent): void => {
-    console.log(`${event.x}, ${event.y}, clicked`)
+    // console.log(`${event.x}, ${event.y}, clicked`)
 
     if (!this.shouldCapture() || this.callbacks?.shouldIgnorePoint(event.x, event.y)) {
       return
@@ -185,7 +185,7 @@ export class InputEventService {
   }
 
   private handleMouseMove = (event: UiohookMouseEvent): void => {
-    console.log(`${event.x}, ${event.y}`)
+    // console.log(`${event.x}, ${event.y}`)
   }
 
   /**
