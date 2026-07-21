@@ -14,11 +14,13 @@ by calling it directly with the provider monkeypatched (no broker / no LLM).
 
 import json
 from datetime import UTC, datetime
+from io import BytesIO
 from uuid import UUID, uuid4
 
 import pytest
-
 from conftest import TEST_TENANT_ID
+from PIL import Image
+
 from worktrace_api.database import RecordingRecord, ScreenshotRecord, SessionLocal, SOPRecord
 from worktrace_api.repository import Repository
 from worktrace_api.schemas import (
@@ -32,6 +34,7 @@ from worktrace_api.sop_provider import (
     SOPProviderError,
     build_evidence_bundle,
     build_generation_messages,
+    encode_evidence_images,
     generated_to_sop,
     parse_generated_sop,
 )
@@ -147,7 +150,7 @@ def _patch_provider(monkeypatch, **kwargs):
     fake = _FakeProvider(None, **kwargs)
     monkeypatch.setattr(sop_generation, "SOPProvider", lambda settings: fake)
     # Avoid touching the filesystem during tests.
-    monkeypatch.setattr(sop_generation, "encode_evidence_images", lambda bundle, storage: {})
+    monkeypatch.setattr(sop_generation, "encode_evidence_images", lambda *args, **kwargs: {})
     return fake
 
 
@@ -197,7 +200,7 @@ def test_custom_instruction_reaches_generation_inputs():
 
     assert bundle.custom_instruction == "Keep it concise for finance."
 
-    messages = build_generation_messages(bundle, image_data_uris={})
+    messages = build_generation_messages(bundle, image_data_uris={}, max_vision_frames=24)
     prompt = json.dumps(messages)
 
     # The instruction is framed as bounded reviewer guidance, and the prompt
@@ -209,7 +212,7 @@ def test_custom_instruction_reaches_generation_inputs():
 
 def test_prompt_prefers_labels_over_coordinates():
     bundle = _bundle()
-    prompt = json.dumps(build_generation_messages(bundle, image_data_uris={}))
+    prompt = json.dumps(build_generation_messages(bundle, image_data_uris={}, max_vision_frames=24))
 
     # Visible label + window title appear; raw coordinates are never requested.
     assert "Submit" in prompt
@@ -284,6 +287,31 @@ def test_generated_to_sop_rejects_bad_evidence_reference():
             tenant_id=TENANT,
             session_id=UUID("00000000-0000-4000-8000-000000000003"),
         )
+
+
+def test_evidence_images_are_resized_for_llm():
+    image = Image.new("RGB", (2400, 1200), (20, 20, 20))
+    output = BytesIO()
+    image.save(output, format="PNG")
+
+    class _Storage:
+        def exists(self, key):
+            return key == "annotated.png"
+
+        def read(self, key):
+            assert key == "annotated.png"
+            return output.getvalue()
+
+    encoded = encode_evidence_images(
+        _bundle(),
+        _Storage(),
+        max_frames=1,
+        max_dimension_px=640,
+        jpeg_quality=60,
+    )
+
+    data_uri = encoded["annotated.png"]
+    assert data_uri.startswith("data:image/jpeg;base64,")
 
 
 # ---------------------------------------------------------------------------

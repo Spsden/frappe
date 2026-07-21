@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     # changes. Defaults keep the existing OpenRouter + GPT-4o behavior.
     openai_base_url: str = "https://openrouter.ai/api/v1"
     openai_model: str = "openai/gpt-4o"
+    sop_max_evidence_steps: int = Field(default=120, ge=1, le=500)
+    sop_max_vision_frames: int = Field(default=24, ge=0, le=100)
+    sop_image_max_dimension_px: int = Field(default=1280, ge=320, le=4096)
+    sop_image_jpeg_quality: int = Field(default=72, ge=30, le=95)
+    sop_max_output_tokens: int = Field(default=8000, ge=1000, le=32000)
 
     @field_validator("allowed_origins", "allowed_domains", mode="before")
     @classmethod

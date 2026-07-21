@@ -32,10 +32,12 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from io import BytesIO
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 import openai
+from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from worktrace_api.schemas import (
@@ -52,11 +54,6 @@ if TYPE_CHECKING:
     from worktrace_api.schemas import Screenshot
 
 logger = logging.getLogger(__name__)
-
-# Cap on how many annotated frames we attach as vision input. Keeps token cost
-# bounded for very long recordings while still grounding the model in real
-# evidence. Text metadata for every step is always included.
-MAX_VISION_FRAMES = 24
 
 
 class SOPProviderError(Exception):
@@ -225,25 +222,55 @@ def build_evidence_bundle(
 # ---------------------------------------------------------------------------
 
 
-def encode_evidence_images(bundle: EvidenceBundle, storage: ChunkStorage) -> dict[str, str]:
+def _compress_image_for_llm(
+    image_bytes: bytes,
+    *,
+    max_dimension_px: int,
+    jpeg_quality: int,
+) -> str:
+    with Image.open(BytesIO(image_bytes)) as image:
+        image.thumbnail((max_dimension_px, max_dimension_px), Image.Resampling.LANCZOS)
+        if image.mode in ("RGBA", "LA"):
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            background.paste(image, mask=image.getchannel("A"))
+            image = background
+        elif image.mode != "RGB":
+            image = image.convert("RGB")
+
+        output = BytesIO()
+        image.save(output, format="JPEG", quality=jpeg_quality, optimize=True)
+        b64 = base64.b64encode(output.getvalue()).decode("utf-8")
+        return f"data:image/jpeg;base64,{b64}"
+
+
+def encode_evidence_images(
+    bundle: EvidenceBundle,
+    storage: ChunkStorage,
+    *,
+    max_frames: int,
+    max_dimension_px: int,
+    jpeg_quality: int,
+) -> dict[str, str]:
     """Read each annotated PNG and return ``{annotated_storage_key: data_uri}``.
 
-    Frames beyond ``MAX_VISION_FRAMES`` are skipped to bound token cost; their
+    Frames beyond ``max_frames`` are skipped to bound token cost; their
     text metadata is still in the prompt. Missing/unreadable files are skipped
     so a single bad frame never fails the whole generation.
     """
     data_uris: dict[str, str] = {}
     for index, step in enumerate(bundle.steps):
-        if index >= MAX_VISION_FRAMES:
+        if index >= max_frames:
             break
         if not step.annotated_storage_key:
             continue
         try:
             if not storage.exists(step.annotated_storage_key):
                 continue
-            image_bytes = storage.read(step.annotated_storage_key)
-            b64 = base64.b64encode(image_bytes).decode("utf-8")
-            data_uris[step.annotated_storage_key] = f"data:image/png;base64,{b64}"
+            data_uris[step.annotated_storage_key] = _compress_image_for_llm(
+                storage.read(step.annotated_storage_key),
+                max_dimension_px=max_dimension_px,
+                jpeg_quality=jpeg_quality,
+            )
         except Exception:
             logger.warning(
                 "Could not encode annotated image: %s", step.annotated_storage_key, exc_info=True
@@ -361,7 +388,7 @@ def _system_prompt(bundle: EvidenceBundle) -> str:
 
 
 def build_generation_messages(
-    bundle: EvidenceBundle, image_data_uris: dict[str, str]
+    bundle: EvidenceBundle, image_data_uris: dict[str, str], *, max_vision_frames: int
 ) -> list[dict]:
     """Build the OpenAI chat messages for the generation call (pure)."""
     transcript_block = (
@@ -385,7 +412,7 @@ def build_generation_messages(
     content: list[dict] = [{"type": "text", "text": text_body}]
     # Attach annotated images in step order, capped to bound token cost.
     for index, step in enumerate(bundle.steps):
-        if index >= MAX_VISION_FRAMES:
+        if index >= max_vision_frames:
             break
         data_uri = image_data_uris.get(step.annotated_storage_key or "")
         if not data_uri:
@@ -450,10 +477,14 @@ def build_repair_messages(
     image_data_uris: dict[str, str],
     raw_output: str,
     error_message: str,
+    *,
+    max_vision_frames: int,
 ) -> list[dict]:
     """One repair turn: replay the original evidence and ask the model to fix
     the specific validation problem."""
-    base = build_generation_messages(bundle, image_data_uris)
+    base = build_generation_messages(
+        bundle, image_data_uris, max_vision_frames=max_vision_frames
+    )
     base.append(
         {
             "role": "user",

@@ -104,6 +104,16 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
                 "No annotated screenshots were produced",
             )
             return
+        if len(bundle.steps) > settings.sop_max_evidence_steps:
+            repo.set_recording_status(
+                recording_uuid,
+                RecordingStatus.SOP_FAILED,
+                (
+                    f"Recording has {len(bundle.steps)} evidence steps; "
+                    f"the configured SOP limit is {settings.sop_max_evidence_steps}."
+                ),
+            )
+            return
 
         provider = SOPProvider(settings)
         if not provider.available:
@@ -117,18 +127,34 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
             )
             return
 
-        image_data_uris = encode_evidence_images(bundle, storage)
-        messages = build_generation_messages(bundle, image_data_uris)
+        image_data_uris = encode_evidence_images(
+            bundle,
+            storage,
+            max_frames=settings.sop_max_vision_frames,
+            max_dimension_px=settings.sop_image_max_dimension_px,
+            jpeg_quality=settings.sop_image_jpeg_quality,
+        )
+        messages = build_generation_messages(
+            bundle,
+            image_data_uris,
+            max_vision_frames=settings.sop_max_vision_frames,
+        )
 
-        raw = provider.complete(messages)
+        raw = provider.complete(messages, max_tokens=settings.sop_max_output_tokens)
         try:
             generated = parse_generated_sop(raw)
             sop = generated_to_sop(generated, bundle, UUID(tenant_id), session_uuid)
         except ValueError as repair_error:
             # One repair turn: replay the evidence with the specific errors.
             logger.warning("SOP output failed validation, attempting one repair: %s", repair_error)
-            repair_messages = build_repair_messages(bundle, image_data_uris, raw, str(repair_error))
-            raw = provider.complete(repair_messages)
+            repair_messages = build_repair_messages(
+                bundle,
+                image_data_uris,
+                raw,
+                str(repair_error),
+                max_vision_frames=settings.sop_max_vision_frames,
+            )
+            raw = provider.complete(repair_messages, max_tokens=settings.sop_max_output_tokens)
             generated = parse_generated_sop(raw)  # raises -> outer handler -> retry/sop_failed
             sop = generated_to_sop(generated, bundle, UUID(tenant_id), session_uuid)
         saved = repo.replace_session_draft_sop(session_uuid, sop)
