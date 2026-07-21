@@ -18,7 +18,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from tests.conftest import TEST_TENANT_ID
+from conftest import TEST_TENANT_ID
 from worktrace_api.database import RecordingRecord, ScreenshotRecord, SessionLocal
 from worktrace_api.repository import Repository
 from worktrace_api.schemas import (
