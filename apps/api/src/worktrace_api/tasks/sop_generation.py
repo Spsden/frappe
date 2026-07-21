@@ -115,7 +115,13 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
             )
             return
 
-        provider = SOPProvider(settings)
+        provider_settings = repo.get_llm_provider_secret()
+        provider = SOPProvider(
+            settings,
+            base_url=provider_settings.base_url if provider_settings else None,
+            model=provider_settings.model if provider_settings else None,
+            api_key=provider_settings.api_key if provider_settings else None,
+        )
         if not provider.available:
             # Missing API key is a configuration problem, not a transient one.
             # Fail cleanly as sop_failed (manually retryable after env is fixed)

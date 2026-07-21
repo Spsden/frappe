@@ -55,6 +55,8 @@ from worktrace_api.schemas import (
     ExternalAIPayloadPreview,
     Feedback,
     FeedbackCreate,
+    LLMProviderSettings,
+    LLMProviderSettingsUpdate,
     LoginRequest,
     ManualReviewUpdate,
     Recording,
@@ -103,6 +105,7 @@ app = FastAPI(
     openapi_tags=[
         {"name": "system", "description": "Runtime health."},
         {"name": "auth", "description": "Tenant signup and user sessions."},
+        {"name": "settings", "description": "Tenant-level backend configuration."},
         {"name": "sessions", "description": "Workflow ingestion and privacy controls."},
         {"name": "recordings", "description": "Resumable raw recording ingestion."},
         {"name": "sops", "description": "SOP generation, review, and approval."},
@@ -288,6 +291,22 @@ def logout(
     log_out(db, auth.access_token)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+
+@app.get("/settings/llm-provider", response_model=LLMProviderSettings, tags=["settings"])
+def get_llm_provider_settings(repo: Repository = Depends(repository)) -> LLMProviderSettings:
+    return repo.get_llm_provider_settings(
+        settings.openai_base_url,
+        settings.openai_model,
+        settings.openai_api_key,
+    )
+
+
+@app.put("/settings/llm-provider", response_model=LLMProviderSettings, tags=["settings"])
+def save_llm_provider_settings(
+    payload: LLMProviderSettingsUpdate,
+    repo: Repository = Depends(repository),
+) -> LLMProviderSettings:
+    return repo.save_llm_provider_settings(payload, settings.openai_api_key)
 
 
 # Primary recording ingestion endpoint.

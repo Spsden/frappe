@@ -148,7 +148,7 @@ def _seed(recording_id, session_id, screenshot_id, *, custom_instruction=None):
 
 def _patch_provider(monkeypatch, **kwargs):
     fake = _FakeProvider(None, **kwargs)
-    monkeypatch.setattr(sop_generation, "SOPProvider", lambda settings: fake)
+    monkeypatch.setattr(sop_generation, "SOPProvider", lambda settings, **_kwargs: fake)
     # Avoid touching the filesystem during tests.
     monkeypatch.setattr(sop_generation, "encode_evidence_images", lambda *args, **kwargs: {})
     return fake

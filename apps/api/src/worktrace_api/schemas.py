@@ -416,6 +416,20 @@ class RecordingGenerateSOP(StrictModel):
     custom_instruction: str | None = Field(default=None, max_length=4000)
 
 
+class LLMProviderSettings(StrictModel):
+    base_url: str = Field(max_length=500)
+    model: str = Field(max_length=200)
+    has_api_key: bool
+    updated_at: datetime | None = None
+
+
+class LLMProviderSettingsUpdate(StrictModel):
+    base_url: str = Field(min_length=1, max_length=500)
+    model: str = Field(min_length=1, max_length=200)
+    api_key: str | None = Field(default=None, max_length=2000)
+    clear_api_key: bool = False
+
+
 class ManualReviewUpdate(StrictModel):
     transcript_text: str | None = Field(default=None, max_length=20_000)
     custom_instruction: str | None = Field(default=None, max_length=4000)

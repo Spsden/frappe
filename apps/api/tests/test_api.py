@@ -88,6 +88,42 @@ def test_session_sop_fallback_route_is_removed(client):
     assert response.status_code == 404
 
 
+def test_llm_provider_settings_are_tenant_scoped_and_write_only(client):
+    headers = auth_headers()
+
+    current = client.get("/settings/llm-provider", headers=headers)
+    assert current.status_code == 200
+    assert current.json()["base_url"] == "https://openrouter.ai/api/v1"
+
+    saved = client.put(
+        "/settings/llm-provider",
+        headers=headers,
+        json={
+            "base_url": "https://openrouter.ai/api/v1",
+            "model": "openai/gpt-4o-mini",
+            "api_key": "sk-or-test",
+        },
+    )
+
+    assert saved.status_code == 200
+    assert saved.json()["model"] == "openai/gpt-4o-mini"
+    assert saved.json()["has_api_key"] is True
+    assert "api_key" not in saved.json()
+
+    cleared = client.put(
+        "/settings/llm-provider",
+        headers=headers,
+        json={
+            "base_url": "https://openrouter.ai/api/v1",
+            "model": "openai/gpt-4o-mini",
+            "clear_api_key": True,
+        },
+    )
+
+    assert cleared.status_code == 200
+    assert cleared.json()["has_api_key"] is False
+
+
 def test_rejects_tenant_mismatch(client):
     payload_tenant = uuid4()
     response = client.post(

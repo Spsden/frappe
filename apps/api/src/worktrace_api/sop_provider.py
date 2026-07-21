@@ -580,12 +580,22 @@ class SOPProvider:
     provider reports unavailable so the task can fail cleanly as ``sop_failed``.
     """
 
-    def __init__(self, settings: Settings):
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        base_url: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+    ):
         self._settings = settings
+        self._base_url = base_url or settings.openai_base_url
+        self._model = model or settings.openai_model
+        self._api_key = api_key or settings.openai_api_key
 
     @property
     def available(self) -> bool:
-        return bool(self._settings.openai_api_key)
+        return bool(self._api_key)
 
     def complete(
         self, messages: list[dict], *, max_tokens: int = 4000, temperature: float = 0.2
@@ -594,7 +604,7 @@ class SOPProvider:
             raise SOPProviderUnavailable("No LLM API key is configured (WORKTRACE_OPENAI_API_KEY).")
 
         headers: dict[str, str] = {}
-        if "openrouter.ai" in self._settings.openai_base_url:
+        if "openrouter.ai" in self._base_url:
             # OpenRouter ranks/attributes requests via these headers.
             headers = {
                 "HTTP-Referer": "https://worktrace.ai",
@@ -603,11 +613,11 @@ class SOPProvider:
 
         try:
             client = openai.OpenAI(
-                base_url=self._settings.openai_base_url,
-                api_key=self._settings.openai_api_key,
+                base_url=self._base_url,
+                api_key=self._api_key,
             )
             response = client.chat.completions.create(
-                model=self._settings.openai_model,
+                model=self._model,
                 messages=messages,
                 response_format={"type": "json_object"},
                 max_tokens=max_tokens,

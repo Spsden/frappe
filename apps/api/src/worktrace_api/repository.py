@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from worktrace_api.database import (
     AIApprovalRecord,
     FeedbackRecord,
+    LLMProviderSettingsRecord,
     RecordingChunkRecord,
     RecordingRecord,
     ScreenshotRecord,
@@ -23,6 +24,8 @@ from worktrace_api.schemas import (
     ChunkContentType,
     ChunkReceipt,
     Feedback,
+    LLMProviderSettings,
+    LLMProviderSettingsUpdate,
     Recording,
     RecordingStatus,
     RecordingTranscript,
@@ -728,6 +731,63 @@ class Repository:
         )
         self.db.commit()
         return self._session_from_record(record)
+
+    def get_llm_provider_settings(
+        self,
+        default_base_url: str,
+        default_model: str,
+        default_api_key: str | None,
+    ) -> LLMProviderSettings:
+        record = self.db.get(LLMProviderSettingsRecord, str(self.tenant_id))
+        if not record:
+            return LLMProviderSettings(
+                base_url=default_base_url,
+                model=default_model,
+                has_api_key=bool(default_api_key),
+                updated_at=None,
+            )
+        return LLMProviderSettings(
+            base_url=record.base_url,
+            model=record.model,
+            has_api_key=bool(record.api_key or default_api_key),
+            updated_at=record.updated_at,
+        )
+
+    def get_llm_provider_secret(self) -> LLMProviderSettingsRecord | None:
+        return self.db.get(LLMProviderSettingsRecord, str(self.tenant_id))
+
+    def save_llm_provider_settings(
+        self,
+        payload: LLMProviderSettingsUpdate,
+        default_api_key: str | None,
+    ) -> LLMProviderSettings:
+        record = self.db.get(LLMProviderSettingsRecord, str(self.tenant_id))
+        now = datetime.now(UTC)
+        api_key = payload.api_key.strip() if payload.api_key else None
+        if not record:
+            record = LLMProviderSettingsRecord(
+                tenant_id=str(self.tenant_id),
+                base_url=payload.base_url.strip(),
+                model=payload.model.strip(),
+                api_key=api_key,
+                updated_at=now,
+            )
+            self.db.add(record)
+        else:
+            record.base_url = payload.base_url.strip()
+            record.model = payload.model.strip()
+            if payload.clear_api_key:
+                record.api_key = None
+            elif api_key:
+                record.api_key = api_key
+            record.updated_at = now
+        self.db.commit()
+        return LLMProviderSettings(
+            base_url=record.base_url,
+            model=record.model,
+            has_api_key=bool(record.api_key or default_api_key),
+            updated_at=record.updated_at,
+        )
 
     def _require_tenant(self, tenant_id: UUID) -> None:
         if tenant_id != self.tenant_id:

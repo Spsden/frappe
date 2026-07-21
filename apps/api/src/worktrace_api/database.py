@@ -76,6 +76,20 @@ class AccessTokenRecord(Base):
     )
 
 
+class LLMProviderSettingsRecord(Base):
+    __tablename__ = "llm_provider_settings"
+
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
+    )
+    base_url: Mapped[str] = mapped_column(String(500))
+    model: Mapped[str] = mapped_column(String(200))
+    api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 class WorkflowSessionRecord(TenantRecord, Base):
     __tablename__ = "workflow_sessions"
 

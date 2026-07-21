@@ -29,4 +29,8 @@ export function registerConnectionIpc(
   ipcMain.handle(connectionIpc.logout, async () => broadcast(await apiClient.logout()))
   ipcMain.handle(connectionIpc.test, async () => broadcast(await apiClient.testConnection()))
   ipcMain.handle(connectionIpc.getHealth, () => apiClient.getHealth())
+  ipcMain.handle(connectionIpc.getLLMProviderSettings, () => apiClient.getLLMProviderSettings())
+  ipcMain.handle(connectionIpc.saveLLMProviderSettings, (_event, payload) =>
+    apiClient.saveLLMProviderSettings(payload)
+  )
 }
