@@ -34,7 +34,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    existing_columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("recordings")}
+    existing_columns = {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns("recordings")
+    }
     if "custom_sop_instruction" in existing_columns:
         op.drop_column("recordings", "custom_sop_instruction")
     if "manual_mode" in existing_columns:
