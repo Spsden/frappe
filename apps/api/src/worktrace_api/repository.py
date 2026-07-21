@@ -33,11 +33,8 @@ from worktrace_api.schemas import (
 
 
 def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         yield db
-    finally:
-        db.close()
 
 
 def tenant_query(model: type, tenant_id: UUID) -> Select:

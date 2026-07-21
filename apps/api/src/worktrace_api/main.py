@@ -1,5 +1,4 @@
 import json
-from collections.abc import Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -147,7 +146,7 @@ class AuthContext:
 def authenticated_account(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     x_tenant_id: UUID | None = Header(default=None, alias="X-Tenant-ID"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> AuthContext:
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(
@@ -169,9 +168,10 @@ def authenticated_account(
 
 
 def repository(
-    auth: AuthContext = Depends(authenticated_account), db: Session = Depends(get_db)
-) -> Generator[Repository, None, None]:
-    yield Repository(db, auth.account.tenant_id)
+    auth: AuthContext = Depends(authenticated_account),
+    db: Session = Depends(get_db, scope="function"),
+) -> Repository:
+    return Repository(db, auth.account.tenant_id)
 
 
 def require_session(repo: Repository, session_id: UUID) -> WorkflowSession:
@@ -250,7 +250,10 @@ def get_media_file(token: str) -> FileResponse:
     status_code=status.HTTP_201_CREATED,
     tags=["auth"],
 )
-def signup(payload: SignUpRequest, db: Session = Depends(get_db)) -> AuthSession:
+def signup(
+    payload: SignUpRequest,
+    db: Session = Depends(get_db, scope="function"),
+) -> AuthSession:
     try:
         return sign_up(db, payload, settings.access_token_ttl_hours)
     except EmailAlreadyRegisteredError as exc:
@@ -258,7 +261,10 @@ def signup(payload: SignUpRequest, db: Session = Depends(get_db)) -> AuthSession
 
 
 @app.post("/auth/login", response_model=AuthSession, tags=["auth"])
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthSession:
+def login(
+    payload: LoginRequest,
+    db: Session = Depends(get_db, scope="function"),
+) -> AuthSession:
     try:
         return log_in(db, payload, settings.access_token_ttl_hours)
     except AuthenticationError as exc:
@@ -276,7 +282,8 @@ def current_account(auth: AuthContext = Depends(authenticated_account)) -> Accou
 
 @app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["auth"])
 def logout(
-    auth: AuthContext = Depends(authenticated_account), db: Session = Depends(get_db)
+    auth: AuthContext = Depends(authenticated_account),
+    db: Session = Depends(get_db, scope="function"),
 ) -> Response:
     log_out(db, auth.access_token)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

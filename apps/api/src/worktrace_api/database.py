@@ -15,6 +15,7 @@ from sqlalchemy import (
     event,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from worktrace_api.settings import get_settings
 
@@ -240,7 +241,17 @@ class ScreenshotRecord(TenantRecord, Base):
 
 settings = get_settings()
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args, pool_pre_ping=True)
+engine_options = {
+    "connect_args": connect_args,
+    "pool_pre_ping": True,
+}
+if settings.database_url.startswith("sqlite"):
+    # SQLite is the local/dev database. A request burst can otherwise fill
+    # QueuePool while FastAPI is still scheduling dependency cleanup, leaving
+    # later requests waiting for a connection that is about to be returned.
+    # Opening a short-lived SQLite connection per session avoids that deadlock.
+    engine_options["poolclass"] = NullPool
+engine = create_engine(settings.database_url, **engine_options)
 
 
 if settings.database_url.startswith("sqlite"):

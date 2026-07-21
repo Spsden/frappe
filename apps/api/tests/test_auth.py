@@ -1,8 +1,8 @@
-from sqlalchemy import select
+from sqlalchemy import event, select
 from test_api import TEST_TENANT_ID, auth_headers
 
 from worktrace_api.auth import hash_access_token
-from worktrace_api.database import AccessTokenRecord, SessionLocal
+from worktrace_api.database import AccessTokenRecord, SessionLocal, engine
 
 
 def test_signup_creates_tenant_owner_and_access_token(client):
@@ -94,3 +94,28 @@ def test_tenant_is_derived_from_token(client):
         },
     )
     assert mismatched.status_code == 403
+
+
+def test_authenticated_requests_release_database_connections(client):
+    checkouts = 0
+    checkins = 0
+
+    def checked_out(*_args):
+        nonlocal checkouts
+        checkouts += 1
+
+    def checked_in(*_args):
+        nonlocal checkins
+        checkins += 1
+
+    event.listen(engine, "checkout", checked_out)
+    event.listen(engine, "checkin", checked_in)
+    try:
+        for _ in range(20):
+            response = client.get("/auth/me", headers=auth_headers())
+            assert response.status_code == 200
+    finally:
+        event.remove(engine, "checkout", checked_out)
+        event.remove(engine, "checkin", checked_in)
+
+    assert checkouts == checkins
