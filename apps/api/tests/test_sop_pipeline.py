@@ -19,7 +19,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from conftest import TEST_TENANT_ID
-from worktrace_api.database import RecordingRecord, ScreenshotRecord, SessionLocal
+from worktrace_api.database import RecordingRecord, ScreenshotRecord, SessionLocal, SOPRecord
 from worktrace_api.repository import Repository
 from worktrace_api.schemas import (
     EventType,
@@ -343,6 +343,39 @@ def test_retry_replaces_draft_idempotently(monkeypatch):
     sops = Repository(db, TENANT).list_sops_for_session(session_id)
     db.close()
     assert len(sops) == 1
+
+
+def test_legacy_decision_branch_rows_still_load():
+    recording_id, session_id, screenshot_id = uuid4(), uuid4(), uuid4()
+    _seed(recording_id, session_id, screenshot_id)
+
+    db = SessionLocal()
+    db.add(
+        SOPRecord(
+            id=str(uuid4()),
+            tenant_id=str(TENANT),
+            source_session_id=str(session_id),
+            version=1,
+            status="draft",
+            title="Legacy SOP",
+            document=None,
+            steps=[
+                {
+                    "position": 1,
+                    "title": "Check total",
+                    "instruction": "Check the invoice total.",
+                    "decision_branch": "If the total is high, ask a manager.",
+                }
+            ],
+            created_at=datetime.now(UTC),
+        )
+    )
+    db.commit()
+
+    sop = Repository(db, TENANT).list_sops_for_session(session_id)[0]
+    db.close()
+
+    assert sop.steps[0].decision_branches[0].action == "If the total is high, ask a manager."
 
 
 def test_sop_failure_becomes_sop_failed(monkeypatch):

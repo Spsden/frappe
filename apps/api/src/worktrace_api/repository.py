@@ -770,10 +770,26 @@ class Repository:
                 "status": record.status,
                 "title": record.title,
                 "document": getattr(record, "document", None),
-                "steps": record.steps,
+                "steps": Repository._normalize_sop_steps(record.steps),
                 "created_at": record.created_at,
             }
         )
+
+    @staticmethod
+    def _normalize_sop_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for step in steps:
+            current = dict(step)
+            legacy_branch = current.pop("decision_branch", None)
+            if legacy_branch and not current.get("decision_branches"):
+                current["decision_branches"] = [
+                    {
+                        "condition": "Legacy decision branch",
+                        "action": legacy_branch,
+                    }
+                ]
+            normalized.append(current)
+        return normalized
 
     @staticmethod
     def _feedback_from_record(record: FeedbackRecord) -> Feedback:
