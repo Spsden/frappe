@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type {
   AnnotationInput,
   BackendScreenshotEvidence,
+  BackendRecordingStatusResponse,
   BackendSOP,
   BackendWorkflowSession,
   RecordedSessionSummary,
@@ -14,6 +15,7 @@ import { RecordingUploader } from './RecordingUploader'
 
 export class RecordingLibraryService {
   private readonly uploader: RecordingUploader
+  private listSessionsRequest: Promise<RecordedSessionSummary[]> | null = null
 
   constructor(
     private readonly recordingsPath: string,
@@ -23,8 +25,43 @@ export class RecordingLibraryService {
   }
 
   async listSessions(): Promise<RecordedSessionSummary[]> {
+    if (this.listSessionsRequest) return this.listSessionsRequest
+
+    const request = this.loadSessions()
+    this.listSessionsRequest = request
+    try {
+      return await request
+    } finally {
+      if (this.listSessionsRequest === request) this.listSessionsRequest = null
+    }
+  }
+
+  private async loadSessions(): Promise<RecordedSessionSummary[]> {
     const directories = await this.readSessionDirectories()
-    const sessions = await Promise.all(directories.map((directory) => this.readSession(directory)))
+    const recordingIds = (
+      await Promise.all(
+        directories.map(async (directory) => {
+          try {
+            return (await this.readManifest(directory)).remoteRecordingId ?? null
+          } catch {
+            return null
+          }
+        })
+      )
+    ).filter((id): id is string => Boolean(id))
+
+    let backendStatuses = new Map<string, BackendRecordingStatusResponse>()
+    let backendError: string | null = null
+    try {
+      const statuses = await this.apiClient.getRecordingStatuses([...new Set(recordingIds)])
+      backendStatuses = new Map(statuses.map((status) => [status.recording.id, status]))
+    } catch (error) {
+      backendError = error instanceof Error ? error.message : 'Could not sync backend status.'
+    }
+
+    const sessions = await Promise.all(
+      directories.map((directory) => this.readSession(directory, backendStatuses, backendError))
+    )
 
     return sessions
       .filter((session): session is RecordedSessionSummary => Boolean(session))
@@ -181,7 +218,11 @@ export class RecordingLibraryService {
     }
   }
 
-  private async readSession(sessionPath: string): Promise<RecordedSessionSummary | null> {
+  private async readSession(
+    sessionPath: string,
+    backendStatuses: Map<string, BackendRecordingStatusResponse>,
+    batchError: string | null
+  ): Promise<RecordedSessionSummary | null> {
     const manifestPath = join(sessionPath, 'manifest.json')
     try {
       const manifest = await this.readManifest(sessionPath)
@@ -190,10 +231,10 @@ export class RecordingLibraryService {
       }
 
       const remoteRecordingId = manifest.remoteRecordingId ?? null
-      const remoteStatus = remoteRecordingId
-        ? await this.readBackendStatus(remoteRecordingId)
-        : { backend: null, error: null }
-      const backend = remoteStatus.backend
+      const backend = remoteRecordingId ? backendStatuses.get(remoteRecordingId) ?? null : null
+      const backendError = remoteRecordingId
+        ? batchError ?? (backend ? null : 'Recording not found on backend.')
+        : null
       return {
         id: manifest.id,
         name: manifest.name,
@@ -212,7 +253,7 @@ export class RecordingLibraryService {
         uploadedAt: manifest.uploadedAt ?? null,
         uploadError: manifest.uploadError ?? null,
         backend,
-        backendError: remoteStatus.error
+        backendError
       }
     } catch (error) {
       if (isMissingFileError(error)) {
@@ -220,20 +261,6 @@ export class RecordingLibraryService {
       }
       const fallback = await fallbackSessionSummary(sessionPath, error)
       return fallback
-    }
-  }
-
-  private async readBackendStatus(recordingId: string) {
-    try {
-      return {
-        backend: await this.apiClient.getRecordingStatus(recordingId),
-        error: null
-      }
-    } catch (error) {
-      return {
-        backend: null,
-        error: error instanceof Error ? error.message : 'Could not sync backend status.'
-      }
     }
   }
 

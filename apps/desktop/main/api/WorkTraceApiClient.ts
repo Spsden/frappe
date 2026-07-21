@@ -176,6 +176,18 @@ export class WorkTraceApiClient {
     return (await response.json()) as BackendRecordingStatusResponse
   }
 
+  async getRecordingStatuses(
+    recordingIds: string[]
+  ): Promise<BackendRecordingStatusResponse[]> {
+    if (recordingIds.length === 0) return []
+    const response = await this.request('/recordings/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recording_ids: recordingIds })
+    })
+    return (await response.json()) as BackendRecordingStatusResponse[]
+  }
+
   async deleteRecording(recordingId: string): Promise<void> {
     await this.request(`/recordings/${recordingId}`, { method: 'DELETE' })
   }
