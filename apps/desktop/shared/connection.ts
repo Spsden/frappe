@@ -49,6 +49,25 @@ export interface LLMProviderSettingsUpdate {
   clear_api_key?: boolean
 }
 
+export interface SopLimitsSettings {
+  sop_max_evidence_steps: number
+  sop_max_vision_frames: number
+  sop_image_max_dimension_px: number
+  sop_image_jpeg_quality: number
+  sop_max_output_tokens: number
+  defaults: Record<string, number>
+  overridden: Record<string, boolean>
+  updated_at: string | null
+}
+
+export interface SopLimitsSettingsUpdate {
+  sop_max_evidence_steps?: number | null
+  sop_max_vision_frames?: number | null
+  sop_image_max_dimension_px?: number | null
+  sop_image_jpeg_quality?: number | null
+  sop_max_output_tokens?: number | null
+}
+
 export interface ConnectionApi {
   getStatus: () => Promise<ConnectionStatus>
   login: (credentials: LoginCredentials) => Promise<ConnectionStatus>
@@ -58,6 +77,8 @@ export interface ConnectionApi {
   getHealth: () => Promise<BackendHealth>
   getLLMProviderSettings: () => Promise<LLMProviderSettings>
   saveLLMProviderSettings: (settings: LLMProviderSettingsUpdate) => Promise<LLMProviderSettings>
+  getSopLimitsSettings: () => Promise<SopLimitsSettings>
+  saveSopLimitsSettings: (settings: SopLimitsSettingsUpdate) => Promise<SopLimitsSettings>
   onStatusChanged: (listener: (status: ConnectionStatus) => void) => () => void
 }
 
@@ -70,5 +91,7 @@ export const connectionIpc = {
   getHealth: 'connection:get-health',
   getLLMProviderSettings: 'connection:get-llm-provider-settings',
   saveLLMProviderSettings: 'connection:save-llm-provider-settings',
+  getSopLimitsSettings: 'connection:get-sop-limits-settings',
+  saveSopLimitsSettings: 'connection:save-sop-limits-settings',
   statusChanged: 'connection:status-changed'
 } as const

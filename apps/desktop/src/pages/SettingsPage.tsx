@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useConnection } from '../features/connection/useConnection'
-import type { LLMProviderSettings } from '../../shared/connection'
+import type {
+  LLMProviderSettings,
+  SopLimitsSettings,
+  SopLimitsSettingsUpdate
+} from '../../shared/connection'
 import type { ExperimentalFlags } from '../../shared/settings'
 
 function cleanError(error: unknown): string {
@@ -90,6 +94,8 @@ export function SettingsPage() {
         </div>
 
         <LLMProviderSection enabled={status.hasSession && status.state === 'connected'} />
+
+        <SopLimitsSection enabled={status.hasSession && status.state === 'connected'} />
 
         <ExperimentalSection />
       </div>
@@ -228,6 +234,183 @@ function LLMProviderSection({ enabled }: { enabled: boolean }) {
             className="rounded-lg border border-white/15 bg-white px-5 py-2.5 text-xs font-black text-black transition hover:bg-white/90 disabled:opacity-50"
           >
             {busy ? 'Saving...' : 'Save provider'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+type SopLimitField = keyof SopLimitsSettingsUpdate
+
+const sopLimitFields: Array<{
+  key: SopLimitField
+  label: string
+  hint: string
+}> = [
+  {
+    key: 'sop_max_evidence_steps',
+    label: 'Max evidence steps',
+    hint: 'Hard stop for very long recordings before SOP generation starts.'
+  },
+  {
+    key: 'sop_max_vision_frames',
+    label: 'Vision frames',
+    hint: 'How many annotated screenshots are attached to the LLM request.'
+  },
+  {
+    key: 'sop_image_max_dimension_px',
+    label: 'Image max side',
+    hint: 'Screenshots are resized to this max width or height before LLM upload.'
+  },
+  {
+    key: 'sop_image_jpeg_quality',
+    label: 'JPEG quality',
+    hint: 'Compression quality for screenshots sent to the LLM.'
+  },
+  {
+    key: 'sop_max_output_tokens',
+    label: 'Output tokens',
+    hint: 'Maximum structured SOP response size.'
+  }
+]
+
+function SopLimitsSection({ enabled }: { enabled: boolean }) {
+  const [settings, setSettings] = useState<SopLimitsSettings | null>(null)
+  const [draft, setDraft] = useState<Record<SopLimitField, string>>({
+    sop_max_evidence_steps: '',
+    sop_max_vision_frames: '',
+    sop_image_max_dimension_px: '',
+    sop_image_jpeg_quality: '',
+    sop_max_output_tokens: ''
+  })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  const syncDraft = (next: SopLimitsSettings) => {
+    setSettings(next)
+    setDraft({
+      sop_max_evidence_steps: String(next.sop_max_evidence_steps),
+      sop_max_vision_frames: String(next.sop_max_vision_frames),
+      sop_image_max_dimension_px: String(next.sop_image_max_dimension_px),
+      sop_image_jpeg_quality: String(next.sop_image_jpeg_quality),
+      sop_max_output_tokens: String(next.sop_max_output_tokens)
+    })
+  }
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      if (!enabled) return
+      setBusy(true)
+      setError(null)
+      try {
+        const current = await window.api.connection.getSopLimitsSettings()
+        if (active) syncDraft(current)
+      } catch (loadError) {
+        if (active) setError(cleanError(loadError))
+      } finally {
+        if (active) setBusy(false)
+      }
+    }
+    void load()
+    return () => {
+      active = false
+    }
+  }, [enabled])
+
+  const save = async () => {
+    if (!settings) return
+    setBusy(true)
+    setError(null)
+    setSaved(false)
+    try {
+      const payload: SopLimitsSettingsUpdate = {}
+      for (const field of sopLimitFields) {
+        const raw = draft[field.key].trim()
+        if (!raw || Number(raw) === settings.defaults[field.key]) {
+          payload[field.key] = null
+        } else {
+          payload[field.key] = Number(raw)
+        }
+      }
+      syncDraft(await window.api.connection.saveSopLimitsSettings(payload))
+      setSaved(true)
+    } catch (saveError) {
+      setError(cleanError(saveError))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const resetField = (field: SopLimitField) => {
+    if (!settings) return
+    setDraft((current) => ({ ...current, [field]: String(settings.defaults[field]) }))
+  }
+
+  return (
+    <div className="mt-5 overflow-hidden rounded-xl border border-white/10 bg-white/[0.025]">
+      <div className="border-b border-white/10 px-5 py-4">
+        <p className="text-xs font-bold">SOP generation limits</p>
+        <p className="mt-1 text-xs text-white/45">Tenant guardrails for LLM request size.</p>
+      </div>
+
+      <div className="grid gap-3 p-5">
+        {sopLimitFields.map((field) => {
+          const overridden = settings?.overridden[field.key] ?? false
+          const defaultValue = settings?.defaults[field.key]
+          return (
+            <div
+              key={field.key}
+              className="grid gap-3 rounded-xl border border-white/10 bg-black/20 p-4 sm:grid-cols-[1fr_150px_auto]"
+            >
+              <div>
+                <p className="text-sm font-bold text-white/85">{field.label}</p>
+                <p className="mt-1 text-xs leading-5 text-white/45">{field.hint}</p>
+              </div>
+              <input
+                type="number"
+                value={draft[field.key]}
+                disabled={!enabled || busy || settings === null}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, [field.key]: event.target.value }))
+                }
+                className="h-10 rounded-lg border border-white/10 bg-black/35 px-3 text-sm text-white outline-none transition focus:border-emerald-400/50 disabled:opacity-50"
+              />
+              <button
+                type="button"
+                disabled={!enabled || busy || settings === null || !overridden}
+                onClick={() => resetField(field.key)}
+                className="h-10 rounded-lg border border-white/10 px-3 text-xs font-black uppercase tracking-[0.1em] text-white/55 transition hover:bg-white/8 disabled:opacity-35"
+              >
+                {overridden ? 'Default' : `Default ${defaultValue ?? ''}`}
+              </button>
+            </div>
+          )
+        })}
+
+        {(error || saved) && (
+          <p
+            className={[
+              'rounded-lg border px-4 py-3 text-xs leading-5',
+              error
+                ? 'border-red-500/25 bg-red-500/8 text-red-300'
+                : 'border-emerald-400/20 bg-emerald-400/8 text-emerald-300'
+            ].join(' ')}
+          >
+            {error || 'SOP limits saved.'}
+          </p>
+        )}
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            disabled={!enabled || busy || settings === null}
+            onClick={() => void save()}
+            className="rounded-lg border border-white/15 bg-white px-5 py-2.5 text-xs font-black text-black transition hover:bg-white/90 disabled:opacity-50"
+          >
+            {busy ? 'Saving...' : 'Save limits'}
           </button>
         </div>
       </div>
