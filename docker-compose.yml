@@ -1,19 +1,27 @@
 # WorkTrace backend — single entry point.
 #
-#   docker compose up        # api + worker + redis
-#   docker compose up api    # just the API (needs redis)
+#   docker compose up        # api + worker + redis + postgres
+#   docker compose up api    # just the API (needs redis + postgres)
 #   docker compose logs -f worker
 #
 # The desktop (Electron) app stays native on each machine and just talks to
 # http://localhost:8000. Only the backend is containerized, on purpose.
+
+# Postgres credentials — shared by the db service and the DATABASE_URL below
+# so the app and the database can never disagree.
+x-db-env: &db-env
+  POSTGRES_USER: worktrace
+  POSTGRES_PASSWORD: worktrace
+  POSTGRES_DB: worktrace
 
 # Shared env so the api and worker services can never disagree on broker/db.
 x-api-env: &api-env
   WORKTRACE_ENV: development
   # Redis is the celery broker AND result backend (core/celery_app.py).
   WORKTRACE_REDIS_URL: redis://redis:6379/0
-  # Four leading slashes = absolute path inside the container.
-  WORKTRACE_DATABASE_URL: sqlite:////data/worktrace.sqlite3
+  # psycopg3 driver (psycopg[binary] in apps/api/pyproject.toml). The host
+  # `postgres` resolves to the compose service defined below.
+  WORKTRACE_DATABASE_URL: postgresql+psycopg://worktrace:worktrace@postgres:5432/worktrace
   WORKTRACE_RECORDING_STORAGE_PATH: /data/recordings
   # Vite renderer dev server + the API itself. Add more comma-separated
   # origins if you serve the frontend from elsewhere.
@@ -22,6 +30,21 @@ x-api-env: &api-env
   WORKTRACE_WHISPER_MODEL_SIZE: tiny
 
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      <<: *db-env
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      # $$ escapes the $ for compose so the container shell expands it.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
@@ -42,6 +65,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     environment:
       <<: *api-env
     # Drop a real ./apps/api/.env and uncomment to inject secrets without
@@ -53,8 +78,8 @@ services:
     volumes:
       # Live source => `uvicorn --reload` picks up edits instantly.
       - ./apps/api/src:/app/src
-      # Shared DB + recordings with the worker, persisted on the host so
-      # `compose down` keeps your data.
+      # Recording storage shared with the worker, persisted on the host so
+      # `compose down` keeps your data. (Postgres lives in its own volume.)
       - ./apps/api/data:/data
       # Whisper/torch model weights download once and are reused.
       - whisper-cache:/root/.cache
@@ -65,6 +90,8 @@ services:
     image: worktrace-api:dev
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     environment:
       <<: *api-env
@@ -90,4 +117,5 @@ services:
 
 volumes:
   redis-data:
+  pg-data:
   whisper-cache:
