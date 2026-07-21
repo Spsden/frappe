@@ -93,7 +93,10 @@ sops
 - version
 - status
 - title
-- steps JSON
+- document TEXT nullable        # optional supporting narrative (purpose/overview)
+- steps JSON                   # each step: position, title, instruction, warning,
+                               #   screenshot_reference, estimated_time_ms,
+                               #   decision_branches[{condition,action}]
 - created_at
 - unique: tenant_id + source_session_id + version
 
