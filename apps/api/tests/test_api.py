@@ -57,18 +57,6 @@ def test_end_to_end_api_flow(client):
     assert ai_approval.status_code == 200
     assert ai_approval.json()["external_ai_approved"] is True
 
-    sop_response = client.post(f"/sessions/{session['id']}/sops", headers=headers)
-    assert sop_response.status_code == 201
-    sop = sop_response.json()
-    assert sop["status"] == "draft"
-
-    approval = client.post(f"/sops/{sop['id']}/approval", headers=headers, json={"approved": True})
-    assert approval.status_code == 200
-    assert approval.json()["status"] == "approved"
-
-    walkthrough = client.get(f"/walkthroughs/{sop['id']}", headers=headers)
-    assert walkthrough.status_code == 200
-
     feedback = client.post(
         "/feedback",
         headers=headers,
@@ -83,15 +71,21 @@ def test_end_to_end_api_flow(client):
 
     export = client.get(f"/exports/{session['id']}", headers=headers)
     assert export.status_code == 200
-    assert len(export.json()["sops"]) == 1
+    assert export.json()["sops"] == []
     assert len(export.json()["feedback"]) == 1
-
-    second_sop = client.post(f"/sessions/{session['id']}/sops", headers=headers)
-    assert second_sop.json()["version"] == 2
 
     deletion = client.delete(f"/sessions/{session['id']}", headers=headers)
     assert deletion.status_code == 204
     assert client.get(f"/sessions/{session['id']}", headers=headers).status_code == 404
+
+
+def test_session_sop_fallback_route_is_removed(client):
+    created = client.post("/sessions", headers=auth_headers(), json=session_payload(TEST_TENANT_ID))
+    assert created.status_code == 201
+
+    response = client.post(f"/sessions/{created.json()['id']}/sops", headers=auth_headers())
+
+    assert response.status_code == 404
 
 
 def test_rejects_tenant_mismatch(client):

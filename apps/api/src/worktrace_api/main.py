@@ -81,7 +81,6 @@ from worktrace_api.services import (
     analyze_workflow,
     classify_feedback,
     external_ai_preview,
-    generate_sop,
 )
 from worktrace_api.settings import get_settings
 
@@ -919,22 +918,6 @@ def set_external_ai_approval(
     if not approved:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
     return approved
-
-
-@app.post(
-    "/sessions/{session_id}/sops",
-    response_model=SOP,
-    status_code=status.HTTP_201_CREATED,
-    tags=["sops"],
-)
-def create_sop(session_id: UUID, repo: Repository = Depends(repository)) -> SOP:
-    session = require_session(repo, session_id)
-    try:
-        return repo.save_sop(generate_sop(session, repo.next_sop_version(session_id)))
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
 
 
 @app.get("/sops/{sop_id}", response_model=SOP, tags=["sops"])
