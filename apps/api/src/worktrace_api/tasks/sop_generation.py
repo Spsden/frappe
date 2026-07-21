@@ -25,7 +25,7 @@ from uuid import UUID
 
 from worktrace_api.core.celery_app import celery_app
 from worktrace_api.recordings import ChunkStorage
-from worktrace_api.schemas import RecordingStatus
+from worktrace_api.schemas import SOP_LIMIT_FIELDS, RecordingStatus
 from worktrace_api.settings import get_settings
 from worktrace_api.sop_provider import (
     SOPProvider,
@@ -57,6 +57,19 @@ def _safe_error(exc: Exception) -> str:
     if isinstance(exc, ValueError):
         return str(exc)[:300]
     return f"SOP generation failed ({type(exc).__name__})."
+
+
+def _resolve_sop_limits(repo, settings) -> dict[str, int]:
+    """Effective SOP guardrails for this tenant: the per-tenant override when
+    one is set, otherwise the env default (Settings.sop_*)."""
+    overrides = repo.get_sop_limits_overrides()
+    limits: dict[str, int] = {}
+    for field in SOP_LIMIT_FIELDS:
+        override = getattr(overrides, field, None) if overrides else None
+        limits[field] = (
+            int(override) if override is not None else int(getattr(settings, field))
+        )
+    return limits
 
 
 @celery_app.task(bind=True, max_retries=3)
@@ -104,13 +117,14 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
                 "No annotated screenshots were produced",
             )
             return
-        if len(bundle.steps) > settings.sop_max_evidence_steps:
+        limits = _resolve_sop_limits(repo, settings)
+        if len(bundle.steps) > limits["sop_max_evidence_steps"]:
             repo.set_recording_status(
                 recording_uuid,
                 RecordingStatus.SOP_FAILED,
                 (
                     f"Recording has {len(bundle.steps)} evidence steps; "
-                    f"the configured SOP limit is {settings.sop_max_evidence_steps}."
+                    f"the configured SOP limit is {limits['sop_max_evidence_steps']}."
                 ),
             )
             return
@@ -136,17 +150,17 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
         image_data_uris = encode_evidence_images(
             bundle,
             storage,
-            max_frames=settings.sop_max_vision_frames,
-            max_dimension_px=settings.sop_image_max_dimension_px,
-            jpeg_quality=settings.sop_image_jpeg_quality,
+            max_frames=limits["sop_max_vision_frames"],
+            max_dimension_px=limits["sop_image_max_dimension_px"],
+            jpeg_quality=limits["sop_image_jpeg_quality"],
         )
         messages = build_generation_messages(
             bundle,
             image_data_uris,
-            max_vision_frames=settings.sop_max_vision_frames,
+            max_vision_frames=limits["sop_max_vision_frames"],
         )
 
-        raw = provider.complete(messages, max_tokens=settings.sop_max_output_tokens)
+        raw = provider.complete(messages, max_tokens=limits["sop_max_output_tokens"])
         try:
             generated = parse_generated_sop(raw)
             sop = generated_to_sop(generated, bundle, UUID(tenant_id), session_uuid)
@@ -158,9 +172,9 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
                 image_data_uris,
                 raw,
                 str(repair_error),
-                max_vision_frames=settings.sop_max_vision_frames,
+                max_vision_frames=limits["sop_max_vision_frames"],
             )
-            raw = provider.complete(repair_messages, max_tokens=settings.sop_max_output_tokens)
+            raw = provider.complete(repair_messages, max_tokens=limits["sop_max_output_tokens"])
             generated = parse_generated_sop(raw)  # raises -> outer handler -> retry/sop_failed
             sop = generated_to_sop(generated, bundle, UUID(tenant_id), session_uuid)
         saved = repo.replace_session_draft_sop(session_uuid, sop)
