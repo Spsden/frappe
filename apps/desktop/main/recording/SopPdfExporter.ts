@@ -1,5 +1,6 @@
-import { BrowserWindow, dialog } from 'electron'
-import { writeFile } from 'node:fs/promises'
+import { app, BrowserWindow, dialog } from 'electron'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 function safeFileName(title: string): string {
@@ -34,10 +35,13 @@ export async function exportSopPdf(html: string, title: string): Promise<string 
   const owner = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
   const { canceled, filePath } = await dialog.showSaveDialog(owner, {
     title: 'Export SOP PDF',
-    defaultPath: join(process.cwd(), safeFileName(title)),
+    defaultPath: join(app.getPath('documents'), safeFileName(title)),
     filters: [{ name: 'PDF', extensions: ['pdf'] }]
   })
   if (canceled || !filePath) return null
+
+  const tempDirectory = await mkdtemp(join(tmpdir(), 'worktrace-sop-pdf-'))
+  const tempHtmlPath = join(tempDirectory, 'sop.html')
 
   const pdfWindow = new BrowserWindow({
     show: false,
@@ -51,8 +55,9 @@ export async function exportSopPdf(html: string, title: string): Promise<string 
   })
 
   try {
+    await writeFile(tempHtmlPath, html, 'utf8')
     const loaded = waitForLoad(pdfWindow)
-    await pdfWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    await pdfWindow.loadFile(tempHtmlPath)
     await loaded
     await new Promise((resolve) => setTimeout(resolve, 250))
     const pdf = await pdfWindow.webContents.printToPDF({
@@ -66,5 +71,6 @@ export async function exportSopPdf(html: string, title: string): Promise<string 
     return filePath
   } finally {
     if (!pdfWindow.isDestroyed()) pdfWindow.close()
+    await rm(tempDirectory, { recursive: true, force: true })
   }
 }
