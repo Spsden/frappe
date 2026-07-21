@@ -33,11 +33,8 @@ from worktrace_api.schemas import (
 
 
 def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         yield db
-    finally:
-        db.close()
 
 
 def tenant_query(model: type, tenant_id: UUID) -> Select:
@@ -123,6 +120,16 @@ class Repository:
             )
         )
         return self._recording_from_record(record) if record else None
+
+    def get_recordings(self, recording_ids: list[UUID]) -> list[Recording]:
+        if not recording_ids:
+            return []
+        records = self.db.scalars(
+            tenant_query(RecordingRecord, self.tenant_id).where(
+                RecordingRecord.id.in_([str(recording_id) for recording_id in recording_ids])
+            )
+        ).all()
+        return [self._recording_from_record(record) for record in records]
 
     def delete_recording(self, recording_id: UUID) -> bool:
         if not self.get_recording(recording_id):

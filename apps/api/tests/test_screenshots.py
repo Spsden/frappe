@@ -10,6 +10,7 @@ They cover the two overlay-rendering endpoints:
 import hashlib
 import json
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from conftest import TEST_TENANT_ID
@@ -122,6 +123,8 @@ def test_list_session_screenshots_exposes_annotations(client):
     assert screenshot["width"] == 1280
     assert screenshot["height"] == 720
     assert screenshot["media_type"] == "image/png"
+    assert urlparse(screenshot["media_url"]).path.startswith("/media/")
+    assert screenshot["annotated_media_url"] is None
 
     # N annotations per frame: here one click highlight, fully resolved.
     assert len(screenshot["annotations"]) == 1
@@ -132,6 +135,10 @@ def test_list_session_screenshots_exposes_annotations(client):
     assert annotation["role"] == "AXButton"
     assert annotation["source"] == "event_pointer"
     assert annotation["confidence"] == 0.82
+
+    media_response = client.get(urlparse(screenshot["media_url"]).path)
+    assert media_response.status_code == 200
+    assert media_response.content == SAMPLE_PNG
 
 
 def test_list_session_screenshots_skips_unresolved_coordinate_space(client):
@@ -202,7 +209,9 @@ def test_get_session_screenshot_image_returns_bytes(client):
     session_id, screenshot_id, _event_id = _seed_session_with_screenshot()
 
     response = client.get(
-        f"/sessions/{session_id}/screenshots/{screenshot_id}", headers=auth_headers()
+        f"/sessions/{session_id}/screenshots/{screenshot_id}",
+        headers=auth_headers(),
+        follow_redirects=True,
     )
 
     assert response.status_code == 200
@@ -343,6 +352,8 @@ def test_replace_annotations_stores_uploaded_annotated_png(client):
         annotated_png=annotated_png,
     )
     assert response.status_code == 200
+    saved = response.json()
+    assert urlparse(saved["annotated_media_url"]).path.startswith("/media/")
 
     # the reviewed PNG artifact is stored exactly as uploaded by the client
     with SessionLocal() as db:
@@ -356,6 +367,10 @@ def test_replace_annotations_stores_uploaded_annotated_png(client):
         annotated_path = storage.resolve_storage_key(record.annotated_storage_key)
         assert annotated_path.exists()
         assert annotated_path.read_bytes() == annotated_png
+
+    media_response = client.get(urlparse(saved["annotated_media_url"]).path)
+    assert media_response.status_code == 200
+    assert media_response.content == annotated_png
 
 
 def test_delete_session_screenshot_removes_row_and_files(client):

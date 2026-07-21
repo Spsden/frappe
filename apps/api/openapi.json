@@ -29,6 +29,46 @@
         }
       }
     },
+    "/media/{token}": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Media File",
+        "operationId": "get_media_file_media__token__get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/signup": {
       "post": {
         "tags": [
@@ -712,6 +752,75 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RecordingStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recordings/statuses": {
+      "post": {
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Recording Statuses",
+        "operationId": "recording_statuses_recordings_statuses_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingStatusesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RecordingStatusResponse"
+                  },
+                  "title": "Response Recording Statuses Recordings Statuses Post"
                 }
               }
             }
@@ -2927,6 +3036,26 @@
         ],
         "title": "RecordingStatusResponse"
       },
+      "RecordingStatusesRequest": {
+        "properties": {
+          "recording_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Recording Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recording_ids"
+        ],
+        "title": "RecordingStatusesRequest"
+      },
       "RecordingTranscript": {
         "properties": {
           "status": {
@@ -3290,6 +3419,30 @@
             "maxLength": 100,
             "title": "Media Type",
             "default": "image/png"
+          },
+          "media_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Url"
+          },
+          "annotated_media_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotated Media Url"
           },
           "annotations": {
             "items": {

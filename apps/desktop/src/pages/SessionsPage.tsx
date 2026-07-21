@@ -119,9 +119,19 @@ export function SessionsPage() {
   }
 
   useEffect(() => {
-    void refresh(true)
-    const timer = window.setInterval(() => void refresh(false), 3000)
-    return () => window.clearInterval(timer)
+    let active = true
+    let timer: number | undefined
+
+    const poll = async (showLoading: boolean) => {
+      await refresh(showLoading)
+      if (active) timer = window.setTimeout(() => void poll(false), 3000)
+    }
+
+    void poll(true)
+    return () => {
+      active = false
+      if (timer) window.clearTimeout(timer)
+    }
   }, [])
 
   if (!isLoading && displaySessions.length === 0) {

@@ -137,6 +137,7 @@ export function SessionDetailPage() {
 
   useEffect(() => {
     let cancelled = false
+    let timer: number | undefined
 
     const load = async () => {
       setError(null)
@@ -164,15 +165,17 @@ export function SessionDetailPage() {
           setError(caught instanceof Error ? caught.message : 'Could not load session.')
         }
       } finally {
-        if (!cancelled) setIsLoading(false)
+        if (!cancelled) {
+          setIsLoading(false)
+          timer = window.setTimeout(() => void load(), 3000)
+        }
       }
     }
 
     void load()
-    const timer = window.setInterval(() => void load(), 3000)
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      if (timer) window.clearTimeout(timer)
     }
   }, [id, recordingState])
 
