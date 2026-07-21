@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { BackendSOP, BackendSOPStep, RecordedSessionSummary } from '../../shared/recording'
 import { useRecording } from '../features/recording/useRecording'
@@ -38,6 +38,21 @@ function StepImage({ imageUrl, stepNumber }: StepImageProps) {
       </div>
     </div>
   )
+}
+
+function sopsSignature(sops: BackendSOP[]): string {
+  return sops
+    .map((sop) =>
+      [
+        sop.id,
+        sop.source_session_id,
+        sop.version,
+        sop.status,
+        sop.steps.length,
+        sop.steps.map((step) => step.screenshot_reference ?? '').join(',')
+      ].join(':')
+    )
+    .join('|')
 }
 
 // ─── Individual step card ─────────────────────────────────────────────────────
@@ -255,6 +270,7 @@ export function SOPDetailPage() {
   // Preloaded blob URLs for all screenshot references
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({})
   const [imagesLoading, setImagesLoading] = useState(false)
+  const sopsSignatureRef = useRef('')
 
   // ── Load session + SOPs ───────────────────────────────────────────────────
   useEffect(() => {
@@ -279,7 +295,12 @@ export function SOPDetailPage() {
             if (!cancelled) {
               // Sort ascending by version. Each SOP is one structured draft;
               // there is no separate markdown version anymore.
-              setSops(fetched.sort((a, b) => a.version - b.version))
+              const sorted = fetched.sort((a, b) => a.version - b.version)
+              const nextSignature = sopsSignature(sorted)
+              if (nextSignature !== sopsSignatureRef.current) {
+                sopsSignatureRef.current = nextSignature
+                setSops(sorted)
+              }
             }
           } catch {
             // SOP not ready yet — keep empty (banner will show)
