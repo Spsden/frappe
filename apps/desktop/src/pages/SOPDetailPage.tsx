@@ -55,6 +55,15 @@ function sopsSignature(sops: BackendSOP[]): string {
     .join('|')
 }
 
+function shouldKeepPollingSop(session: RecordedSessionSummary | null, sops: BackendSOP[]): boolean {
+  if (!session?.remoteSessionId) return true
+  const status = statusForSession(session)
+  if (status === 'ready_for_review' || status === 'completed') {
+    return sops.length === 0
+  }
+  return status !== 'failed' && status !== 'sop_failed'
+}
+
 // ─── Individual step card ─────────────────────────────────────────────────────
 interface StepCardProps {
   step: BackendSOPStep
@@ -278,6 +287,7 @@ export function SOPDetailPage() {
     let timer: number | undefined
 
     const load = async () => {
+      let keepPolling = true
       setError(null)
       try {
         const sessions = await window.api.recording.listSessions()
@@ -292,10 +302,11 @@ export function SOPDetailPage() {
         if (found?.remoteSessionId) {
           try {
             const fetched = await window.api.recording.getSessionSops(found.remoteSessionId)
+            const sorted = fetched.sort((a, b) => a.version - b.version)
+            keepPolling = shouldKeepPollingSop(found, sorted)
             if (!cancelled) {
               // Sort ascending by version. Each SOP is one structured draft;
               // there is no separate markdown version anymore.
-              const sorted = fetched.sort((a, b) => a.version - b.version)
               const nextSignature = sopsSignature(sorted)
               if (nextSignature !== sopsSignatureRef.current) {
                 sopsSignatureRef.current = nextSignature
@@ -313,7 +324,7 @@ export function SOPDetailPage() {
       } finally {
         if (!cancelled) {
           setIsLoading(false)
-          timer = window.setTimeout(() => void load(), 5000)
+          if (keepPolling) timer = window.setTimeout(() => void load(), 5000)
         }
       }
     }
