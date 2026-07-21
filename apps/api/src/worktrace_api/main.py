@@ -45,6 +45,7 @@ from worktrace_api.recordings import ChunkStorage
 from worktrace_api.repository import Repository, get_db
 from worktrace_api.schemas import (
     SOP,
+    SOP_LIMIT_FIELDS,
     Account,
     AnalyticsSummary,
     AuthSession,
@@ -74,6 +75,8 @@ from worktrace_api.schemas import (
     ScreenshotEvidence,
     SignUpRequest,
     SOPApproval,
+    SopLimitsSettings,
+    SopLimitsSettingsUpdate,
     SOPStatus,
     TargetBounds,
     WorkflowSession,
@@ -307,6 +310,23 @@ def save_llm_provider_settings(
     repo: Repository = Depends(repository),
 ) -> LLMProviderSettings:
     return repo.save_llm_provider_settings(payload, settings.openai_api_key)
+
+
+def _sop_limit_defaults() -> dict[str, int]:
+    return {field: int(getattr(settings, field)) for field in SOP_LIMIT_FIELDS}
+
+
+@app.get("/settings/sop-limits", response_model=SopLimitsSettings, tags=["settings"])
+def get_sop_limits_settings(repo: Repository = Depends(repository)) -> SopLimitsSettings:
+    return repo.get_sop_limits(_sop_limit_defaults())
+
+
+@app.put("/settings/sop-limits", response_model=SopLimitsSettings, tags=["settings"])
+def save_sop_limits_settings(
+    payload: SopLimitsSettingsUpdate,
+    repo: Repository = Depends(repository),
+) -> SopLimitsSettings:
+    return repo.save_sop_limits(payload, _sop_limit_defaults())
 
 
 # Primary recording ingestion endpoint.
@@ -937,6 +957,18 @@ def set_external_ai_approval(
     if not approved:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
     return approved
+
+
+@app.get("/sops", response_model=list[SOP], tags=["sops"])
+def list_sops(
+    status_filter: SOPStatus | None = Query(default=None, alias="status"),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    repo: Repository = Depends(repository),
+) -> list[SOP]:
+    return repo.list_sops(
+        status_filter.value if status_filter else None, limit, offset
+    )
 
 
 @app.get("/sops/{sop_id}", response_model=SOP, tags=["sops"])

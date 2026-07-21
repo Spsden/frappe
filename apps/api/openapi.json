@@ -372,6 +372,124 @@
         }
       }
     },
+    "/settings/sop-limits": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Get Sop Limits Settings",
+        "operationId": "get_sop_limits_settings_settings_sop_limits_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SopLimitsSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Save Sop Limits Settings",
+        "operationId": "save_sop_limits_settings_settings_sop_limits_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SopLimitsSettingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SopLimitsSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recordings": {
       "post": {
         "tags": [
@@ -1732,6 +1850,104 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WorkflowSession"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sops": {
+      "get": {
+        "tags": [
+          "sops"
+        ],
+        "summary": "List Sops",
+        "operationId": "list_sops_sops_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SOPStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SOP"
+                  },
+                  "title": "Response List Sops Sops Get"
                 }
               }
             }
@@ -3911,6 +4127,142 @@
           "password"
         ],
         "title": "SignUpRequest"
+      },
+      "SopLimitsSettings": {
+        "properties": {
+          "sop_max_evidence_steps": {
+            "type": "integer",
+            "title": "Sop Max Evidence Steps"
+          },
+          "sop_max_vision_frames": {
+            "type": "integer",
+            "title": "Sop Max Vision Frames"
+          },
+          "sop_image_max_dimension_px": {
+            "type": "integer",
+            "title": "Sop Image Max Dimension Px"
+          },
+          "sop_image_jpeg_quality": {
+            "type": "integer",
+            "title": "Sop Image Jpeg Quality"
+          },
+          "sop_max_output_tokens": {
+            "type": "integer",
+            "title": "Sop Max Output Tokens"
+          },
+          "defaults": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Defaults"
+          },
+          "overridden": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Overridden"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sop_max_evidence_steps",
+          "sop_max_vision_frames",
+          "sop_image_max_dimension_px",
+          "sop_image_jpeg_quality",
+          "sop_max_output_tokens",
+          "defaults",
+          "overridden"
+        ],
+        "title": "SopLimitsSettings",
+        "description": "Effective SOP generation guardrails for a tenant.\n\nEach ``sop_*`` value is the override when one is set, otherwise the env\ndefault. ``defaults`` carries the env defaults and ``overridden`` flags which\nfields the tenant has customized, so the UI can show \"default\" badges and a\nreset-to-default action."
+      },
+      "SopLimitsSettingsUpdate": {
+        "properties": {
+          "sop_max_evidence_steps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sop Max Evidence Steps"
+          },
+          "sop_max_vision_frames": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sop Max Vision Frames"
+          },
+          "sop_image_max_dimension_px": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4096.0,
+                "minimum": 320.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sop Image Max Dimension Px"
+          },
+          "sop_image_jpeg_quality": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 95.0,
+                "minimum": 30.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sop Image Jpeg Quality"
+          },
+          "sop_max_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 32000.0,
+                "minimum": 1000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sop Max Output Tokens"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SopLimitsSettingsUpdate",
+        "description": "Partial update of SOP guardrails. Bounds mirror ``Settings``.\n\nOmit a field to leave it unchanged; send ``null`` to clear the override\n(revert to the env default); send an int to set/replace the override."
       },
       "TargetBounds": {
         "properties": {
