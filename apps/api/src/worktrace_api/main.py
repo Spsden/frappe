@@ -15,11 +15,13 @@ from fastapi import (
     HTTPException,
     Path,
     Query,
+    Request,
     Response,
     UploadFile,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -33,6 +35,11 @@ from worktrace_api.auth import (
     sign_up,
 )
 from worktrace_api.database import create_tables
+from worktrace_api.media_tokens import (
+    MediaTokenError,
+    create_media_token,
+    parse_media_token,
+)
 from worktrace_api.privacy import sanitize_session
 from worktrace_api.processing import RecordingProcessor
 from worktrace_api.recordings import ChunkStorage
@@ -174,6 +181,38 @@ def require_session(repo: Repository, session_id: UUID) -> WorkflowSession:
     return session
 
 
+def signed_media_url(request: Request, storage_key: str, media_type: str) -> str:
+    token = create_media_token(
+        storage_key=storage_key,
+        media_type=media_type,
+        secret=settings.media_token_secret,
+        ttl_seconds=settings.media_token_ttl_seconds,
+    )
+    return str(request.url_for("get_media_file", token=token))
+
+
+def screenshot_evidence(
+    request: Request,
+    screenshot: Screenshot,
+    annotations: list[ScreenshotAnnotation],
+) -> ScreenshotEvidence:
+    return ScreenshotEvidence(
+        id=screenshot.id,
+        sequence=screenshot.sequence,
+        captured_at=screenshot.captured_at,
+        width=screenshot.width,
+        height=screenshot.height,
+        media_type=screenshot.media_type,
+        media_url=signed_media_url(request, screenshot.storage_key, screenshot.media_type),
+        annotated_media_url=(
+            signed_media_url(request, screenshot.annotated_storage_key, "image/png")
+            if screenshot.annotated_storage_key
+            else None
+        ),
+        annotations=annotations,
+    )
+
+
 @app.get("/health", tags=["system"])
 def health() -> dict[str, Any]:
     from worktrace_api.core.celery_app import service_status
@@ -183,6 +222,26 @@ def health() -> dict[str, Any]:
         "environment": settings.env,
         "services": service_status(settings.redis_url),
     }
+
+
+@app.get("/media/{token}", name="get_media_file", tags=["sessions"])
+def get_media_file(token: str) -> FileResponse:
+    try:
+        payload = parse_media_token(token, secret=settings.media_token_secret)
+    except MediaTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Media not found",
+        ) from exc
+
+    storage = ChunkStorage(
+        root=settings.recording_storage_path,
+        max_chunk_bytes=settings.max_chunk_bytes,
+    )
+    path = storage.resolve_storage_key(payload.storage_key)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
+    return FileResponse(path, media_type=payload.media_type)
 
 
 @app.post(
@@ -579,7 +638,9 @@ def get_session(session_id: UUID, repo: Repository = Depends(repository)) -> Wor
     tags=["sessions"],
 )
 def list_session_screenshots(
-    session_id: UUID, repo: Repository = Depends(repository)
+    session_id: UUID,
+    request: Request,
+    repo: Repository = Depends(repository),
 ) -> list[ScreenshotEvidence]:
     """Screenshots for a session, each carrying every annotation that references
     it (N highlights per frame). Only annotations already resolved to
@@ -617,14 +678,10 @@ def list_session_screenshots(
         )
 
     return [
-        ScreenshotEvidence(
-            id=screenshot.id,
-            sequence=screenshot.sequence,
-            captured_at=screenshot.captured_at,
-            width=screenshot.width,
-            height=screenshot.height,
-            media_type=screenshot.media_type,
-            annotations=_effective_annotations(screenshot, annotations_by_screenshot),
+        screenshot_evidence(
+            request,
+            screenshot,
+            _effective_annotations(screenshot, annotations_by_screenshot),
         )
         for screenshot in screenshots
     ]
@@ -652,6 +709,7 @@ def _effective_annotations(
 async def replace_screenshot_annotations(
     session_id: UUID,
     screenshot_id: UUID,
+    request: Request,
     annotations: str = Form(...),
     annotated_image: UploadFile = File(...),
     repo: Repository = Depends(repository),
@@ -733,14 +791,17 @@ async def replace_screenshot_annotations(
             detail="Could not save annotated image",
         ) from exc
 
-    return ScreenshotEvidence(
-        id=screenshot.id,
-        sequence=screenshot.sequence,
-        captured_at=screenshot.captured_at,
-        width=screenshot.width,
-        height=screenshot.height,
-        media_type=screenshot.media_type,
-        annotations=normalized,
+    return screenshot_evidence(
+        request,
+        Screenshot(
+            **{
+                **screenshot.model_dump(),
+                "annotated_storage_key": annotated_key,
+                "redaction_status": "redacted",
+                "annotations": stored,
+            }
+        ),
+        normalized,
     )
 
 
@@ -773,9 +834,10 @@ def delete_session_screenshot(
 def get_session_screenshot_image(
     session_id: UUID,
     screenshot_id: UUID,
+    request: Request,
     type: str | None = None,
     repo: Repository = Depends(repository),
-) -> Response:
+) -> RedirectResponse:
     """Serve the raw screenshot bytes for overlay rendering or annotated bytes for SOP."""
     screenshot = repo.get_screenshot(session_id, screenshot_id)
     if screenshot is None:
@@ -793,9 +855,13 @@ def get_session_screenshot_image(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot image not available"
         )
-    return Response(
-        content=storage.read(key_to_serve),
-        media_type="image/png" if type == "annotated" else screenshot.media_type,
+    return RedirectResponse(
+        signed_media_url(
+            request,
+            key_to_serve,
+            "image/png" if type == "annotated" else screenshot.media_type,
+        ),
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
     )
 
 

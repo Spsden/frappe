@@ -46,7 +46,11 @@ async function loadImageUrl(
   if (existingRequest) return existingRequest
 
   const request = (async () => {
-    const buffer = await window.api.recording.getScreenshotImage(sessionId, evidence.id)
+    const buffer = await window.api.recording.getScreenshotImage(
+      sessionId,
+      evidence.id,
+      evidence.media_url
+    )
     const blob = new Blob([buffer], { type: evidence.media_type || 'image/png' })
     return URL.createObjectURL(blob)
   })()

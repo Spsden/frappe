@@ -206,6 +206,8 @@ export interface BackendScreenshotEvidence {
   width: number
   height: number
   media_type: string
+  media_url: string | null
+  annotated_media_url: string | null
   annotations: BackendAnnotation[]
 }
 
@@ -318,9 +320,17 @@ export interface RecordingApi {
   retry: (sessionId: string, target: RecordingRetryTarget) => Promise<void>
   getSession: (backendSessionId: string) => Promise<BackendWorkflowSession>
   getSessionScreenshots: (backendSessionId: string) => Promise<BackendScreenshotEvidence[]>
-  getScreenshotImage: (backendSessionId: string, screenshotId: string) => Promise<ArrayBuffer>
+  getScreenshotImage: (
+    backendSessionId: string,
+    screenshotId: string,
+    mediaUrl?: string | null
+  ) => Promise<ArrayBuffer>
   getSessionSops: (backendSessionId: string) => Promise<BackendSOP[]>
-  getSopScreenshotImage: (backendSessionId: string, screenshotId: string) => Promise<ArrayBuffer>
+  getSopScreenshotImage: (
+    backendSessionId: string,
+    screenshotId: string,
+    mediaUrl?: string | null
+  ) => Promise<ArrayBuffer>
   saveScreenshotAnnotations: (
     backendSessionId: string,
     screenshotId: string,

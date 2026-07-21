@@ -158,6 +158,8 @@ class ScreenshotEvidence(StrictModel):
     width: int = Field(gt=0)
     height: int = Field(gt=0)
     media_type: str = Field(default="image/png", max_length=100)
+    media_url: str | None = Field(default=None, max_length=4000)
+    annotated_media_url: str | None = Field(default=None, max_length=4000)
     annotations: list[ScreenshotAnnotation] = Field(default_factory=list, max_length=50)
 
 

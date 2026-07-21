@@ -202,7 +202,16 @@ export class WorkTraceApiClient {
     return (await response.json()) as BackendScreenshotEvidence[]
   }
 
-  async getScreenshotImage(sessionId: string, screenshotId: string): Promise<ArrayBuffer> {
+  async getScreenshotImage(
+    sessionId: string,
+    screenshotId: string,
+    mediaUrl?: string | null
+  ): Promise<ArrayBuffer> {
+    if (mediaUrl) {
+      const mediaResponse = await fetch(mediaUrl)
+      await requireSuccess(mediaResponse)
+      return mediaResponse.arrayBuffer()
+    }
     const response = await this.request(`/sessions/${sessionId}/screenshots/${screenshotId}`)
     return response.arrayBuffer()
   }
@@ -214,7 +223,16 @@ export class WorkTraceApiClient {
     return bundle.sops
   }
 
-  async getSopScreenshotImage(sessionId: string, screenshotId: string): Promise<ArrayBuffer> {
+  async getSopScreenshotImage(
+    sessionId: string,
+    screenshotId: string,
+    mediaUrl?: string | null
+  ): Promise<ArrayBuffer> {
+    if (mediaUrl) {
+      const mediaResponse = await fetch(mediaUrl)
+      await requireSuccess(mediaResponse)
+      return mediaResponse.arrayBuffer()
+    }
     const response = await this.request(`/sessions/${sessionId}/screenshots/${screenshotId}?type=annotated`)
     return response.arrayBuffer()
   }

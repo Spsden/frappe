@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     CELERY_TASK_TIME_LIMIT: int = 300
     CELERY_TASK_SOFT_TIME_LIMIT: int = 250
     max_chunk_bytes: int = 10 * 1024 * 1024
+    media_token_secret: str = "worktrace-dev-media-token-secret-change-me"
+    media_token_ttl_seconds: int = Field(default=10 * 60, ge=30, le=24 * 60 * 60)
     access_token_ttl_hours: int = Field(default=24 * 30, ge=1, le=24 * 365)
     allowed_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
     allowed_domains: Annotated[list[str], NoDecode] = []

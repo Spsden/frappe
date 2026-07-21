@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type {
   AnnotationInput,
   BackendScreenshotEvidence,
+  BackendSOP,
   BackendWorkflowSession,
   RecordedSessionSummary,
   RecordingRetryTarget,
@@ -54,9 +55,22 @@ export class RecordingLibraryService {
 
   async getScreenshotImage(
     backendSessionId: string,
-    screenshotId: string
+    screenshotId: string,
+    mediaUrl?: string | null
   ): Promise<ArrayBuffer> {
-    return this.apiClient.getScreenshotImage(backendSessionId, screenshotId)
+    return this.apiClient.getScreenshotImage(backendSessionId, screenshotId, mediaUrl)
+  }
+
+  async getSessionSops(backendSessionId: string): Promise<BackendSOP[]> {
+    return this.apiClient.getSessionSops(backendSessionId)
+  }
+
+  async getSopScreenshotImage(
+    backendSessionId: string,
+    screenshotId: string,
+    mediaUrl?: string | null
+  ): Promise<ArrayBuffer> {
+    return this.apiClient.getSopScreenshotImage(backendSessionId, screenshotId, mediaUrl)
   }
 
   async saveScreenshotAnnotations(

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { BackendSOP, BackendSOPStep, RecordedSessionSummary } from '../../shared/recording'
 import { useRecording } from '../features/recording/useRecording'
@@ -38,37 +38,12 @@ function renderMarkdown(md: string): string {
 
 // ─── SOP Screenshot tile ──────────────────────────────────────────────────────
 interface StepImageProps {
-  sessionId: string
-  screenshotId: string
+  imageUrl: string | null
   stepNumber: number
 }
 
-function StepImage({ sessionId, screenshotId, stepNumber }: StepImageProps) {
-  const [url, setUrl] = useState<string | null>(null)
-  const [error, setError] = useState(false)
-  const urlRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const buffer = await window.api.recording.getSopScreenshotImage(sessionId, screenshotId)
-        if (cancelled) return
-        const blob = new Blob([buffer], { type: 'image/png' })
-        const objectUrl = URL.createObjectURL(blob)
-        urlRef.current = objectUrl
-        setUrl(objectUrl)
-      } catch {
-        if (!cancelled) setError(true)
-      }
-    })()
-    return () => {
-      cancelled = true
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current)
-    }
-  }, [sessionId, screenshotId])
-
-  if (error) {
+function StepImage({ imageUrl, stepNumber }: StepImageProps) {
+  if (!imageUrl) {
     return (
       <div className="flex h-32 w-full items-center justify-center rounded-xl border border-white/10 bg-white/[0.02] text-xs text-white/30">
         Image unavailable
@@ -76,18 +51,10 @@ function StepImage({ sessionId, screenshotId, stepNumber }: StepImageProps) {
     )
   }
 
-  if (!url) {
-    return (
-      <div className="flex h-32 w-full items-center justify-center rounded-xl border border-white/10 bg-white/[0.02]">
-        <span className="size-2 animate-pulse rounded-full bg-white/30" />
-      </div>
-    )
-  }
-
   return (
     <div className="group relative overflow-hidden rounded-xl border border-white/10 bg-black/40 transition hover:border-white/25">
       <img
-        src={url}
+        src={imageUrl}
         alt={`Step ${stepNumber} screenshot`}
         className="block w-full transition-transform duration-300 group-hover:scale-[1.02]"
       />
@@ -370,9 +337,13 @@ export function SOPDetailPage() {
   useEffect(() => {
     if (!sessionId || !displaySop) return
 
-    const screenshotIds = displaySop.steps
-      .map((s) => s.screenshot_reference)
-      .filter((id): id is string => Boolean(id))
+    const screenshotIds = [
+      ...new Set(
+        displaySop.steps
+          .map((s) => s.screenshot_reference)
+          .filter((id): id is string => Boolean(id))
+      )
+    ]
 
     if (screenshotIds.length === 0) return
 
@@ -382,6 +353,10 @@ export function SOPDetailPage() {
     const loadImages = async () => {
       setImagesLoading(true)
       const entries: Record<string, string> = {}
+      const evidence = await window.api.recording.getSessionScreenshots(sessionId)
+      const mediaUrls = new Map(
+        evidence.map((item) => [item.id, item.annotated_media_url ?? item.media_url])
+      )
       await mapWithConcurrency(
         screenshotIds,
         4,
@@ -389,7 +364,8 @@ export function SOPDetailPage() {
           try {
             const buffer = await window.api.recording.getSopScreenshotImage(
               sessionId,
-              screenshotId
+              screenshotId,
+              mediaUrls.get(screenshotId)
             )
             if (cancelled) return
             const blob = new Blob([buffer], { type: 'image/png' })
@@ -559,8 +535,7 @@ export function SOPDetailPage() {
                           </div>
                         ) : (
                           <StepImage
-                            sessionId={sessionId}
-                            screenshotId={activeStep.screenshot_reference!}
+                            imageUrl={imageUrls[activeStep.screenshot_reference!] ?? null}
                             stepNumber={activeStep.position}
                           />
                         )}
