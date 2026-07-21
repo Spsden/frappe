@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     external_ai_approval_required: bool = True
     whisper_model_size: str = "tiny"
     openai_api_key: str | None = None
+    # Provider endpoint + model are env-configurable so the backend can be
+    # swapped (OpenAI, OpenRouter, a Claude-compatible gateway) without code
+    # changes. Defaults keep the existing OpenRouter + GPT-4o behavior.
+    openai_base_url: str = "https://openrouter.ai/api/v1"
+    openai_model: str = "openai/gpt-4o"
 
     @field_validator("allowed_origins", "allowed_domains", mode="before")
     @classmethod
