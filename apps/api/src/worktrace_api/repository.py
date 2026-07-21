@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from worktrace_api.database import (
     AIApprovalRecord,
     FeedbackRecord,
+    LLMProviderSettingsRecord,
     RecordingChunkRecord,
     RecordingRecord,
     ScreenshotRecord,
@@ -23,10 +24,13 @@ from worktrace_api.schemas import (
     ChunkContentType,
     ChunkReceipt,
     Feedback,
+    LLMProviderSettings,
+    LLMProviderSettingsUpdate,
     Recording,
     RecordingStatus,
     RecordingTranscript,
     Screenshot,
+    SOPStatus,
     TranscriptSegment,
     WorkflowSession,
 )
@@ -578,6 +582,7 @@ class Repository:
             version=sop.version,
             status=sop.status,
             title=sop.title,
+            document=sop.document,
             steps=[step.model_dump(mode="json") for step in sop.steps],
             created_at=sop.created_at,
         )
@@ -587,6 +592,62 @@ class Repository:
 
     def next_sop_version(self, session_id: UUID) -> int:
         return len(self.list_sops_for_session(session_id)) + 1
+
+    def replace_session_draft_sop(self, session_id: UUID, sop: SOP) -> SOP:
+        """Replace any existing DRAFT SOPs for a session with a fresh draft.
+
+        Used by the AI generation pipeline so retries/re-generation never stack
+        broken or duplicate drafts. Approved and archived SOPs are preserved so a
+        published walkthrough can never disappear. The new draft is versioned
+        just above the highest retained (approved/archived) version, which keeps
+        versioning meaningful instead of inventing versions per output format.
+        """
+        self._require_tenant(sop.tenant_id)
+        last_error: IntegrityError | None = None
+        for attempt in range(2):
+            try:
+                session_record = self.db.scalar(
+                    tenant_query(WorkflowSessionRecord, self.tenant_id)
+                    .where(WorkflowSessionRecord.id == str(session_id))
+                    .with_for_update()
+                )
+                if not session_record:
+                    raise LookupError("Session not found")
+
+                retained = self.db.scalars(
+                    tenant_query(SOPRecord, self.tenant_id)
+                    .where(SOPRecord.source_session_id == str(session_id))
+                    .where(SOPRecord.status != SOPStatus.DRAFT.value)
+                ).all()
+                next_version = max((record.version for record in retained), default=0) + 1
+                self.db.execute(
+                    delete(SOPRecord).where(
+                        SOPRecord.tenant_id == str(self.tenant_id),
+                        SOPRecord.source_session_id == str(session_id),
+                        SOPRecord.status == SOPStatus.DRAFT.value,
+                    )
+                )
+                saved = sop.model_copy(
+                    update={"id": uuid4() if attempt else sop.id, "version": next_version}
+                )
+                record = SOPRecord(
+                    id=str(saved.id),
+                    tenant_id=str(saved.tenant_id),
+                    source_session_id=str(saved.source_session_id),
+                    version=saved.version,
+                    status=saved.status,
+                    title=saved.title,
+                    document=saved.document,
+                    steps=[step.model_dump(mode="json") for step in saved.steps],
+                    created_at=saved.created_at,
+                )
+                self.db.add(record)
+                self.db.commit()
+                return saved
+            except IntegrityError as exc:
+                self.db.rollback()
+                last_error = exc
+        raise ValueError("Draft SOP changed concurrently; retry SOP generation") from last_error
 
     def get_sop(self, sop_id: UUID) -> SOP | None:
         record = self.db.scalar(
@@ -671,6 +732,63 @@ class Repository:
         self.db.commit()
         return self._session_from_record(record)
 
+    def get_llm_provider_settings(
+        self,
+        default_base_url: str,
+        default_model: str,
+        default_api_key: str | None,
+    ) -> LLMProviderSettings:
+        record = self.db.get(LLMProviderSettingsRecord, str(self.tenant_id))
+        if not record:
+            return LLMProviderSettings(
+                base_url=default_base_url,
+                model=default_model,
+                has_api_key=bool(default_api_key),
+                updated_at=None,
+            )
+        return LLMProviderSettings(
+            base_url=record.base_url,
+            model=record.model,
+            has_api_key=bool(record.api_key or default_api_key),
+            updated_at=record.updated_at,
+        )
+
+    def get_llm_provider_secret(self) -> LLMProviderSettingsRecord | None:
+        return self.db.get(LLMProviderSettingsRecord, str(self.tenant_id))
+
+    def save_llm_provider_settings(
+        self,
+        payload: LLMProviderSettingsUpdate,
+        default_api_key: str | None,
+    ) -> LLMProviderSettings:
+        record = self.db.get(LLMProviderSettingsRecord, str(self.tenant_id))
+        now = datetime.now(UTC)
+        api_key = payload.api_key.strip() if payload.api_key else None
+        if not record:
+            record = LLMProviderSettingsRecord(
+                tenant_id=str(self.tenant_id),
+                base_url=payload.base_url.strip(),
+                model=payload.model.strip(),
+                api_key=api_key,
+                updated_at=now,
+            )
+            self.db.add(record)
+        else:
+            record.base_url = payload.base_url.strip()
+            record.model = payload.model.strip()
+            if payload.clear_api_key:
+                record.api_key = None
+            elif api_key:
+                record.api_key = api_key
+            record.updated_at = now
+        self.db.commit()
+        return LLMProviderSettings(
+            base_url=record.base_url,
+            model=record.model,
+            has_api_key=bool(record.api_key or default_api_key),
+            updated_at=record.updated_at,
+        )
+
     def _require_tenant(self, tenant_id: UUID) -> None:
         if tenant_id != self.tenant_id:
             raise ValueError("Cross-tenant write rejected")
@@ -711,10 +829,27 @@ class Repository:
                 "version": record.version,
                 "status": record.status,
                 "title": record.title,
-                "steps": record.steps,
+                "document": getattr(record, "document", None),
+                "steps": Repository._normalize_sop_steps(record.steps),
                 "created_at": record.created_at,
             }
         )
+
+    @staticmethod
+    def _normalize_sop_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for step in steps:
+            current = dict(step)
+            legacy_branch = current.pop("decision_branch", None)
+            if legacy_branch and not current.get("decision_branches"):
+                current["decision_branches"] = [
+                    {
+                        "condition": "Legacy decision branch",
+                        "action": legacy_branch,
+                    }
+                ]
+            normalized.append(current)
+        return normalized
 
     @staticmethod
     def _feedback_from_record(record: FeedbackRecord) -> Feedback:

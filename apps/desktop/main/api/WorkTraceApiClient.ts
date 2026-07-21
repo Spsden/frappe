@@ -2,6 +2,8 @@ import type {
   Account,
   BackendHealth,
   ConnectionStatus,
+  LLMProviderSettings,
+  LLMProviderSettingsUpdate,
   LoginCredentials,
   SignUpCredentials
 } from '../../shared/connection'
@@ -110,6 +112,22 @@ export class WorkTraceApiClient {
     const response = await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(3_000) })
     await requireSuccess(response)
     return (await response.json()) as BackendHealth
+  }
+
+  async getLLMProviderSettings(): Promise<LLMProviderSettings> {
+    const response = await this.request('/settings/llm-provider')
+    return (await response.json()) as LLMProviderSettings
+  }
+
+  async saveLLMProviderSettings(
+    payload: LLMProviderSettingsUpdate
+  ): Promise<LLMProviderSettings> {
+    const response = await this.request('/settings/llm-provider', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    return (await response.json()) as LLMProviderSettings
   }
 
   async createRecording(payload: {

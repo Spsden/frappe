@@ -35,6 +35,5 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 EXPOSE 8000
 
 # Default = API server. Worker service overrides `command:`.
-CMD ["python", "-m", "uvicorn", "worktrace_api.main:app", \
-     "--host", "0.0.0.0", "--port", "8000", \
-     "--reload", "--reload-dir", "/app/src"]
+CMD ["sh", "-c", \
+     "python -m worktrace_api.migration_bootstrap && exec python -m uvicorn worktrace_api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/src"]

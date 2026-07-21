@@ -21,11 +21,19 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "screenshots",
-        sa.Column("annotations", sa.JSON(), nullable=True),
-    )
+    existing_columns = {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns("screenshots")
+    }
+    if "annotations" not in existing_columns:
+        op.add_column(
+            "screenshots",
+            sa.Column("annotations", sa.JSON(), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("screenshots", "annotations")
+    existing_columns = {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns("screenshots")
+    }
+    if "annotations" in existing_columns:
+        op.drop_column("screenshots", "annotations")

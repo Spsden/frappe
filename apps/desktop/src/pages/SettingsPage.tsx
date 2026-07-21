@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useConnection } from '../features/connection/useConnection'
+import type { LLMProviderSettings } from '../../shared/connection'
 import type { ExperimentalFlags } from '../../shared/settings'
 
 function cleanError(error: unknown): string {
@@ -88,9 +89,149 @@ export function SettingsPage() {
           </p>
         </div>
 
+        <LLMProviderSection enabled={status.hasSession && status.state === 'connected'} />
+
         <ExperimentalSection />
       </div>
     </section>
+  )
+}
+
+function LLMProviderSection({ enabled }: { enabled: boolean }) {
+  const [settings, setSettings] = useState<LLMProviderSettings | null>(null)
+  const [baseUrl, setBaseUrl] = useState('https://openrouter.ai/api/v1')
+  const [model, setModel] = useState('openai/gpt-4o')
+  const [apiKey, setApiKey] = useState('')
+  const [clearApiKey, setClearApiKey] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      if (!enabled) return
+      setBusy(true)
+      setError(null)
+      try {
+        const current = await window.api.connection.getLLMProviderSettings()
+        if (!active) return
+        setSettings(current)
+        setBaseUrl(current.base_url)
+        setModel(current.model)
+      } catch (loadError) {
+        if (active) setError(cleanError(loadError))
+      } finally {
+        if (active) setBusy(false)
+      }
+    }
+    void load()
+    return () => {
+      active = false
+    }
+  }, [enabled])
+
+  const save = async () => {
+    setBusy(true)
+    setError(null)
+    setSaved(false)
+    try {
+      const next = await window.api.connection.saveLLMProviderSettings({
+        base_url: baseUrl.trim(),
+        model: model.trim(),
+        api_key: apiKey.trim() || null,
+        clear_api_key: clearApiKey
+      })
+      setSettings(next)
+      setBaseUrl(next.base_url)
+      setModel(next.model)
+      setApiKey('')
+      setClearApiKey(false)
+      setSaved(true)
+    } catch (saveError) {
+      setError(cleanError(saveError))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-5 overflow-hidden rounded-xl border border-white/10 bg-white/[0.025]">
+      <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+        <div>
+          <p className="text-xs font-bold">LLM provider</p>
+          <p className="mt-1 text-xs text-white/45">OpenRouter-compatible generation settings.</p>
+        </div>
+        <span className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/50">
+          <span
+            className={`size-1.5 rounded-full ${
+              settings?.has_api_key ? 'bg-emerald-400' : 'bg-white/25'
+            }`}
+          />
+          {settings?.has_api_key ? 'Key saved' : 'No key'}
+        </span>
+      </div>
+
+      <div className="grid gap-4 p-5">
+        <TextInput
+          label="Endpoint"
+          value={baseUrl}
+          disabled={!enabled || busy}
+          placeholder="https://openrouter.ai/api/v1"
+          onChange={setBaseUrl}
+        />
+        <TextInput
+          label="Model"
+          value={model}
+          disabled={!enabled || busy}
+          placeholder="openai/gpt-4o"
+          onChange={setModel}
+        />
+        <TextInput
+          label="API key"
+          value={apiKey}
+          disabled={!enabled || busy || clearApiKey}
+          placeholder={settings?.has_api_key ? 'Saved key remains unchanged' : 'sk-or-...'}
+          secret
+          onChange={setApiKey}
+        />
+
+        <label className="flex items-center gap-3 text-xs text-white/55">
+          <input
+            type="checkbox"
+            className="size-4 accent-emerald-400"
+            checked={clearApiKey}
+            disabled={!enabled || busy}
+            onChange={(event) => setClearApiKey(event.target.checked)}
+          />
+          Clear saved API key
+        </label>
+
+        {(error || saved) && (
+          <p
+            className={[
+              'rounded-lg border px-4 py-3 text-xs leading-5',
+              error
+                ? 'border-red-500/25 bg-red-500/8 text-red-300'
+                : 'border-emerald-400/20 bg-emerald-400/8 text-emerald-300'
+            ].join(' ')}
+          >
+            {error || 'Provider settings saved.'}
+          </p>
+        )}
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            disabled={!enabled || busy || !baseUrl.trim() || !model.trim()}
+            onClick={() => void save()}
+            className="rounded-lg border border-white/15 bg-white px-5 py-2.5 text-xs font-black text-black transition hover:bg-white/90 disabled:opacity-50"
+          >
+            {busy ? 'Saving...' : 'Save provider'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -145,6 +286,38 @@ function ExperimentalSection() {
         />
       </div>
     </div>
+  )
+}
+
+function TextInput({
+  label,
+  value,
+  disabled,
+  placeholder,
+  secret = false,
+  onChange
+}: {
+  label: string
+  value: string
+  disabled: boolean
+  placeholder: string
+  secret?: boolean
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="block">
+      <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">
+        {label}
+      </span>
+      <input
+        type={secret ? 'password' : 'text'}
+        value={value}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 w-full rounded-lg border border-white/10 bg-black/35 px-4 py-3 text-sm text-white/85 outline-none transition placeholder:text-white/25 focus:border-emerald-400/50 disabled:opacity-50"
+      />
+    </label>
   )
 }
 

@@ -3,6 +3,8 @@ import {
   connectionIpc,
   type BackendHealth,
   type ConnectionStatus,
+  type LLMProviderSettings,
+  type LLMProviderSettingsUpdate,
   type LoginCredentials,
   type SignUpCredentials
 } from '../shared/connection'
@@ -40,6 +42,13 @@ contextBridge.exposeInMainWorld('api', {
     logout: () => ipcRenderer.invoke(connectionIpc.logout),
     test: () => ipcRenderer.invoke(connectionIpc.test),
     getHealth: () => ipcRenderer.invoke(connectionIpc.getHealth) as Promise<BackendHealth>,
+    getLLMProviderSettings: () =>
+      ipcRenderer.invoke(connectionIpc.getLLMProviderSettings) as Promise<LLMProviderSettings>,
+    saveLLMProviderSettings: (settings: LLMProviderSettingsUpdate) =>
+      ipcRenderer.invoke(
+        connectionIpc.saveLLMProviderSettings,
+        settings
+      ) as Promise<LLMProviderSettings>,
     onStatusChanged: (listener: (status: ConnectionStatus) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, status: ConnectionStatus) =>
         listener(status)

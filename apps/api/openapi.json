@@ -254,6 +254,124 @@
         }
       }
     },
+    "/settings/llm-provider": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Get Llm Provider Settings",
+        "operationId": "get_llm_provider_settings_settings_llm_provider_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMProviderSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Save Llm Provider Settings",
+        "operationId": "save_llm_provider_settings_settings_llm_provider_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMProviderSettingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMProviderSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recordings": {
       "post": {
         "tags": [
@@ -1631,71 +1749,6 @@
         }
       }
     },
-    "/sessions/{session_id}/sops": {
-      "post": {
-        "tags": [
-          "sops"
-        ],
-        "summary": "Create Sop",
-        "operationId": "create_sop_sessions__session_id__sops_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "session_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Session Id"
-            }
-          },
-          {
-            "name": "X-Tenant-ID",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SOP"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/sops/{sop_id}": {
       "get": {
         "tags": [
@@ -2721,6 +2774,84 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "LLMProviderSettings": {
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Base Url"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Model"
+          },
+          "has_api_key": {
+            "type": "boolean",
+            "title": "Has Api Key"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "base_url",
+          "model",
+          "has_api_key"
+        ],
+        "title": "LLMProviderSettings"
+      },
+      "LLMProviderSettingsUpdate": {
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Base Url"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "clear_api_key": {
+            "type": "boolean",
+            "title": "Clear Api Key",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "base_url",
+          "model"
+        ],
+        "title": "LLMProviderSettingsUpdate"
+      },
       "LoginRequest": {
         "properties": {
           "email": {
@@ -3152,6 +3283,18 @@
             "maxLength": 200,
             "title": "Title"
           },
+          "document": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/SOPStep"
@@ -3190,6 +3333,30 @@
           "approved"
         ],
         "title": "SOPApproval"
+      },
+      "SOPDecisionBranch": {
+        "properties": {
+          "condition": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Condition"
+          },
+          "action": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Action"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "condition",
+          "action"
+        ],
+        "title": "SOPDecisionBranch",
+        "description": "A conditional path within a step (\"if X, then Y\"). Branches are authored\nby the SOP generator from observed decision points in the evidence."
       },
       "SOPStatus": {
         "type": "string",
@@ -3266,17 +3433,13 @@
             ],
             "title": "Estimated Time Ms"
           },
-          "decision_branch": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 1000
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Decision Branch"
+          "decision_branches": {
+            "items": {
+              "$ref": "#/components/schemas/SOPDecisionBranch"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Decision Branches"
           }
         },
         "additionalProperties": false,
@@ -4129,6 +4292,10 @@
     {
       "name": "auth",
       "description": "Tenant signup and user sessions."
+    },
+    {
+      "name": "settings",
+      "description": "Tenant-level backend configuration."
     },
     {
       "name": "sessions",

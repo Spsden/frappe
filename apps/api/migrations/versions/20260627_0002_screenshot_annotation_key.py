@@ -18,11 +18,19 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "screenshots",
-        sa.Column("annotated_storage_key", sa.String(length=500), nullable=True),
-    )
+    existing_columns = {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns("screenshots")
+    }
+    if "annotated_storage_key" not in existing_columns:
+        op.add_column(
+            "screenshots",
+            sa.Column("annotated_storage_key", sa.String(length=500), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("screenshots", "annotated_storage_key")
+    existing_columns = {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns("screenshots")
+    }
+    if "annotated_storage_key" in existing_columns:
+        op.drop_column("screenshots", "annotated_storage_key")

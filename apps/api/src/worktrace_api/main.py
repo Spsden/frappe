@@ -55,6 +55,8 @@ from worktrace_api.schemas import (
     ExternalAIPayloadPreview,
     Feedback,
     FeedbackCreate,
+    LLMProviderSettings,
+    LLMProviderSettingsUpdate,
     LoginRequest,
     ManualReviewUpdate,
     Recording,
@@ -81,7 +83,6 @@ from worktrace_api.services import (
     analyze_workflow,
     classify_feedback,
     external_ai_preview,
-    generate_sop,
 )
 from worktrace_api.settings import get_settings
 
@@ -104,6 +105,7 @@ app = FastAPI(
     openapi_tags=[
         {"name": "system", "description": "Runtime health."},
         {"name": "auth", "description": "Tenant signup and user sessions."},
+        {"name": "settings", "description": "Tenant-level backend configuration."},
         {"name": "sessions", "description": "Workflow ingestion and privacy controls."},
         {"name": "recordings", "description": "Resumable raw recording ingestion."},
         {"name": "sops", "description": "SOP generation, review, and approval."},
@@ -290,6 +292,22 @@ def logout(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@app.get("/settings/llm-provider", response_model=LLMProviderSettings, tags=["settings"])
+def get_llm_provider_settings(repo: Repository = Depends(repository)) -> LLMProviderSettings:
+    return repo.get_llm_provider_settings(
+        settings.openai_base_url,
+        settings.openai_model,
+        settings.openai_api_key,
+    )
+
+
+@app.put("/settings/llm-provider", response_model=LLMProviderSettings, tags=["settings"])
+def save_llm_provider_settings(
+    payload: LLMProviderSettingsUpdate,
+    repo: Repository = Depends(repository),
+) -> LLMProviderSettings:
+    return repo.save_llm_provider_settings(payload, settings.openai_api_key)
+
 
 # Primary recording ingestion endpoint.
 @app.post(
@@ -450,6 +468,29 @@ def retry_recording_step(
     )
 
 
+def _dispatch_sop_generation(recording: Recording, repo: Repository) -> Recording:
+    """Shared tail for the retry and manual-generate routes: mark the recording
+    as generating, enqueue the SOP task, and on dispatch failure land cleanly on
+    ``sop_failed`` (never generic ``failed``) with a non-sensitive message."""
+    updated = repo.set_recording_status(recording.id, RecordingStatus.GENERATING_SOP) or recording
+    queued, error_message = recording_processor.enqueue_sop_generation(
+        recording.id,
+        recording.session_id,
+        repo.tenant_id,
+    )
+    if not queued:
+        repo.set_recording_status(
+            recording.id,
+            RecordingStatus.SOP_FAILED,
+            error_message or "Could not queue SOP generation",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=error_message or "Could not queue SOP generation",
+        )
+    return updated
+
+
 def _retry_sop_generation(recording_id: UUID, repo: Repository) -> Recording:
     recording = repo.get_recording(recording_id)
     if not recording:
@@ -465,26 +506,7 @@ def _retry_sop_generation(recording_id: UUID, repo: Repository) -> Recording:
             detail="SOP retry is only available after SOP generation fails",
         )
 
-    updated = repo.set_recording_status(
-        recording_id,
-        RecordingStatus.GENERATING_SOP,
-    ) or recording
-    queued, error_message = recording_processor.enqueue_sop_generation(
-        recording_id,
-        recording.session_id,
-        repo.tenant_id,
-    )
-    if not queued:
-        repo.set_recording_status(
-            recording_id,
-            RecordingStatus.SOP_FAILED,
-            error_message or "Could not queue SOP generation",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=error_message or "Could not queue SOP generation",
-        )
-    return updated
+    return _dispatch_sop_generation(recording, repo)
 
 
 @app.put(
@@ -541,23 +563,7 @@ def generate_recording_sop(
         repo.set_recording_custom_instruction(recording_id, payload.custom_instruction)
         or recording
     )
-    updated = repo.set_recording_status(recording_id, RecordingStatus.GENERATING_SOP) or updated
-    queued, error_message = recording_processor.enqueue_sop_generation(
-        recording_id,
-        recording.session_id,
-        repo.tenant_id,
-    )
-    if not queued:
-        repo.set_recording_status(
-            recording_id,
-            RecordingStatus.SOP_FAILED,
-            error_message or "Could not queue SOP generation",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=error_message or "Could not queue SOP generation",
-        )
-    return updated
+    return _dispatch_sop_generation(updated, repo)
 
 
 @app.get(
@@ -931,22 +937,6 @@ def set_external_ai_approval(
     if not approved:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
     return approved
-
-
-@app.post(
-    "/sessions/{session_id}/sops",
-    response_model=SOP,
-    status_code=status.HTTP_201_CREATED,
-    tags=["sops"],
-)
-def create_sop(session_id: UUID, repo: Repository = Depends(repository)) -> SOP:
-    session = require_session(repo, session_id)
-    try:
-        return repo.save_sop(generate_sop(session, repo.next_sop_version(session_id)))
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
 
 
 @app.get("/sops/{sop_id}", response_model=SOP, tags=["sops"])
