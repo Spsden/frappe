@@ -27,6 +27,7 @@ from worktrace_api.schemas import (
     RecordingStatus,
     RecordingTranscript,
     Screenshot,
+    SOPStatus,
     TranscriptSegment,
     WorkflowSession,
 )
@@ -588,6 +589,45 @@ class Repository:
 
     def next_sop_version(self, session_id: UUID) -> int:
         return len(self.list_sops_for_session(session_id)) + 1
+
+    def replace_session_draft_sop(self, session_id: UUID, sop: SOP) -> SOP:
+        """Replace any existing DRAFT SOPs for a session with a fresh draft.
+
+        Used by the AI generation pipeline so retries/re-generation never stack
+        broken or duplicate drafts. Approved and archived SOPs are preserved so a
+        published walkthrough can never disappear. The new draft is versioned
+        just above the highest retained (approved/archived) version, which keeps
+        versioning meaningful instead of inventing versions per output format.
+        """
+        self._require_tenant(sop.tenant_id)
+        retained = self.db.scalars(
+            tenant_query(SOPRecord, self.tenant_id)
+            .where(SOPRecord.source_session_id == str(session_id))
+            .where(SOPRecord.status != SOPStatus.DRAFT.value)
+        ).all()
+        next_version = max((record.version for record in retained), default=0) + 1
+        self.db.execute(
+            delete(SOPRecord).where(
+                SOPRecord.tenant_id == str(self.tenant_id),
+                SOPRecord.source_session_id == str(session_id),
+                SOPRecord.status == SOPStatus.DRAFT.value,
+            )
+        )
+        sop = sop.model_copy(update={"version": next_version})
+        record = SOPRecord(
+            id=str(sop.id),
+            tenant_id=str(sop.tenant_id),
+            source_session_id=str(sop.source_session_id),
+            version=sop.version,
+            status=sop.status,
+            title=sop.title,
+            document=sop.document,
+            steps=[step.model_dump(mode="json") for step in sop.steps],
+            created_at=sop.created_at,
+        )
+        self.db.add(record)
+        self.db.commit()
+        return sop
 
     def get_sop(self, sop_id: UUID) -> SOP | None:
         record = self.db.scalar(
