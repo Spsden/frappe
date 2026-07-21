@@ -414,6 +414,10 @@ class RecordingStatusResponse(StrictModel):
     stages: list[RecordingStatus]
 
 
+class RecordingStatusesRequest(StrictModel):
+    recording_ids: list[UUID] = Field(min_length=1, max_length=500)
+
+
 class Screenshot(StrictModel):
     schema_version: Literal["1.0"] = SCHEMA_VERSION
     tenant_id: UUID

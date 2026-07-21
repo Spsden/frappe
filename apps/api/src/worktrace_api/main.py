@@ -64,6 +64,7 @@ from worktrace_api.schemas import (
     RecordingRetryRequest,
     RecordingRetryTarget,
     RecordingStatus,
+    RecordingStatusesRequest,
     RecordingStatusResponse,
     Screenshot,
     ScreenshotAnnotation,
@@ -570,14 +571,34 @@ def recording_status(
     recording = repo.get_recording(recording_id)
     if not recording:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+    return build_recording_status(recording, repo)
+
+
+@app.post(
+    "/recordings/statuses",
+    response_model=list[RecordingStatusResponse],
+    tags=["recordings"],
+)
+def recording_statuses(
+    payload: RecordingStatusesRequest,
+    repo: Repository = Depends(repository),
+) -> list[RecordingStatusResponse]:
+    recordings = repo.get_recordings(payload.recording_ids)
+    return [build_recording_status(recording, repo) for recording in recordings]
+
+
+def build_recording_status(
+    recording: Recording,
+    repo: Repository,
+) -> RecordingStatusResponse:
     missing_chunks = [
         chunk.storage_key
-        for chunk in repo.list_recording_chunks(recording_id)
+        for chunk in repo.list_recording_chunks(recording.id)
         if not chunk_storage.exists(chunk.storage_key)
     ]
     if missing_chunks:
         recording = repo.set_recording_status(
-            recording_id,
+            recording.id,
             RecordingStatus.FAILED,
             f"Recording evidence files are missing for {len(missing_chunks)} uploaded chunk(s).",
         ) or recording

@@ -109,6 +109,29 @@ def test_create_recording_accepts_client_supplied_id(client):
     )
 
 
+def test_recording_statuses_are_loaded_in_one_request(client):
+    first = create_recording(client, has_audio=False)
+    second = create_recording(client, has_audio=True, workflow_name="Review refund")
+
+    response = client.post(
+        "/recordings/statuses",
+        headers=auth_headers(),
+        json={
+            "recording_ids": [
+                first["id"],
+                str(uuid4()),
+                second["id"],
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    statuses = {item["recording"]["id"]: item for item in response.json()}
+    assert set(statuses) == {first["id"], second["id"]}
+    assert "transcribing_audio" not in statuses[first["id"]]["stages"]
+    assert "transcribing_audio" in statuses[second["id"]]["stages"]
+
+
 def test_resumable_chunk_upload_and_status_pipeline(client):
     recording = create_recording(client, has_audio=False)
     before_screenshot_id = str(uuid4())

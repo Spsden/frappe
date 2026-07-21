@@ -769,6 +769,75 @@
         }
       }
     },
+    "/recordings/statuses": {
+      "post": {
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Recording Statuses",
+        "operationId": "recording_statuses_recordings_statuses_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingStatusesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RecordingStatusResponse"
+                  },
+                  "title": "Response Recording Statuses Recordings Statuses Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recordings/{recording_id}": {
       "delete": {
         "tags": [
@@ -2966,6 +3035,26 @@
           "stages"
         ],
         "title": "RecordingStatusResponse"
+      },
+      "RecordingStatusesRequest": {
+        "properties": {
+          "recording_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Recording Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recording_ids"
+        ],
+        "title": "RecordingStatusesRequest"
       },
       "RecordingTranscript": {
         "properties": {
