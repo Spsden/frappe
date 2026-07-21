@@ -143,6 +143,7 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
 
     except Exception as exc:
         logger.exception("SOP generation failed for session %s: %s", session_id, exc)
+        repo.db.rollback()
         max_retries = int(self.max_retries or 0)
         # Config / availability problems are not worth retrying immediately.
         if isinstance(exc, SOPProviderUnavailable) or int(self.request.retries) >= max_retries:

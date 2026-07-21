@@ -600,34 +600,51 @@ class Repository:
         versioning meaningful instead of inventing versions per output format.
         """
         self._require_tenant(sop.tenant_id)
-        retained = self.db.scalars(
-            tenant_query(SOPRecord, self.tenant_id)
-            .where(SOPRecord.source_session_id == str(session_id))
-            .where(SOPRecord.status != SOPStatus.DRAFT.value)
-        ).all()
-        next_version = max((record.version for record in retained), default=0) + 1
-        self.db.execute(
-            delete(SOPRecord).where(
-                SOPRecord.tenant_id == str(self.tenant_id),
-                SOPRecord.source_session_id == str(session_id),
-                SOPRecord.status == SOPStatus.DRAFT.value,
-            )
-        )
-        sop = sop.model_copy(update={"version": next_version})
-        record = SOPRecord(
-            id=str(sop.id),
-            tenant_id=str(sop.tenant_id),
-            source_session_id=str(sop.source_session_id),
-            version=sop.version,
-            status=sop.status,
-            title=sop.title,
-            document=sop.document,
-            steps=[step.model_dump(mode="json") for step in sop.steps],
-            created_at=sop.created_at,
-        )
-        self.db.add(record)
-        self.db.commit()
-        return sop
+        last_error: IntegrityError | None = None
+        for attempt in range(2):
+            try:
+                session_record = self.db.scalar(
+                    tenant_query(WorkflowSessionRecord, self.tenant_id)
+                    .where(WorkflowSessionRecord.id == str(session_id))
+                    .with_for_update()
+                )
+                if not session_record:
+                    raise LookupError("Session not found")
+
+                retained = self.db.scalars(
+                    tenant_query(SOPRecord, self.tenant_id)
+                    .where(SOPRecord.source_session_id == str(session_id))
+                    .where(SOPRecord.status != SOPStatus.DRAFT.value)
+                ).all()
+                next_version = max((record.version for record in retained), default=0) + 1
+                self.db.execute(
+                    delete(SOPRecord).where(
+                        SOPRecord.tenant_id == str(self.tenant_id),
+                        SOPRecord.source_session_id == str(session_id),
+                        SOPRecord.status == SOPStatus.DRAFT.value,
+                    )
+                )
+                saved = sop.model_copy(
+                    update={"id": uuid4() if attempt else sop.id, "version": next_version}
+                )
+                record = SOPRecord(
+                    id=str(saved.id),
+                    tenant_id=str(saved.tenant_id),
+                    source_session_id=str(saved.source_session_id),
+                    version=saved.version,
+                    status=saved.status,
+                    title=saved.title,
+                    document=saved.document,
+                    steps=[step.model_dump(mode="json") for step in saved.steps],
+                    created_at=saved.created_at,
+                )
+                self.db.add(record)
+                self.db.commit()
+                return saved
+            except IntegrityError as exc:
+                self.db.rollback()
+                last_error = exc
+        raise ValueError("Draft SOP changed concurrently; retry SOP generation") from last_error
 
     def get_sop(self, sop_id: UUID) -> SOP | None:
         record = self.db.scalar(
