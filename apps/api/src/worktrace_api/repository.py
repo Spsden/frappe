@@ -578,6 +578,7 @@ class Repository:
             version=sop.version,
             status=sop.status,
             title=sop.title,
+            document=sop.document,
             steps=[step.model_dump(mode="json") for step in sop.steps],
             created_at=sop.created_at,
         )
@@ -711,6 +712,7 @@ class Repository:
                 "version": record.version,
                 "status": record.status,
                 "title": record.title,
+                "document": getattr(record, "document", None),
                 "steps": record.steps,
                 "created_at": record.created_at,
             }

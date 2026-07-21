@@ -246,6 +246,14 @@ class SOPStatus(StrEnum):
     ARCHIVED = "archived"
 
 
+class SOPDecisionBranch(StrictModel):
+    """A conditional path within a step ("if X, then Y"). Branches are authored
+    by the SOP generator from observed decision points in the evidence."""
+
+    condition: str = Field(min_length=1, max_length=500)
+    action: str = Field(min_length=1, max_length=1000)
+
+
 class SOPStep(StrictModel):
     id: UUID = Field(default_factory=uuid4)
     position: int = Field(ge=1)
@@ -255,7 +263,7 @@ class SOPStep(StrictModel):
     screenshot_reference: UUID | None = None
     evidence_annotations: list[EvidenceAnnotation] = Field(default_factory=list, max_length=20)
     estimated_time_ms: int | None = Field(default=None, ge=0)
-    decision_branch: str | None = Field(default=None, max_length=1000)
+    decision_branches: list[SOPDecisionBranch] = Field(default_factory=list, max_length=20)
 
 
 class SOP(StrictModel):
@@ -266,6 +274,10 @@ class SOP(StrictModel):
     version: int = Field(default=1, ge=1)
     status: SOPStatus = SOPStatus.DRAFT
     title: str = Field(max_length=200)
+    # Optional supporting narrative (purpose / overview / notes) produced by the
+    # generator. Stored as supporting content on the single SOP draft — never as
+    # a separate "full document" version.
+    document: str | None = Field(default=None, max_length=20_000)
     steps: list[SOPStep] = Field(min_length=1, max_length=500)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

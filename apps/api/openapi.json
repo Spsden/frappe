@@ -3152,6 +3152,18 @@
             "maxLength": 200,
             "title": "Title"
           },
+          "document": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/SOPStep"
@@ -3190,6 +3202,30 @@
           "approved"
         ],
         "title": "SOPApproval"
+      },
+      "SOPDecisionBranch": {
+        "properties": {
+          "condition": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Condition"
+          },
+          "action": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Action"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "condition",
+          "action"
+        ],
+        "title": "SOPDecisionBranch",
+        "description": "A conditional path within a step (\"if X, then Y\"). Branches are authored\nby the SOP generator from observed decision points in the evidence."
       },
       "SOPStatus": {
         "type": "string",
@@ -3266,17 +3302,13 @@
             ],
             "title": "Estimated Time Ms"
           },
-          "decision_branch": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 1000
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Decision Branch"
+          "decision_branches": {
+            "items": {
+              "$ref": "#/components/schemas/SOPDecisionBranch"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Decision Branches"
           }
         },
         "additionalProperties": false,
