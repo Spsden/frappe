@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useConnection } from '../features/connection/useConnection'
+import { useServices } from '../features/connection/useServices'
 
 type IconName = 'dashboard' | 'sessions' | 'library' | 'analytics' | 'settings'
 
@@ -18,6 +20,12 @@ const routeTitles: Record<string, string> = {
   '/sop-library': 'SOPs',
   '/analytics': 'Analytics',
   '/settings': 'Settings'
+}
+
+const LAST_SESSION_PATH_KEY = 'worktrace:last-session-path'
+
+function isSessionDetailPath(pathname: string): boolean {
+  return /^\/sessions\/[^/]+(?:\/sop)?$/.test(pathname)
 }
 
 function NavIcon({ name }: { name: IconName }) {
@@ -76,8 +84,15 @@ function NavIcon({ name }: { name: IconName }) {
 
 export function AppShell() {
   const location = useLocation()
+
+  const [lastSessionPath, setLastSessionPath] = useState(
+    () => sessionStorage.getItem(LAST_SESSION_PATH_KEY) ?? '/sessions'
+  )
+
   const pageTitle = routeTitles[location.pathname] ?? 'WorkTrace'
+
   const { status: connection } = useConnection()
+  const health = useServices(connection.state === 'connected')
 
   const connectionLabel =
     connection.state === 'connected'
@@ -97,6 +112,16 @@ export function AppShell() {
           ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.55)]'
           : 'bg-zinc-300'
 
+  useEffect(() => {
+    if (isSessionDetailPath(location.pathname)) {
+      sessionStorage.setItem(LAST_SESSION_PATH_KEY, location.pathname)
+      setLastSessionPath(location.pathname)
+    } else if (location.pathname === '/sessions') {
+      sessionStorage.removeItem(LAST_SESSION_PATH_KEY)
+      setLastSessionPath('/sessions')
+    }
+  }, [location.pathname])
+
   return (
     <div className="min-h-screen bg-[#fafafb] text-zinc-950 md:grid md:grid-cols-[240px_minmax(0,1fr)]">
       <aside className="border-b border-white/10 bg-[#18181b] text-white md:fixed md:inset-y-0 md:w-60 md:border-b-0 md:border-r md:border-white/10">
@@ -105,29 +130,37 @@ export function AppShell() {
             <p className="text-xl font-bold tracking-[-0.03em]">
               WorkTrace AI
             </p>
+
             <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.22em] text-white/40">
               Enterprise Edition
             </p>
           </div>
 
           <nav className="flex gap-1 overflow-x-auto px-3 pb-4 md:flex-col md:overflow-visible md:pb-0">
-            {navigation.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  [
-                    'flex min-w-max items-center gap-3 rounded-xl px-4 py-3 text-[15px] font-medium transition duration-200',
-                    isActive
-                      ? 'bg-gradient-to-r from-[#a66ad8] to-[#d783b6] text-white shadow-[0_14px_32px_rgba(166,106,216,0.26)]'
-                      : 'text-white/60 hover:bg-white/10 hover:text-white'
-                  ].join(' ')
-                }
-              >
-                <NavIcon name={item.icon} />
-                {item.label}
-              </NavLink>
-            ))}
+            {navigation.map((item) => {
+              const to =
+                item.icon === 'sessions'
+                  ? lastSessionPath
+                  : item.to
+
+              return (
+                <NavLink
+                  key={item.to}
+                  to={to}
+                  className={({ isActive }) =>
+                    [
+                      'flex min-w-max items-center gap-3 rounded-xl px-4 py-3 text-[15px] font-medium transition duration-200',
+                      isActive
+                        ? 'bg-gradient-to-r from-[#a66ad8] to-[#d783b6] text-white shadow-[0_14px_32px_rgba(166,106,216,0.26)]'
+                        : 'text-white/60 hover:bg-white/10 hover:text-white'
+                    ].join(' ')
+                  }
+                >
+                  <NavIcon name={item.icon} />
+                  {item.label}
+                </NavLink>
+              )
+            })}
           </nav>
 
           <div className="mt-auto hidden border-t border-white/10 p-5 md:block">
@@ -140,8 +173,10 @@ export function AppShell() {
                 <p className="truncate font-mono text-xs font-bold tracking-wide text-white">
                   {connection.account?.email || 'WorkTrace user'}
                 </p>
+
                 <p className="mt-0.5 truncate text-[10px] capitalize text-white/45">
-                  {connection.account?.role || 'member'} · {connection.account?.companyName}
+                  {connection.account?.role || 'member'} ·{' '}
+                  {connection.account?.companyName}
                 </p>
               </div>
             </div>
@@ -159,11 +194,31 @@ export function AppShell() {
             <span className="h-5 w-px bg-zinc-200" />
 
             <div className="flex items-center gap-2 text-xs font-medium text-zinc-400">
-              <span className={`size-1.5 rounded-full ${connectionColor}`} />
+              <span
+                className={`size-1.5 rounded-full ${connectionColor}`}
+              />
               {connectionLabel}
             </div>
           </div>
         </header>
+
+        {connection.state === 'connected' &&
+          health &&
+          (health.services.redis === 'down' ||
+            health.services.worker === 'down') && (
+            <div className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-5 py-2.5 text-xs text-amber-800 md:px-8">
+              <span className="mt-1.5 size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />
+
+              <p>
+                Background services offline (Redis {health.services.redis}
+                {health.services.worker !== 'up'
+                  ? `, worker ${health.services.worker}`
+                  : ''}
+                ). Recordings still save, but transcription &amp; annotation
+                won&apos;t run until Redis and the Celery worker are started.
+              </p>
+            </div>
+          )}
 
         <main className="min-h-[calc(100vh-3.5rem)] bg-[#fafafb]">
           <Outlet />

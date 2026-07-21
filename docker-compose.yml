@@ -1,0 +1,121 @@
+# WorkTrace backend — single entry point.
+#
+#   docker compose up        # api + worker + redis + postgres
+#   docker compose up api    # just the API (needs redis + postgres)
+#   docker compose logs -f worker
+#
+# The desktop (Electron) app stays native on each machine and just talks to
+# http://localhost:8000. Only the backend is containerized, on purpose.
+
+# Postgres credentials — shared by the db service and the DATABASE_URL below
+# so the app and the database can never disagree.
+x-db-env: &db-env
+  POSTGRES_USER: worktrace
+  POSTGRES_PASSWORD: worktrace
+  POSTGRES_DB: worktrace
+
+# Shared env so the api and worker services can never disagree on broker/db.
+x-api-env: &api-env
+  WORKTRACE_ENV: development
+  # Redis is the celery broker AND result backend (core/celery_app.py).
+  WORKTRACE_REDIS_URL: redis://redis:6379/0
+  # psycopg3 driver (psycopg[binary] in apps/api/pyproject.toml). The host
+  # `postgres` resolves to the compose service defined below.
+  WORKTRACE_DATABASE_URL: postgresql+psycopg://worktrace:worktrace@postgres:5432/worktrace
+  WORKTRACE_RECORDING_STORAGE_PATH: /data/recordings
+  # Vite renderer dev server + the API itself. Add more comma-separated
+  # origins if you serve the frontend from elsewhere.
+  WORKTRACE_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:8000
+  # Tiny = fast + small download. Bump to base/small for better transcripts.
+  WORKTRACE_WHISPER_MODEL_SIZE: tiny
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      <<: *db-env
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      # $$ escapes the $ for compose so the container shell expands it.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ./apps/api
+    image: worktrace-api:dev
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *api-env
+    # Drop a real ./apps/api/.env and uncomment to inject secrets without
+    # baking them into the image.
+    env_file:
+      - ./apps/api/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      # Live source => `uvicorn --reload` picks up edits instantly.
+      - ./apps/api/src:/app/src
+      # Recording storage shared with the worker, persisted on the host so
+      # `compose down` keeps your data. (Postgres lives in its own volume.)
+      - ./apps/api/data:/data
+      # Whisper/torch model weights download once and are reused.
+      - whisper-cache:/root/.cache
+
+  worker:
+    # Same image as `api` (built once), different command. This is what keeps
+    # the celery worker from drifting out of sync with the API code.
+    image: worktrace-api:dev
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *api-env
+    env_file:
+      - ./apps/api/.env
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/data:/data
+      - whisper-cache:/root/.cache
+    command:
+      - celery
+      - -A
+      - worktrace_api.core.celery_app
+      - worker
+      - --loglevel=info
+      # -P solo matches the README; safest with torch/whisper (no fork issues).
+      - -P
+      - solo
+      # MUST list every routed queue (celery_app.py task_routes), otherwise
+      # audio/vision/llm/default tasks will sit unconsumed.
+      - -Q
+      - default,audio,vision,llm,celery
+
+volumes:
+  redis-data:
+  pg-data:
+  whisper-cache:

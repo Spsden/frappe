@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import Select, delete, select
@@ -24,17 +25,16 @@ from worktrace_api.schemas import (
     Feedback,
     Recording,
     RecordingStatus,
+    RecordingTranscript,
     Screenshot,
+    TranscriptSegment,
     WorkflowSession,
 )
 
 
 def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         yield db
-    finally:
-        db.close()
 
 
 def tenant_query(model: type, tenant_id: UUID) -> Select:
@@ -72,17 +72,24 @@ class Repository:
         return session
 
     def create_recording(
-        self, workflow_name: str, source_type: CaptureSource, has_audio: bool
+        self,
+        workflow_name: str,
+        source_type: CaptureSource,
+        has_audio: bool,
+        recording_id: UUID | None = None,
+        manual_mode: bool = False,
     ) -> Recording:
+        recording_id = recording_id or uuid4()
         recording = Recording(
             tenant_id=self.tenant_id,
-            id=uuid4(),
+            id=recording_id,
             workflow_name=workflow_name,
             source_type=source_type,
             status=RecordingStatus.RECORDING,
             uploaded_chunk_count=0,
             uploaded_bytes=0,
             has_audio=has_audio,
+            manual_mode=manual_mode,
             created_at=datetime.now(UTC),
         )
         self.db.add(
@@ -95,10 +102,15 @@ class Repository:
                 uploaded_chunk_count=0,
                 uploaded_bytes=0,
                 has_audio=has_audio,
+                manual_mode=manual_mode,
                 created_at=recording.created_at,
             )
         )
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise ValueError("Recording id already exists") from exc
         return recording
 
     def get_recording(self, recording_id: UUID) -> Recording | None:
@@ -108,6 +120,16 @@ class Repository:
             )
         )
         return self._recording_from_record(record) if record else None
+
+    def get_recordings(self, recording_ids: list[UUID]) -> list[Recording]:
+        if not recording_ids:
+            return []
+        records = self.db.scalars(
+            tenant_query(RecordingRecord, self.tenant_id).where(
+                RecordingRecord.id.in_([str(recording_id) for recording_id in recording_ids])
+            )
+        ).all()
+        return [self._recording_from_record(record) for record in records]
 
     def delete_recording(self, recording_id: UUID) -> bool:
         if not self.get_recording(recording_id):
@@ -279,6 +301,29 @@ class Repository:
             ).all()
         )
 
+    def delete_audio_chunks(self, recording_id: UUID) -> list[str]:
+        # Drops ONLY audio chunks for a recording (rows first, then the caller
+        # deletes the files using the returned storage_keys). Screenshots/events
+        # chunks are left intact. Idempotent: a second call returns [].
+        audio_chunks = self.db.scalars(
+            tenant_query(RecordingChunkRecord, self.tenant_id)
+            .where(
+                RecordingChunkRecord.recording_id == str(recording_id),
+                RecordingChunkRecord.content_type == ChunkContentType.AUDIO.value,
+            )
+        ).all()
+        storage_keys = [chunk.storage_key for chunk in audio_chunks]
+        if storage_keys:
+            self.db.execute(
+                delete(RecordingChunkRecord).where(
+                    RecordingChunkRecord.tenant_id == str(self.tenant_id),
+                    RecordingChunkRecord.recording_id == str(recording_id),
+                    RecordingChunkRecord.content_type == ChunkContentType.AUDIO.value,
+                )
+            )
+            self.db.commit()
+        return storage_keys
+
     def save_screenshots(self, screenshots: list[Screenshot]) -> list[Screenshot]:
         for screenshot in screenshots:
             self._require_tenant(screenshot.tenant_id)
@@ -311,6 +356,23 @@ class Repository:
         ).all()
         return [self._screenshot_from_record(r) for r in records]
 
+    def get_screenshots_for_session(self, session_id: UUID) -> list[Screenshot]:
+        records = self.db.scalars(
+            tenant_query(ScreenshotRecord, self.tenant_id)
+            .where(ScreenshotRecord.session_id == str(session_id))
+            .order_by(ScreenshotRecord.sequence)
+        ).all()
+        return [self._screenshot_from_record(r) for r in records]
+
+    def get_screenshot(self, session_id: UUID, screenshot_id: UUID) -> Screenshot | None:
+        record = self.db.scalar(
+            tenant_query(ScreenshotRecord, self.tenant_id).where(
+                ScreenshotRecord.session_id == str(session_id),
+                ScreenshotRecord.id == str(screenshot_id),
+            )
+        )
+        return self._screenshot_from_record(record) if record else None
+
     def update_screenshot_annotation(
         self, screenshot_id: UUID, annotated_key: str | None, status: str
     ) -> None:
@@ -322,6 +384,42 @@ class Repository:
             record.annotated_storage_key = annotated_key
             record.redaction_status = status
             self.db.commit()
+
+    def set_screenshot_annotations(
+        self, screenshot_id: UUID, annotations: list[dict[str, Any]] | None
+    ) -> None:
+        """Persist the authoritative (user-edited) annotation set for a frame.
+
+        ``None`` resets the frame to event-derived annotations; an empty list
+        means the user cleared all highlights."""
+        record = self.db.scalar(
+            tenant_query(ScreenshotRecord, self.tenant_id)
+            .where(ScreenshotRecord.id == str(screenshot_id))
+        )
+        if record:
+            record.annotations = annotations
+            self.db.commit()
+
+    def delete_screenshot(self, session_id: UUID, screenshot_id: UUID) -> Screenshot | None:
+        record = self.db.scalar(
+            tenant_query(ScreenshotRecord, self.tenant_id)
+            .where(
+                ScreenshotRecord.session_id == str(session_id),
+                ScreenshotRecord.id == str(screenshot_id),
+            )
+        )
+        if not record:
+            return None
+        screenshot = self._screenshot_from_record(record)
+        self.db.execute(
+            delete(ScreenshotRecord).where(
+                ScreenshotRecord.tenant_id == str(self.tenant_id),
+                ScreenshotRecord.session_id == str(session_id),
+                ScreenshotRecord.id == str(screenshot_id),
+            )
+        )
+        self.db.commit()
+        return screenshot
 
     def link_recording_session(
         self, recording_id: UUID, session_id: UUID, status: RecordingStatus
@@ -353,6 +451,71 @@ class Repository:
         record.error_message = error_message
         self.db.commit()
         return self._recording_from_record(record)
+
+    def set_recording_custom_instruction(
+        self, recording_id: UUID, custom_instruction: str | None
+    ) -> Recording | None:
+        record = self.db.scalar(
+            tenant_query(RecordingRecord, self.tenant_id).where(
+                RecordingRecord.id == str(recording_id)
+            )
+        )
+        if not record:
+            return None
+        record.custom_sop_instruction = custom_instruction.strip() if custom_instruction else None
+        record.error_message = None
+        self.db.commit()
+        return self._recording_from_record(record)
+
+    def save_manual_review(
+        self,
+        recording_id: UUID,
+        transcript_text: str | None = None,
+        custom_instruction: str | None = None,
+    ) -> Recording:
+        recording = self.db.scalar(
+            tenant_query(RecordingRecord, self.tenant_id).where(
+                RecordingRecord.id == str(recording_id)
+            )
+        )
+        if not recording:
+            raise LookupError("Recording not found")
+        if not recording.session_id:
+            raise ValueError("Recording has no processed session yet")
+
+        recording.custom_sop_instruction = (
+            custom_instruction.strip() if custom_instruction else None
+        )
+
+        if transcript_text is not None:
+            session = self.db.scalar(
+                tenant_query(WorkflowSessionRecord, self.tenant_id).where(
+                    WorkflowSessionRecord.id == recording.session_id
+                )
+            )
+            if not session:
+                raise LookupError("Session not found")
+            current = dict(session.transcript or {})
+            text = transcript_text.strip()
+            transcript = RecordingTranscript(
+                status="completed" if text or current else "not_recorded",
+                text=text,
+                segments=[
+                    TranscriptSegment(
+                        start_ms=0,
+                        end_ms=max(0, session.duration_ms),
+                        text=text,
+                    )
+                ]
+                if text
+                else [],
+                audio_chunk_count=int(current.get("audio_chunk_count") or 0),
+                audio_reference=current.get("audio_reference"),
+            )
+            session.transcript = transcript.model_dump(mode="json")
+
+        self.db.commit()
+        return self._recording_from_record(recording)
 
     def get_session(self, session_id: UUID) -> WorkflowSession | None:
         record = self.db.scalar(
@@ -584,6 +747,8 @@ class Repository:
                 "uploaded_chunk_count": record.uploaded_chunk_count,
                 "uploaded_bytes": record.uploaded_bytes,
                 "has_audio": record.has_audio,
+                "manual_mode": getattr(record, "manual_mode", False),
+                "custom_sop_instruction": getattr(record, "custom_sop_instruction", None),
                 "error_message": record.error_message,
                 "created_at": record.created_at,
                 "completed_at": record.completed_at,
@@ -608,6 +773,7 @@ class Repository:
                 "change_score": record.change_score,
                 "content_hash": record.content_hash,
                 "annotated_storage_key": getattr(record, "annotated_storage_key", None),
+                "annotations": getattr(record, "annotations", None),
                 "redaction_status": record.redaction_status,
                 "created_at": record.created_at,
             }

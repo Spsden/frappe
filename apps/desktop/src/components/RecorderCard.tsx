@@ -10,29 +10,82 @@ function formatElapsed(
     return '00:00'
   }
 
-  const currentPausedMs = pausedAt ? Date.now() - new Date(pausedAt).getTime() : 0
+  const currentPausedMs = pausedAt
+    ? Date.now() - new Date(pausedAt).getTime()
+    : 0
+
   const elapsedSeconds = Math.max(
     0,
     Math.floor(
-      (Date.now() - new Date(startedAt).getTime() - accumulatedPausedMs - currentPausedMs) / 1000
+      (
+        Date.now() -
+        new Date(startedAt).getTime() -
+        accumulatedPausedMs -
+        currentPausedMs
+      ) / 1000
     )
   )
+
   const minutes = Math.floor(elapsedSeconds / 60)
   const seconds = elapsedSeconds % 60
 
-  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  return `${minutes.toString().padStart(2, '0')}:${seconds
+    .toString()
+    .padStart(2, '0')}`
 }
 
 export function RecorderCard() {
   const { discard, error, save, start, state, stop } = useRecording()
+
   const [elapsed, setElapsed] = useState('00:00')
-  const [audioEnabled, setAudioEnabled] = useState(true)
+
+  const [audioEnabled, setAudioEnabled] = useState<boolean>(
+    () => localStorage.getItem('worktrace:mic-enabled') !== 'false'
+  )
+
+  const [manualMode, setManualMode] = useState(false)
   const [saveName, setSaveName] = useState('Untitled workflow')
+
+  useEffect(() => {
+    localStorage.setItem(
+      'worktrace:mic-enabled',
+      String(audioEnabled)
+    )
+  }, [audioEnabled])
+
+  useEffect(() => {
+    let active = true
+
+    const loadFlags = async () => {
+      try {
+        const flags = await window.api.settings.getFlags()
+
+        if (active) {
+          setManualMode(flags.manualMode)
+        }
+      } catch {
+        // Capture still works with default flags if settings cannot be read.
+      }
+    }
+
+    void loadFlags()
+
+    const off = window.api.settings.onFlagsChanged((flags) =>
+      setManualMode(flags.manualMode)
+    )
+
+    return () => {
+      active = false
+      off()
+    }
+  }, [])
+
   const { status } = state
 
   const isRecording = status === 'recording'
   const isPaused = status === 'paused'
   const isAwaitingSave = status === 'awaiting-save'
+
   const isBusy =
     status === 'requesting-permissions' ||
     status === 'starting' ||
@@ -40,12 +93,15 @@ export function RecorderCard() {
     status === 'uploading' ||
     status === 'processing'
 
-  const permissionError = error?.toLowerCase().includes('permission')
-  const permissionType = error?.toLowerCase().includes('screen recording')
-    ? 'screen'
-    : error?.toLowerCase().includes('microphone')
-      ? 'microphone'
-      : 'accessibility'
+  const permissionError =
+    error?.toLowerCase().includes('permission')
+
+  const permissionType =
+    error?.toLowerCase().includes('screen recording')
+      ? 'screen'
+      : error?.toLowerCase().includes('microphone')
+        ? 'microphone'
+        : 'accessibility'
 
   const toggleRecording = useCallback(() => {
     if (isAwaitingSave) {
@@ -57,8 +113,19 @@ export function RecorderCard() {
       return
     }
 
-    void start({ recordAudio: audioEnabled })
-  }, [audioEnabled, isAwaitingSave, isPaused, isRecording, start, stop])
+    void start({
+      recordAudio: audioEnabled,
+      manualMode
+    })
+  }, [
+    audioEnabled,
+    isAwaitingSave,
+    isPaused,
+    isRecording,
+    manualMode,
+    start,
+    stop
+  ])
 
   const saveRecording = useCallback(() => {
     void save(saveName)
@@ -66,14 +133,23 @@ export function RecorderCard() {
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'r') {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.shiftKey &&
+        event.key.toLowerCase() === 'r'
+      ) {
         event.preventDefault()
         void toggleRecording()
       }
     }
 
     window.addEventListener('keydown', handleShortcut)
-    return () => window.removeEventListener('keydown', handleShortcut)
+
+    return () =>
+      window.removeEventListener(
+        'keydown',
+        handleShortcut
+      )
   }, [toggleRecording])
 
   useEffect(() => {
@@ -92,6 +168,7 @@ export function RecorderCard() {
       )
 
     updateElapsed()
+
     const timer = window.setInterval(() => {
       updateElapsed()
     }, 1000)
@@ -107,7 +184,10 @@ export function RecorderCard() {
 
   useEffect(() => {
     if (isAwaitingSave) {
-      setSaveName(state.sessionName?.trim() || 'Untitled workflow')
+      setSaveName(
+        state.sessionName?.trim() ||
+          'Untitled workflow'
+      )
     }
   }, [isAwaitingSave, state.sessionName])
 
@@ -143,8 +223,8 @@ export function RecorderCard() {
           {isAwaitingSave
             ? 'Name this workflow'
             : isRecording || isPaused
-              ? 'Recording your workflow'
-              : 'Start a workflow recording'}
+              ? 'Recording Your Workflow'
+              : 'Capture a Workflow'}
         </h2>
 
         <p className="recorder-description">
@@ -154,31 +234,63 @@ export function RecorderCard() {
               : 'Your desktop activity is being captured without microphone narration. Complete the workflow naturally, then stop when you are finished.'
             : isAwaitingSave
               ? 'Capture is stopped. Give this workflow a useful name, then save it for backend processing or discard the local evidence.'
-              : 'Click below to start recording your desktop activity. Audio narration can be enabled or disabled before capture starts.'}
+              : manualMode
+                ? 'Click below to capture evidence for manual review. SOP generation will wait until you approve the transcript and annotations.'
+                : 'Click below to start recording your desktop activity. Audio narration can be enabled or disabled before capture starts.'}
         </p>
 
         <button
           type="button"
-          disabled={isRecording || isPaused || isBusy}
-          onClick={() => setAudioEnabled((enabled) => !enabled)}
+          disabled={
+            isRecording ||
+            isPaused ||
+            isBusy
+          }
+          onClick={() =>
+            setAudioEnabled(
+              (enabled) => !enabled
+            )
+          }
           className="audio-toggle"
         >
-          <span className={['audio-toggle-track', audioEnabled ? 'audio-toggle-track-on' : ''].join(' ')}>
+          <span
+            className={[
+              'audio-toggle-track',
+              audioEnabled
+                ? 'audio-toggle-track-on'
+                : ''
+            ].join(' ')}
+          >
             <span className="audio-toggle-thumb" />
           </span>
-          {audioEnabled ? 'Mic audio enabled' : 'Mic audio disabled'}
+
+          {audioEnabled
+            ? 'Mic audio enabled'
+            : 'Mic audio disabled'}
         </button>
 
         <button
           type="button"
-          disabled={isBusy || isAwaitingSave}
-          onClick={() => void toggleRecording()}
+          disabled={
+            isBusy || isAwaitingSave
+          }
+          onClick={() =>
+            void toggleRecording()
+          }
           className={[
             'record-main-button',
-            isRecording || isPaused ? 'record-main-button-stop' : ''
+            isRecording || isPaused
+              ? 'record-main-button-stop'
+              : ''
           ].join(' ')}
         >
-          <span className={isRecording || isPaused ? 'record-stop-icon' : 'record-start-icon'} />
+          <span
+            className={
+              isRecording || isPaused
+                ? 'record-stop-icon'
+                : 'record-start-icon'
+            }
+          />
 
           {status === 'starting'
             ? 'Starting...'
@@ -202,7 +314,11 @@ export function RecorderCard() {
 
               <input
                 value={saveName}
-                onChange={(event) => setSaveName(event.target.value)}
+                onChange={(event) =>
+                  setSaveName(
+                    event.target.value
+                  )
+                }
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
                     event.preventDefault()
@@ -218,7 +334,9 @@ export function RecorderCard() {
             <div className="save-actions">
               <button
                 type="button"
-                onClick={() => void discard()}
+                onClick={() =>
+                  void discard()
+                }
                 className="save-secondary-button"
               >
                 Cancel & Discard
@@ -236,7 +354,11 @@ export function RecorderCard() {
           </div>
         )}
 
-        {(isRecording || isPaused) && <p className="record-elapsed">{elapsed}</p>}
+        {(isRecording || isPaused) && (
+          <p className="record-elapsed">
+            {elapsed}
+          </p>
+        )}
 
         {error && (
           <div className="recorder-error">
@@ -245,7 +367,11 @@ export function RecorderCard() {
             {permissionError && (
               <button
                 type="button"
-                onClick={() => void window.api.recording.openPermissionSettings(permissionType)}
+                onClick={() =>
+                  void window.api.recording.openPermissionSettings(
+                    permissionType
+                  )
+                }
               >
                 Open Privacy Settings
               </button>
@@ -255,10 +381,25 @@ export function RecorderCard() {
 
         <div className="recorder-footer">
           <span>⌘ Cmd + Shift + R</span>
+
           <span className="recorder-divider" />
+
           <span>Full Desktop Mode</span>
+
           <span className="recorder-divider" />
-          <span>{audioEnabled ? 'Mic Audio On' : 'Mic Audio Off'}</span>
+
+          <span>
+            {audioEnabled
+              ? 'Mic Audio On'
+              : 'Mic Audio Off'}
+          </span>
+
+          {manualMode && (
+            <>
+              <span className="hidden h-5 w-px bg-white/15 sm:block" />
+              <span>Manual Review On</span>
+            </>
+          )}
         </div>
       </div>
     </section>

@@ -1,8 +1,8 @@
 import json
-from collections.abc import Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import (
@@ -14,12 +14,15 @@ from fastapi import (
     HTTPException,
     Path,
     Query,
+    Request,
     Response,
     UploadFile,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from worktrace_api.auth import (
@@ -31,6 +34,11 @@ from worktrace_api.auth import (
     sign_up,
 )
 from worktrace_api.database import create_tables
+from worktrace_api.media_tokens import (
+    MediaTokenError,
+    create_media_token,
+    parse_media_token,
+)
 from worktrace_api.privacy import sanitize_session
 from worktrace_api.processing import RecordingProcessor
 from worktrace_api.recordings import ChunkStorage
@@ -48,14 +56,24 @@ from worktrace_api.schemas import (
     Feedback,
     FeedbackCreate,
     LoginRequest,
+    ManualReviewUpdate,
     Recording,
     RecordingComplete,
     RecordingCreate,
+    RecordingGenerateSOP,
+    RecordingRetryRequest,
+    RecordingRetryTarget,
     RecordingStatus,
+    RecordingStatusesRequest,
     RecordingStatusResponse,
+    Screenshot,
+    ScreenshotAnnotation,
+    ScreenshotAnnotationSet,
+    ScreenshotEvidence,
     SignUpRequest,
     SOPApproval,
     SOPStatus,
+    TargetBounds,
     WorkflowSession,
     WorkflowSessionCreate,
 )
@@ -111,7 +129,9 @@ processing_stages = [
     RecordingStatus.TRANSCRIBING_AUDIO,
     RecordingStatus.PROCESSING_SCREENSHOTS,
     RecordingStatus.ALIGNING_EVIDENCE,
+    RecordingStatus.AWAITING_MANUAL_REVIEW,
     RecordingStatus.GENERATING_SOP,
+    RecordingStatus.SOP_FAILED,
     RecordingStatus.READY_FOR_REVIEW,
     RecordingStatus.COMPLETED,
 ]
@@ -127,7 +147,7 @@ class AuthContext:
 def authenticated_account(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     x_tenant_id: UUID | None = Header(default=None, alias="X-Tenant-ID"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> AuthContext:
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(
@@ -149,9 +169,10 @@ def authenticated_account(
 
 
 def repository(
-    auth: AuthContext = Depends(authenticated_account), db: Session = Depends(get_db)
-) -> Generator[Repository, None, None]:
-    yield Repository(db, auth.account.tenant_id)
+    auth: AuthContext = Depends(authenticated_account),
+    db: Session = Depends(get_db, scope="function"),
+) -> Repository:
+    return Repository(db, auth.account.tenant_id)
 
 
 def require_session(repo: Repository, session_id: UUID) -> WorkflowSession:
@@ -161,9 +182,67 @@ def require_session(repo: Repository, session_id: UUID) -> WorkflowSession:
     return session
 
 
+def signed_media_url(request: Request, storage_key: str, media_type: str) -> str:
+    token = create_media_token(
+        storage_key=storage_key,
+        media_type=media_type,
+        secret=settings.media_token_secret,
+        ttl_seconds=settings.media_token_ttl_seconds,
+    )
+    return str(request.url_for("get_media_file", token=token))
+
+
+def screenshot_evidence(
+    request: Request,
+    screenshot: Screenshot,
+    annotations: list[ScreenshotAnnotation],
+) -> ScreenshotEvidence:
+    return ScreenshotEvidence(
+        id=screenshot.id,
+        sequence=screenshot.sequence,
+        captured_at=screenshot.captured_at,
+        width=screenshot.width,
+        height=screenshot.height,
+        media_type=screenshot.media_type,
+        media_url=signed_media_url(request, screenshot.storage_key, screenshot.media_type),
+        annotated_media_url=(
+            signed_media_url(request, screenshot.annotated_storage_key, "image/png")
+            if screenshot.annotated_storage_key
+            else None
+        ),
+        annotations=annotations,
+    )
+
+
 @app.get("/health", tags=["system"])
-def health() -> dict[str, str]:
-    return {"status": "ok", "environment": settings.env}
+def health() -> dict[str, Any]:
+    from worktrace_api.core.celery_app import service_status
+
+    return {
+        "status": "ok",
+        "environment": settings.env,
+        "services": service_status(settings.redis_url),
+    }
+
+
+@app.get("/media/{token}", name="get_media_file", tags=["sessions"])
+def get_media_file(token: str) -> FileResponse:
+    try:
+        payload = parse_media_token(token, secret=settings.media_token_secret)
+    except MediaTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Media not found",
+        ) from exc
+
+    storage = ChunkStorage(
+        root=settings.recording_storage_path,
+        max_chunk_bytes=settings.max_chunk_bytes,
+    )
+    path = storage.resolve_storage_key(payload.storage_key)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
+    return FileResponse(path, media_type=payload.media_type)
 
 
 @app.post(
@@ -172,7 +251,10 @@ def health() -> dict[str, str]:
     status_code=status.HTTP_201_CREATED,
     tags=["auth"],
 )
-def signup(payload: SignUpRequest, db: Session = Depends(get_db)) -> AuthSession:
+def signup(
+    payload: SignUpRequest,
+    db: Session = Depends(get_db, scope="function"),
+) -> AuthSession:
     try:
         return sign_up(db, payload, settings.access_token_ttl_hours)
     except EmailAlreadyRegisteredError as exc:
@@ -180,7 +262,10 @@ def signup(payload: SignUpRequest, db: Session = Depends(get_db)) -> AuthSession
 
 
 @app.post("/auth/login", response_model=AuthSession, tags=["auth"])
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthSession:
+def login(
+    payload: LoginRequest,
+    db: Session = Depends(get_db, scope="function"),
+) -> AuthSession:
     try:
         return log_in(db, payload, settings.access_token_ttl_hours)
     except AuthenticationError as exc:
@@ -198,20 +283,51 @@ def current_account(auth: AuthContext = Depends(authenticated_account)) -> Accou
 
 @app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["auth"])
 def logout(
-    auth: AuthContext = Depends(authenticated_account), db: Session = Depends(get_db)
+    auth: AuthContext = Depends(authenticated_account),
+    db: Session = Depends(get_db, scope="function"),
 ) -> Response:
     log_out(db, auth.access_token)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+
+# Primary recording ingestion endpoint.
 @app.post(
     "/recordings",
     response_model=Recording,
     status_code=status.HTTP_201_CREATED,
     tags=["recordings"],
 )
-def create_recording(payload: RecordingCreate, repo: Repository = Depends(repository)) -> Recording:
-    return repo.create_recording(payload.workflow_name, payload.source_type, payload.has_audio)
+def create_recording(
+    payload: RecordingCreate,
+    response: Response,
+    repo: Repository = Depends(repository),
+) -> Recording:
+    if payload.id:
+        existing = repo.get_recording(payload.id)
+        if existing:
+            if (
+                existing.workflow_name != payload.workflow_name
+                or existing.source_type != payload.source_type
+                or existing.has_audio != payload.has_audio
+                or existing.manual_mode != payload.manual_mode
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Recording id already exists with different metadata",
+                )
+            response.status_code = status.HTTP_200_OK
+            return existing
+    try:
+        return repo.create_recording(
+            payload.workflow_name,
+            payload.source_type,
+            payload.has_audio,
+            payload.id,
+            payload.manual_mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @app.put(
@@ -295,6 +411,8 @@ async def upload_recording_chunk(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
+
+#means recording is complete and ready for processing.
 @app.post(
     "/recordings/{recording_id}/complete",
     response_model=Recording,
@@ -314,6 +432,134 @@ def complete_recording(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
+@app.post(
+    "/recordings/{recording_id}/retry",
+    response_model=Recording,
+    tags=["recordings"],
+)
+def retry_recording_step(
+    recording_id: UUID,
+    payload: RecordingRetryRequest,
+    repo: Repository = Depends(repository),
+) -> Recording:
+    if payload.target == RecordingRetryTarget.SOP:
+        return _retry_sop_generation(recording_id, repo)
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=f"Unsupported retry target: {payload.target}",
+    )
+
+
+def _retry_sop_generation(recording_id: UUID, repo: Repository) -> Recording:
+    recording = repo.get_recording(recording_id)
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+    if not recording.session_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Recording has no processed session yet",
+        )
+    if recording.status != RecordingStatus.SOP_FAILED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="SOP retry is only available after SOP generation fails",
+        )
+
+    updated = repo.set_recording_status(
+        recording_id,
+        RecordingStatus.GENERATING_SOP,
+    ) or recording
+    queued, error_message = recording_processor.enqueue_sop_generation(
+        recording_id,
+        recording.session_id,
+        repo.tenant_id,
+    )
+    if not queued:
+        repo.set_recording_status(
+            recording_id,
+            RecordingStatus.SOP_FAILED,
+            error_message or "Could not queue SOP generation",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=error_message or "Could not queue SOP generation",
+        )
+    return updated
+
+
+@app.put(
+    "/recordings/{recording_id}/manual-review",
+    response_model=Recording,
+    tags=["recordings"],
+)
+def save_manual_review(
+    recording_id: UUID,
+    payload: ManualReviewUpdate,
+    repo: Repository = Depends(repository),
+) -> Recording:
+    try:
+        return repo.save_manual_review(
+            recording_id,
+            transcript_text=payload.transcript_text,
+            custom_instruction=payload.custom_instruction,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@app.post(
+    "/recordings/{recording_id}/generate-sop",
+    response_model=Recording,
+    tags=["recordings"],
+)
+def generate_recording_sop(
+    recording_id: UUID,
+    payload: RecordingGenerateSOP,
+    repo: Repository = Depends(repository),
+) -> Recording:
+    recording = repo.get_recording(recording_id)
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+    if not recording.session_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Recording has no processed session yet",
+        )
+    if recording.status not in {
+        RecordingStatus.AWAITING_MANUAL_REVIEW,
+        RecordingStatus.SOP_FAILED,
+        RecordingStatus.READY_FOR_REVIEW,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Recording is not ready for manual SOP generation",
+        )
+
+    updated = (
+        repo.set_recording_custom_instruction(recording_id, payload.custom_instruction)
+        or recording
+    )
+    updated = repo.set_recording_status(recording_id, RecordingStatus.GENERATING_SOP) or updated
+    queued, error_message = recording_processor.enqueue_sop_generation(
+        recording_id,
+        recording.session_id,
+        repo.tenant_id,
+    )
+    if not queued:
+        repo.set_recording_status(
+            recording_id,
+            RecordingStatus.SOP_FAILED,
+            error_message or "Could not queue SOP generation",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=error_message or "Could not queue SOP generation",
+        )
+    return updated
+
+
 @app.get(
     "/recordings/{recording_id}/status",
     response_model=RecordingStatusResponse,
@@ -325,14 +571,34 @@ def recording_status(
     recording = repo.get_recording(recording_id)
     if not recording:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+    return build_recording_status(recording, repo)
+
+
+@app.post(
+    "/recordings/statuses",
+    response_model=list[RecordingStatusResponse],
+    tags=["recordings"],
+)
+def recording_statuses(
+    payload: RecordingStatusesRequest,
+    repo: Repository = Depends(repository),
+) -> list[RecordingStatusResponse]:
+    recordings = repo.get_recordings(payload.recording_ids)
+    return [build_recording_status(recording, repo) for recording in recordings]
+
+
+def build_recording_status(
+    recording: Recording,
+    repo: Repository,
+) -> RecordingStatusResponse:
     missing_chunks = [
         chunk.storage_key
-        for chunk in repo.list_recording_chunks(recording_id)
+        for chunk in repo.list_recording_chunks(recording.id)
         if not chunk_storage.exists(chunk.storage_key)
     ]
     if missing_chunks:
         recording = repo.set_recording_status(
-            recording_id,
+            recording.id,
             RecordingStatus.FAILED,
             f"Recording evidence files are missing for {len(missing_chunks)} uploaded chunk(s).",
         ) or recording
@@ -392,6 +658,239 @@ def list_sessions(
 @app.get("/sessions/{session_id}", response_model=WorkflowSession, tags=["sessions"])
 def get_session(session_id: UUID, repo: Repository = Depends(repository)) -> WorkflowSession:
     return require_session(repo, session_id)
+
+
+@app.get(
+    "/sessions/{session_id}/screenshots",
+    response_model=list[ScreenshotEvidence],
+    tags=["sessions"],
+)
+def list_session_screenshots(
+    session_id: UUID,
+    request: Request,
+    repo: Repository = Depends(repository),
+) -> list[ScreenshotEvidence]:
+    """Screenshots for a session, each carrying every annotation that references
+    it (N highlights per frame). Only annotations already resolved to
+    screenshot-pixel space are exposed, so the frontend can render them directly
+    as overlays without any further coordinate math."""
+    session = require_session(repo, session_id)
+    screenshots = repo.get_screenshots_for_session(session_id)
+
+    annotations_by_screenshot: dict[UUID, list[ScreenshotAnnotation]] = {}
+    for event in session.events:
+        annotation = (event.event_data or {}).get("evidenceAnnotation")
+        if not isinstance(annotation, dict) or "bounds" not in annotation:
+            continue
+        if annotation.get("coordinate_space") != "screenshot_pixels":
+            continue
+        target = event.screenshot_reference or event.after_screenshot_id
+        if target is None:
+            continue
+        try:
+            bounds = TargetBounds(**annotation["bounds"])
+        except (TypeError, ValueError):
+            continue
+        annotations_by_screenshot.setdefault(UUID(str(target)), []).append(
+            ScreenshotAnnotation(
+                event_id=event.id,
+                event_type=event.event_type,
+                type=annotation.get("type", "click_rectangle"),
+                coordinate_space="screenshot_pixels",
+                bounds=bounds,
+                confidence=float(annotation.get("confidence", 0.45)),
+                source=annotation.get("source", "fallback_coordinate"),
+                label=event.target_label,
+                role=event.target_role,
+            )
+        )
+
+    return [
+        screenshot_evidence(
+            request,
+            screenshot,
+            _effective_annotations(screenshot, annotations_by_screenshot),
+        )
+        for screenshot in screenshots
+    ]
+
+
+def _effective_annotations(
+    screenshot: Screenshot,
+    derived: dict[UUID, list[ScreenshotAnnotation]],
+) -> list[ScreenshotAnnotation]:
+    """If the frame carries an authoritative (user-edited) annotation set, use
+    it; otherwise fall back to the annotations derived from recorded events."""
+    if screenshot.annotations is None:
+        return derived.get(screenshot.id, [])
+    try:
+        return [ScreenshotAnnotation(**item) for item in screenshot.annotations]
+    except (TypeError, ValueError):
+        return derived.get(screenshot.id, [])
+
+
+@app.put(
+    "/sessions/{session_id}/screenshots/{screenshot_id}/annotations",
+    response_model=ScreenshotEvidence,
+    tags=["sessions"],
+)
+async def replace_screenshot_annotations(
+    session_id: UUID,
+    screenshot_id: UUID,
+    request: Request,
+    annotations: str = Form(...),
+    annotated_image: UploadFile = File(...),
+    repo: Repository = Depends(repository),
+) -> ScreenshotEvidence:
+    """Replace a screenshot's annotation set with the user-edited/manual set.
+
+    The supplied set becomes the authoritative annotations for the frame
+    (overriding event-derived highlights). The Electron editor sends the final
+    annotated PNG it rendered, so the backend stores the reviewed image without
+    re-rendering it and risking renderer drift. The raw screenshot is preserved."""
+    screenshot = repo.get_screenshot(session_id, screenshot_id)
+    if screenshot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
+
+    try:
+        payload = ScreenshotAnnotationSet.model_validate(
+            {"annotations": json.loads(annotations)}
+        )
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="annotations must be valid JSON",
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.errors(),
+        ) from exc
+
+    if annotated_image.content_type != "image/png":
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Annotated image must be image/png",
+        )
+
+    annotated_bytes = await annotated_image.read(settings.max_chunk_bytes + 1)
+    if len(annotated_bytes) > settings.max_chunk_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Annotated image exceeds maximum size of {settings.max_chunk_bytes} bytes",
+        )
+    if not annotated_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Annotated image must be a PNG file",
+        )
+
+    normalized = [
+        ScreenshotAnnotation(
+            type=item.type,
+            bounds=item.bounds,
+            label=item.label,
+            role=item.role,
+            source=item.source,
+            coordinate_space="screenshot_pixels",
+            confidence=1.0,
+        )
+        for item in payload.annotations
+    ]
+    stored = [annotation.model_dump(mode="json") for annotation in normalized]
+    repo.set_screenshot_annotations(screenshot_id, stored)
+
+    storage = ChunkStorage(
+        root=settings.recording_storage_path,
+        max_chunk_bytes=settings.max_chunk_bytes,
+    )
+    try:
+        annotated_key = f"{screenshot.storage_key.rsplit('.', 1)[0]}-annotated.png"
+        annotated_path = storage.resolve_storage_key(annotated_key)
+        annotated_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = annotated_path.with_suffix(".tmp")
+        temporary.write_bytes(annotated_bytes)
+        temporary.replace(annotated_path)
+        repo.update_screenshot_annotation(screenshot_id, annotated_key, "redacted")
+    except Exception as exc:
+        repo.update_screenshot_annotation(screenshot_id, None, "failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not save annotated image",
+        ) from exc
+
+    return screenshot_evidence(
+        request,
+        Screenshot(
+            **{
+                **screenshot.model_dump(),
+                "annotated_storage_key": annotated_key,
+                "redaction_status": "redacted",
+                "annotations": stored,
+            }
+        ),
+        normalized,
+    )
+
+
+@app.delete(
+    "/sessions/{session_id}/screenshots/{screenshot_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["sessions"],
+)
+def delete_session_screenshot(
+    session_id: UUID,
+    screenshot_id: UUID,
+    repo: Repository = Depends(repository),
+) -> Response:
+    require_session(repo, session_id)
+    screenshot = repo.delete_screenshot(session_id, screenshot_id)
+    if screenshot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
+
+    storage = ChunkStorage(
+        root=settings.recording_storage_path,
+        max_chunk_bytes=settings.max_chunk_bytes,
+    )
+    storage.delete(screenshot.storage_key)
+    if screenshot.annotated_storage_key:
+        storage.delete(screenshot.annotated_storage_key)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/sessions/{session_id}/screenshots/{screenshot_id}", tags=["sessions"])
+def get_session_screenshot_image(
+    session_id: UUID,
+    screenshot_id: UUID,
+    request: Request,
+    type: str | None = None,
+    repo: Repository = Depends(repository),
+) -> RedirectResponse:
+    """Serve the raw screenshot bytes for overlay rendering or annotated bytes for SOP."""
+    screenshot = repo.get_screenshot(session_id, screenshot_id)
+    if screenshot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
+    storage = ChunkStorage(
+        root=settings.recording_storage_path,
+        max_chunk_bytes=settings.max_chunk_bytes,
+    )
+    key_to_serve = (
+        screenshot.annotated_storage_key
+        if type == "annotated" and screenshot.annotated_storage_key
+        else screenshot.storage_key
+    )
+    if not key_to_serve or not storage.exists(key_to_serve):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot image not available"
+        )
+    return RedirectResponse(
+        signed_media_url(
+            request,
+            key_to_serve,
+            "image/png" if type == "annotated" else screenshot.media_type,
+        ),
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+    )
 
 
 @app.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["sessions"])

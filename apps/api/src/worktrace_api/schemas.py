@@ -119,13 +119,72 @@ class SessionStatus(StrEnum):
 
 
 class EvidenceAnnotation(StrictModel):
-    type: Literal["click_rectangle", "scroll_focus", "pointer_focus"]
+    type: Literal["click_rectangle", "scroll_focus", "pointer_focus", "manual_box"]
     event_id: UUID
     screenshot_reference: UUID | None = None
     coordinate_space: Literal["screenshot_pixels", "global_screen"]
     bounds: TargetBounds
     confidence: float = Field(ge=0, le=1)
-    source: Literal["event_pointer", "fallback_coordinate"] = "event_pointer"
+    source: Literal["event_pointer", "fallback_coordinate", "accessibility"] = "event_pointer"
+
+
+class ScreenshotAnnotation(StrictModel):
+    """A single renderable highlight on a screenshot (Phase 3 overlay source).
+
+    ``event_id``/``event_type`` are optional because a ``manual_box`` highlight
+    is authored by the user in the evidence editor and is not tied to a recorded
+    input event."""
+
+    event_id: UUID | None = None
+    event_type: EventType | None = None
+    type: Literal[
+        "click_rectangle", "scroll_focus", "pointer_focus", "manual_box", "text_box"
+    ]
+    coordinate_space: Literal["screenshot_pixels", "global_screen"] = "screenshot_pixels"
+    bounds: TargetBounds
+    confidence: float = Field(default=1.0, ge=0, le=1)
+    # "accessibility" is reserved for Phase 2 element-level capture.
+    source: Literal["event_pointer", "fallback_coordinate", "accessibility", "manual"]
+    label: str | None = Field(default=None, max_length=500)
+    role: str | None = Field(default=None, max_length=100)
+
+
+class ScreenshotEvidence(StrictModel):
+    """A screenshot plus every annotation that references it (N per frame)."""
+
+    id: UUID
+    sequence: int = Field(ge=1)
+    captured_at: datetime
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    media_type: str = Field(default="image/png", max_length=100)
+    media_url: str | None = Field(default=None, max_length=4000)
+    annotated_media_url: str | None = Field(default=None, max_length=4000)
+    annotations: list[ScreenshotAnnotation] = Field(default_factory=list, max_length=50)
+
+
+class ScreenshotAnnotationInput(StrictModel):
+    """Author-supplied annotation for the evidence editor save flow. Only the
+    renderable fields are accepted; server-side bookkeeping (coordinate space,
+    confidence) is normalized by the endpoint."""
+
+    type: Literal[
+        "click_rectangle", "scroll_focus", "pointer_focus", "manual_box", "text_box"
+    ]
+    bounds: TargetBounds
+    label: str | None = Field(default=None, max_length=500)
+    role: str | None = Field(default=None, max_length=100)
+    source: Literal["event_pointer", "fallback_coordinate", "accessibility", "manual"] = (
+        "manual"
+    )
+
+
+class ScreenshotAnnotationSet(StrictModel):
+    """Full replacement set of annotations for a single screenshot. An empty
+    list means "cleared" (no highlights). Once saved, this set is the
+    authoritative source for the frame, overriding event-derived annotations."""
+
+    annotations: list[ScreenshotAnnotationInput] = Field(default_factory=list, max_length=50)
 
 
 class TranscriptSegment(StrictModel):
@@ -280,7 +339,9 @@ class RecordingStatus(StrEnum):
     TRANSCRIBING_AUDIO = "transcribing_audio"
     PROCESSING_SCREENSHOTS = "processing_screenshots"
     ALIGNING_EVIDENCE = "aligning_evidence"
+    AWAITING_MANUAL_REVIEW = "awaiting_manual_review"
     GENERATING_SOP = "generating_sop"
+    SOP_FAILED = "sop_failed"
     READY_FOR_REVIEW = "ready_for_review"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -293,9 +354,11 @@ class ChunkContentType(StrEnum):
 
 
 class RecordingCreate(StrictModel):
+    id: UUID | None = None
     workflow_name: str = Field(min_length=1, max_length=200)
     source_type: CaptureSource = CaptureSource.DESKTOP
     has_audio: bool = False
+    manual_mode: bool = False
 
 
 class Recording(StrictModel):
@@ -310,6 +373,8 @@ class Recording(StrictModel):
     uploaded_chunk_count: int = Field(ge=0)
     uploaded_bytes: int = Field(ge=0)
     has_audio: bool
+    manual_mode: bool = False
+    custom_sop_instruction: str | None = None
     error_message: str | None = None
     created_at: datetime
     completed_at: datetime | None = None
@@ -327,9 +392,30 @@ class RecordingComplete(StrictModel):
     expected_chunk_count: int = Field(ge=1)
 
 
+class RecordingRetryTarget(StrEnum):
+    SOP = "sop"
+
+
+class RecordingRetryRequest(StrictModel):
+    target: RecordingRetryTarget
+
+
+class RecordingGenerateSOP(StrictModel):
+    custom_instruction: str | None = Field(default=None, max_length=4000)
+
+
+class ManualReviewUpdate(StrictModel):
+    transcript_text: str | None = Field(default=None, max_length=20_000)
+    custom_instruction: str | None = Field(default=None, max_length=4000)
+
+
 class RecordingStatusResponse(StrictModel):
     recording: Recording
     stages: list[RecordingStatus]
+
+
+class RecordingStatusesRequest(StrictModel):
+    recording_ids: list[UUID] = Field(min_length=1, max_length=500)
 
 
 class Screenshot(StrictModel):
@@ -348,6 +434,7 @@ class Screenshot(StrictModel):
     content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     redaction_status: Literal["pending", "not_required", "redacted", "failed"] = "pending"
     annotated_storage_key: str | None = Field(default=None, max_length=500)
+    annotations: list[dict[str, Any]] | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

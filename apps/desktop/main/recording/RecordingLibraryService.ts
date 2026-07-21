@@ -1,17 +1,68 @@
-import { readdir, readFile, rm, stat } from 'node:fs/promises'
+import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { RecordedSessionSummary, RecordingSessionManifest } from '../../shared/recording'
+import type {
+  AnnotationInput,
+  BackendScreenshotEvidence,
+  BackendRecordingStatusResponse,
+  BackendSOP,
+  BackendWorkflowSession,
+  RecordedSessionSummary,
+  RecordingRetryTarget,
+  RecordingSessionManifest
+} from '../../shared/recording'
 import { WorkTraceApiClient } from '../api/WorkTraceApiClient'
+import { RecordingUploader } from './RecordingUploader'
 
 export class RecordingLibraryService {
+  private readonly uploader: RecordingUploader
+  private listSessionsRequest: Promise<RecordedSessionSummary[]> | null = null
+  private readonly sessionRequests = new Map<string, Promise<BackendWorkflowSession>>()
+
   constructor(
     private readonly recordingsPath: string,
     private readonly apiClient: WorkTraceApiClient
-  ) {}
+  ) {
+    this.uploader = new RecordingUploader(apiClient)
+  }
 
   async listSessions(): Promise<RecordedSessionSummary[]> {
+    if (this.listSessionsRequest) return this.listSessionsRequest
+
+    const request = this.loadSessions()
+    this.listSessionsRequest = request
+    try {
+      return await request
+    } finally {
+      if (this.listSessionsRequest === request) this.listSessionsRequest = null
+    }
+  }
+
+  private async loadSessions(): Promise<RecordedSessionSummary[]> {
     const directories = await this.readSessionDirectories()
-    const sessions = await Promise.all(directories.map((directory) => this.readSession(directory)))
+    const recordingIds = (
+      await Promise.all(
+        directories.map(async (directory) => {
+          try {
+            return (await this.readManifest(directory)).remoteRecordingId ?? null
+          } catch {
+            return null
+          }
+        })
+      )
+    ).filter((id): id is string => Boolean(id))
+
+    let backendStatuses = new Map<string, BackendRecordingStatusResponse>()
+    let backendError: string | null = null
+    try {
+      const statuses = await this.apiClient.getRecordingStatuses([...new Set(recordingIds)])
+      backendStatuses = new Map(statuses.map((status) => [status.recording.id, status]))
+    } catch (error) {
+      backendError = error instanceof Error ? error.message : 'Could not sync backend status.'
+    }
+
+    const sessions = await Promise.all(
+      directories.map((directory) => this.readSession(directory, backendStatuses, backendError))
+    )
 
     return sessions
       .filter((session): session is RecordedSessionSummary => Boolean(session))
@@ -32,6 +83,139 @@ export class RecordingLibraryService {
     await rm(sessionPath, { force: true, recursive: true })
   }
 
+  async getSession(backendSessionId: string): Promise<BackendWorkflowSession> {
+    const existing = this.sessionRequests.get(backendSessionId)
+    if (existing) return existing
+
+    const request = this.apiClient.getSession(backendSessionId)
+    this.sessionRequests.set(backendSessionId, request)
+    try {
+      return await request
+    } finally {
+      if (this.sessionRequests.get(backendSessionId) === request) {
+        this.sessionRequests.delete(backendSessionId)
+      }
+    }
+  }
+
+  async getSessionScreenshots(backendSessionId: string): Promise<BackendScreenshotEvidence[]> {
+    return this.apiClient.getSessionScreenshots(backendSessionId)
+  }
+
+  async getScreenshotImage(
+    backendSessionId: string,
+    screenshotId: string,
+    mediaUrl?: string | null
+  ): Promise<ArrayBuffer> {
+    return this.apiClient.getScreenshotImage(backendSessionId, screenshotId, mediaUrl)
+  }
+
+  async getSessionSops(backendSessionId: string): Promise<BackendSOP[]> {
+    return this.apiClient.getSessionSops(backendSessionId)
+  }
+
+  async getSopScreenshotImage(
+    backendSessionId: string,
+    screenshotId: string,
+    mediaUrl?: string | null
+  ): Promise<ArrayBuffer> {
+    return this.apiClient.getSopScreenshotImage(backendSessionId, screenshotId, mediaUrl)
+  }
+
+  async saveScreenshotAnnotations(
+    backendSessionId: string,
+    screenshotId: string,
+    annotations: AnnotationInput[],
+    annotatedImage: ArrayBuffer
+  ): Promise<BackendScreenshotEvidence> {
+    return this.apiClient.saveScreenshotAnnotations(
+      backendSessionId,
+      screenshotId,
+      annotations,
+      annotatedImage
+    )
+  }
+
+  async deleteScreenshot(backendSessionId: string, screenshotId: string): Promise<void> {
+    return this.apiClient.deleteScreenshot(backendSessionId, screenshotId)
+  }
+
+  async saveManualReview(
+    recordingId: string,
+    transcriptText: string | null,
+    customInstruction: string | null
+  ) {
+    return this.apiClient.saveManualReview(recordingId, transcriptText, customInstruction)
+  }
+
+  async generateSop(recordingId: string, customInstruction: string | null = null) {
+    return this.apiClient.generateSop(recordingId, customInstruction)
+  }
+
+  async retry(sessionId: string, target: RecordingRetryTarget): Promise<void> {
+    if (target === 'upload') {
+      return this.retryLocalUpload(sessionId)
+    }
+    if (target === 'sop') {
+      return this.retryServerSop(sessionId)
+    }
+    throw new Error(`Unsupported retry target: ${target}`)
+  }
+
+  private async retryLocalUpload(sessionId: string): Promise<void> {
+    const sessionPath = join(this.recordingsPath, sessionId)
+    const manifest = await this.readManifest(sessionPath)
+
+    // Best-effort: remove a previously-failed remote recording so retries
+    // don't leave orphaned recordings on the backend.
+    if (manifest?.remoteRecordingId) {
+      try {
+        await this.apiClient.deleteRecording(manifest.remoteRecordingId)
+      } catch {
+        // Offline or already gone — proceed with a fresh upload.
+      }
+    }
+
+    // Clear the prior error so the UI reflects the in-progress retry.
+    await this.updateManifest(sessionPath, (current) => {
+      current.uploadError = null
+    })
+
+    try {
+      const uploaded = await this.uploader.uploadCompletedSession(sessionPath)
+      await this.updateManifest(sessionPath, (current) => {
+        current.remoteRecordingId = uploaded.recordingId
+        current.remoteSessionId = uploaded.sessionId
+        current.remoteStatus = uploaded.status
+        current.uploadedAt = new Date().toISOString()
+        current.uploadError = null
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Retry failed.'
+      await this.updateManifest(sessionPath, (current) => {
+        current.uploadError = message
+      })
+      throw error
+    }
+  }
+
+  private async retryServerSop(sessionId: string): Promise<void> {
+    const sessionPath = join(this.recordingsPath, sessionId)
+    const manifest = await this.readManifest(sessionPath)
+    const recordingId = manifest.remoteRecordingId ?? sessionId
+    if (!recordingId) {
+      throw new Error('Session has not been uploaded yet.')
+    }
+
+    const recording = await this.apiClient.retryRecording(recordingId, 'sop')
+    await this.updateManifest(sessionPath, (current) => {
+      current.remoteRecordingId = recording.id
+      current.remoteSessionId = recording.session_id
+      current.remoteStatus = recording.status
+      current.uploadError = null
+    })
+  }
+
   private async readSessionDirectories(): Promise<string[]> {
     try {
       const entries = await readdir(this.recordingsPath, { withFileTypes: true })
@@ -46,7 +230,11 @@ export class RecordingLibraryService {
     }
   }
 
-  private async readSession(sessionPath: string): Promise<RecordedSessionSummary | null> {
+  private async readSession(
+    sessionPath: string,
+    backendStatuses: Map<string, BackendRecordingStatusResponse>,
+    batchError: string | null
+  ): Promise<RecordedSessionSummary | null> {
     const manifestPath = join(sessionPath, 'manifest.json')
     try {
       const manifest = await this.readManifest(sessionPath)
@@ -55,10 +243,10 @@ export class RecordingLibraryService {
       }
 
       const remoteRecordingId = manifest.remoteRecordingId ?? null
-      const remoteStatus = remoteRecordingId
-        ? await this.readBackendStatus(remoteRecordingId)
-        : { backend: null, error: null }
-      const backend = remoteStatus.backend
+      const backend = remoteRecordingId ? backendStatuses.get(remoteRecordingId) ?? null : null
+      const backendError = remoteRecordingId
+        ? batchError ?? (backend ? null : 'Recording not found on backend.')
+        : null
       return {
         id: manifest.id,
         name: manifest.name,
@@ -77,7 +265,7 @@ export class RecordingLibraryService {
         uploadedAt: manifest.uploadedAt ?? null,
         uploadError: manifest.uploadError ?? null,
         backend,
-        backendError: remoteStatus.error
+        backendError
       }
     } catch (error) {
       if (isMissingFileError(error)) {
@@ -88,24 +276,22 @@ export class RecordingLibraryService {
     }
   }
 
-  private async readBackendStatus(recordingId: string) {
-    try {
-      return {
-        backend: await this.apiClient.getRecordingStatus(recordingId),
-        error: null
-      }
-    } catch (error) {
-      return {
-        backend: null,
-        error: error instanceof Error ? error.message : 'Could not sync backend status.'
-      }
-    }
-  }
-
   private async readManifest(sessionPath: string): Promise<Partial<RecordingSessionManifest>> {
     return JSON.parse(await readFile(join(sessionPath, 'manifest.json'), 'utf8')) as Partial<
       RecordingSessionManifest
     >
+  }
+
+  private async updateManifest(
+    sessionPath: string,
+    mutate: (manifest: RecordingSessionManifest) => void
+  ): Promise<void> {
+    const manifestPath = join(sessionPath, 'manifest.json')
+    const temporaryPath = join(sessionPath, 'manifest.tmp.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as RecordingSessionManifest
+    mutate(manifest)
+    await writeFile(temporaryPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    await rename(temporaryPath, manifestPath)
   }
 }
 

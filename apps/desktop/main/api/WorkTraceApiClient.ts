@@ -1,10 +1,19 @@
 import type {
   Account,
+  BackendHealth,
   ConnectionStatus,
   LoginCredentials,
   SignUpCredentials
 } from '../../shared/connection'
-import type { BackendRecording, BackendRecordingStatusResponse } from '../../shared/recording'
+import type {
+  AnnotationInput,
+  BackendRecording,
+  BackendRecordingStatusResponse,
+  BackendScreenshotEvidence,
+  BackendSOP,
+  BackendWorkflowSession,
+  RecordingRetryTarget
+} from '../../shared/recording'
 import { ConnectionSettingsStore } from './ConnectionSettingsStore'
 
 interface ApiAccount {
@@ -94,17 +103,30 @@ export class WorkTraceApiClient {
     }
   }
 
+  async getHealth(): Promise<BackendHealth> {
+    // No auth required (/health is public) and works pre-login, so resolve the
+    // URL from the stored status rather than requiring a session token.
+    const apiUrl = this.settings.normalizeApiUrl(this.settings.getStatus().apiUrl)
+    const response = await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(3_000) })
+    await requireSuccess(response)
+    return (await response.json()) as BackendHealth
+  }
+
   async createRecording(payload: {
+    id?: string
     workflowName: string
     hasAudio: boolean
+    manualMode: boolean
   }): Promise<BackendRecording> {
     const response = await this.request('/recordings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        id: payload.id,
         workflow_name: payload.workflowName,
         source_type: 'desktop',
-        has_audio: payload.hasAudio
+        has_audio: payload.hasAudio,
+        manual_mode: payload.manualMode
       })
     })
     return (await response.json()) as BackendRecording
@@ -154,8 +176,137 @@ export class WorkTraceApiClient {
     return (await response.json()) as BackendRecordingStatusResponse
   }
 
+  async getRecordingStatuses(
+    recordingIds: string[]
+  ): Promise<BackendRecordingStatusResponse[]> {
+    if (recordingIds.length === 0) return []
+    const response = await this.request('/recordings/statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recording_ids: recordingIds })
+    })
+    return (await response.json()) as BackendRecordingStatusResponse[]
+  }
+
   async deleteRecording(recordingId: string): Promise<void> {
     await this.request(`/recordings/${recordingId}`, { method: 'DELETE' })
+  }
+
+  async retryRecording(
+    recordingId: string,
+    target: Exclude<RecordingRetryTarget, 'upload'>
+  ): Promise<BackendRecording> {
+    const response = await this.request(`/recordings/${recordingId}/retry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target })
+    })
+    return (await response.json()) as BackendRecording
+  }
+
+  async getSession(sessionId: string): Promise<BackendWorkflowSession> {
+    const response = await this.request(`/sessions/${sessionId}`)
+    return (await response.json()) as BackendWorkflowSession
+  }
+
+  async getSessionScreenshots(sessionId: string): Promise<BackendScreenshotEvidence[]> {
+    const response = await this.request(`/sessions/${sessionId}/screenshots`)
+    return (await response.json()) as BackendScreenshotEvidence[]
+  }
+
+  async getScreenshotImage(
+    sessionId: string,
+    screenshotId: string,
+    mediaUrl?: string | null
+  ): Promise<ArrayBuffer> {
+    if (mediaUrl) {
+      const mediaResponse = await fetch(mediaUrl)
+      await requireSuccess(mediaResponse)
+      return mediaResponse.arrayBuffer()
+    }
+    const response = await this.request(`/sessions/${sessionId}/screenshots/${screenshotId}`)
+    return response.arrayBuffer()
+  }
+
+  async getSessionSops(sessionId: string): Promise<BackendSOP[]> {
+    // Uses the export bundle endpoint which returns all SOPs for a session.
+    const response = await this.request(`/exports/${sessionId}`)
+    const bundle = (await response.json()) as { sops: BackendSOP[] }
+    return bundle.sops
+  }
+
+  async getSopScreenshotImage(
+    sessionId: string,
+    screenshotId: string,
+    mediaUrl?: string | null
+  ): Promise<ArrayBuffer> {
+    if (mediaUrl) {
+      const mediaResponse = await fetch(mediaUrl)
+      await requireSuccess(mediaResponse)
+      return mediaResponse.arrayBuffer()
+    }
+    const response = await this.request(`/sessions/${sessionId}/screenshots/${screenshotId}?type=annotated`)
+    return response.arrayBuffer()
+  }
+
+  async saveScreenshotAnnotations(
+    sessionId: string,
+    screenshotId: string,
+    annotations: AnnotationInput[],
+    annotatedImage: ArrayBuffer
+  ): Promise<BackendScreenshotEvidence> {
+    const filePayload: Uint8Array<ArrayBuffer> = new Uint8Array(annotatedImage.byteLength)
+    filePayload.set(new Uint8Array(annotatedImage))
+    const form = new FormData()
+    form.set('annotations', JSON.stringify(annotations))
+    form.set(
+      'annotated_image',
+      new Blob([filePayload], { type: 'image/png' }),
+      `${screenshotId}-annotated.png`
+    )
+
+    const response = await this.request(
+      `/sessions/${sessionId}/screenshots/${screenshotId}/annotations`,
+      {
+        method: 'PUT',
+        body: form
+      }
+    )
+    return (await response.json()) as BackendScreenshotEvidence
+  }
+
+  async deleteScreenshot(sessionId: string, screenshotId: string): Promise<void> {
+    await this.request(`/sessions/${sessionId}/screenshots/${screenshotId}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async saveManualReview(
+    recordingId: string,
+    transcriptText: string | null,
+    customInstruction: string | null
+  ): Promise<BackendRecording> {
+    const response = await this.request(`/recordings/${recordingId}/manual-review`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        transcript_text: transcriptText,
+        custom_instruction: customInstruction
+      })
+    })
+    return (await response.json()) as BackendRecording
+  }
+
+  async generateSop(
+    recordingId: string,
+    customInstruction: string | null = null
+  ): Promise<BackendRecording> {
+    const response = await this.request(`/recordings/${recordingId}/generate-sop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_instruction: customInstruction })
+    })
+    return (await response.json()) as BackendRecording
   }
 
   async request(path: string, init: RequestInit = {}): Promise<Response> {

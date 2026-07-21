@@ -1,17 +1,28 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import {
   connectionIpc,
+  type BackendHealth,
   type ConnectionStatus,
   type LoginCredentials,
   type SignUpCredentials
 } from '../shared/connection'
 import {
   recordingIpc,
+  type AnnotationInput,
   type AudioRecorderApi,
+  type BackendScreenshotEvidence,
+  type BackendSOP,
   type RecordingOptions,
+  type RecordingRetryTarget,
   type RecordedSessionSummary,
-  type RecordingState
+  type RecordingState,
+  type BackendWorkflowSession
 } from '../shared/recording'
+import {
+  settingsIpc,
+  type ExperimentalFlag,
+  type ExperimentalFlags
+} from '../shared/settings'
 
 // Expose a safe, minimal API to the renderer via contextBridge.
 // The renderer can call window.api.getAppVersion() but cannot access
@@ -28,11 +39,23 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke(connectionIpc.signup, credentials),
     logout: () => ipcRenderer.invoke(connectionIpc.logout),
     test: () => ipcRenderer.invoke(connectionIpc.test),
+    getHealth: () => ipcRenderer.invoke(connectionIpc.getHealth) as Promise<BackendHealth>,
     onStatusChanged: (listener: (status: ConnectionStatus) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, status: ConnectionStatus) =>
         listener(status)
       ipcRenderer.on(connectionIpc.statusChanged, handler)
       return () => ipcRenderer.off(connectionIpc.statusChanged, handler)
+    }
+  },
+  settings: {
+    getFlags: () => ipcRenderer.invoke(settingsIpc.getFlags) as Promise<ExperimentalFlags>,
+    setFlag: (flag: ExperimentalFlag, value: boolean) =>
+      ipcRenderer.invoke(settingsIpc.setFlag, flag, value) as Promise<ExperimentalFlags>,
+    onFlagsChanged: (listener: (flags: ExperimentalFlags) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, flags: ExperimentalFlags) =>
+        listener(flags)
+      ipcRenderer.on(settingsIpc.flagsChanged, handler)
+      return () => ipcRenderer.off(settingsIpc.flagsChanged, handler)
     }
   },
   recording: {
@@ -46,6 +69,70 @@ contextBridge.exposeInMainWorld('api', {
     listSessions: () =>
       ipcRenderer.invoke(recordingIpc.listSessions) as Promise<RecordedSessionSummary[]>,
     deleteSession: (sessionId: string) => ipcRenderer.invoke(recordingIpc.deleteSession, sessionId),
+    retry: (sessionId: string, target: RecordingRetryTarget) =>
+      ipcRenderer.invoke(recordingIpc.retry, sessionId, target),
+    getSession: (backendSessionId: string) =>
+      ipcRenderer.invoke(recordingIpc.getSession, backendSessionId) as Promise<BackendWorkflowSession>,
+    getSessionScreenshots: (backendSessionId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.getSessionScreenshots,
+        backendSessionId
+      ) as Promise<BackendScreenshotEvidence[]>,
+    getScreenshotImage: (
+      backendSessionId: string,
+      screenshotId: string,
+      mediaUrl?: string | null
+    ) =>
+      ipcRenderer.invoke(
+        recordingIpc.getScreenshotImage,
+        backendSessionId,
+        screenshotId,
+        mediaUrl
+      ) as Promise<ArrayBuffer>,
+    getSessionSops: (backendSessionId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.getSessionSops,
+        backendSessionId
+      ) as Promise<BackendSOP[]>,
+    getSopScreenshotImage: (
+      backendSessionId: string,
+      screenshotId: string,
+      mediaUrl?: string | null
+    ) =>
+      ipcRenderer.invoke(
+        recordingIpc.getSopScreenshotImage,
+        backendSessionId,
+        screenshotId,
+        mediaUrl
+      ) as Promise<ArrayBuffer>,
+    saveScreenshotAnnotations: (
+      backendSessionId: string,
+      screenshotId: string,
+      annotations: AnnotationInput[],
+      annotatedImage: ArrayBuffer
+    ) =>
+      ipcRenderer.invoke(
+        recordingIpc.saveScreenshotAnnotations,
+        backendSessionId,
+        screenshotId,
+        annotations,
+        annotatedImage
+      ) as Promise<BackendScreenshotEvidence>,
+    deleteScreenshot: (backendSessionId: string, screenshotId: string) =>
+      ipcRenderer.invoke(recordingIpc.deleteScreenshot, backendSessionId, screenshotId),
+    saveManualReview: (
+      recordingId: string,
+      transcriptText: string | null,
+      customInstruction: string | null
+    ) =>
+      ipcRenderer.invoke(
+        recordingIpc.saveManualReview,
+        recordingId,
+        transcriptText,
+        customInstruction
+      ),
+    generateSop: (recordingId: string, customInstruction?: string | null) =>
+      ipcRenderer.invoke(recordingIpc.generateSop, recordingId, customInstruction ?? null),
     openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') =>
       ipcRenderer.invoke(recordingIpc.openPermissionSettings, permission),
     onStateChanged: (listener: (state: RecordingState) => void) => {

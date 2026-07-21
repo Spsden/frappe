@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Local virtualenvs / tooling (never bake these into the image)
+.venv/
+venv/
+frappe_env/
+
+# Local runtime data is bind-mounted at runtime, not copied into the image
+data/
+build/
+
+# Tests + dev artifacts
+tests/
+tests.py
+test_*.py
+.ruff_cache/
+.pytest_cache/
+.vscode/
+.idea/
+
+# Editors / OS
+.DS_Store
+.env

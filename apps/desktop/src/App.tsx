@@ -7,7 +7,8 @@ import { AudioRecorderPage } from './pages/AudioRecorderPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { RecordingControlsPage } from './pages/RecordingControlsPage'
 import { SessionsPage } from './pages/SessionsPage'
-import { SopLibraryPage } from './pages/SopLibraryPage'
+import { SessionDetailPage } from './pages/SessionDetailPage'
+import { SOPDetailPage } from './pages/SOPDetailPage'
 import { SettingsPage } from './pages/SettingsPage'
 
 export default function App() {
@@ -38,11 +39,27 @@ export default function App() {
     <HashRouter>
       <Routes>
         <Route path="/recording-controls" element={<RecordingControlsPage />} />
+
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
+
           <Route path="/dashboard" element={<DashboardPage />} />
+
           <Route path="/sessions" element={<SessionsPage />} />
-          <Route path="/sop-library" element={<SopLibraryPage />} />
+          <Route path="/sessions/:id" element={<SessionDetailPage />} />
+          <Route path="/sessions/:id/sop" element={<SOPDetailPage />} />
+
+          <Route
+            path="/sop-library"
+            element={
+              <PlaceholderPage
+                eyebrow="Documentation"
+                title="SOP Library"
+                description="Review, edit and publish generated procedures."
+              />
+            }
+          />
+
           <Route
             path="/analytics"
             element={
@@ -53,7 +70,9 @@ export default function App() {
               />
             }
           />
+
           <Route path="/settings" element={<SettingsPage />} />
+
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>

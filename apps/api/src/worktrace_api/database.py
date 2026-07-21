@@ -9,11 +9,13 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     create_engine,
     event,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from worktrace_api.settings import get_settings
 
@@ -174,6 +176,8 @@ class RecordingRecord(TenantRecord, Base):
     uploaded_chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_bytes: Mapped[int] = mapped_column(Integer, default=0)
     has_audio: Mapped[bool] = mapped_column(Boolean, default=False)
+    manual_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+    custom_sop_instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
@@ -229,6 +233,7 @@ class ScreenshotRecord(TenantRecord, Base):
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
     redaction_status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
     annotated_storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    annotations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -236,7 +241,17 @@ class ScreenshotRecord(TenantRecord, Base):
 
 settings = get_settings()
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args, pool_pre_ping=True)
+engine_options = {
+    "connect_args": connect_args,
+    "pool_pre_ping": True,
+}
+if settings.database_url.startswith("sqlite"):
+    # SQLite is the local/dev database. A request burst can otherwise fill
+    # QueuePool while FastAPI is still scheduling dependency cleanup, leaving
+    # later requests waiting for a connection that is about to be returned.
+    # Opening a short-lived SQLite connection per session avoids that deadlock.
+    engine_options["poolclass"] = NullPool
+engine = create_engine(settings.database_url, **engine_options)
 
 
 if settings.database_url.startswith("sqlite"):

@@ -1,4 +1,5 @@
 import json
+import logging
 import struct
 from datetime import UTC, datetime
 from typing import Any
@@ -17,7 +18,8 @@ from worktrace_api.schemas import (
     SessionEvent,
     WorkflowSession,
 )
-from worktrace_api.services import generate_sop
+
+logger = logging.getLogger(__name__)
 
 
 class RecordingProcessor:
@@ -26,6 +28,54 @@ class RecordingProcessor:
     def __init__(self, storage: ChunkStorage, allowed_domains: list[str] | None = None):
         self.storage = storage
         self.allowed_domains = allowed_domains or []
+
+    def enqueue_pipeline(
+        self,
+        recording_id: UUID,
+        session_id: UUID,
+        tenant_id: UUID,
+    ) -> tuple[bool, str | None]:
+        from worktrace_api.core.celery_app import broker_available
+        from worktrace_api.settings import get_settings
+        from worktrace_api.tasks.pipeline import process_recording
+
+        if not broker_available(get_settings().redis_url):
+            return False, "Background queue is offline; start Redis and retry processing."
+
+        try:
+            process_recording.delay(str(recording_id), str(session_id), str(tenant_id))
+        except Exception as exc:
+            logger.warning(
+                "async processing pipeline dispatch failed for recording %s",
+                recording_id,
+                exc_info=True,
+            )
+            return False, f"Could not queue processing: {exc}"
+        return True, None
+
+    def enqueue_sop_generation(
+        self,
+        recording_id: UUID,
+        session_id: UUID,
+        tenant_id: UUID,
+    ) -> tuple[bool, str | None]:
+        from worktrace_api.core.celery_app import broker_available
+        from worktrace_api.settings import get_settings
+        from worktrace_api.tasks.sop_generation import generate_sop_with_ai
+
+        if not broker_available(get_settings().redis_url):
+            return False, "Background queue is offline; start Redis and retry SOP generation."
+
+        try:
+            generate_sop_with_ai.delay(str(recording_id), str(session_id), str(tenant_id))
+        except Exception as exc:
+            logger.warning(
+                "async SOP generation dispatch failed for recording %s",
+                recording_id,
+                exc_info=True,
+            )
+            return False, f"Could not queue SOP generation: {exc}"
+        return True, None
 
     def process(self, recording_id: UUID, repo: Repository):
         recording = repo.get_recording(recording_id)
@@ -44,9 +94,11 @@ class RecordingProcessor:
 
             repo.set_recording_status(recording_id, RecordingStatus.PROCESSING_SCREENSHOTS)
             session_id = uuid5(recording_id, "workflow-session")
+            ##PYTHON TUPLE UNPACKING, WOAHHHHH WHERE HAS THIS BEEN ALL MY LIFE, I LOVE IT
             (
                 screenshots,
                 screenshot_ids,
+                screenshot_metadata_by_id,
                 after_screenshot_by_event,
                 after_screenshot_metadata_by_event,
             ) = self._screenshots(recording_id, session_id, chunks)
@@ -59,6 +111,7 @@ class RecordingProcessor:
                 recording_id,
                 chunks,
                 screenshot_ids,
+                screenshot_metadata_by_id,
                 after_screenshot_by_event,
                 after_screenshot_metadata_by_event,
                 repo.tenant_id,
@@ -82,16 +135,34 @@ class RecordingProcessor:
             )
             repo.save_session(session)
             repo.save_screenshots(screenshots)
-
-            repo.set_recording_status(recording_id, RecordingStatus.GENERATING_SOP)
-            repo.save_sop(generate_sop(session, repo.next_sop_version(session.id)))
+            next_status = (
+                RecordingStatus.TRANSCRIBING_AUDIO
+                if recording.has_audio
+                else RecordingStatus.PROCESSING_SCREENSHOTS
+            )
             recording_result = repo.link_recording_session(
-                recording_id, session.id, RecordingStatus.READY_FOR_REVIEW
+                recording_id, session.id, next_status
             )
 
-            # Trigger the Celery orchestration pipeline AFTER the session is linked
-            from worktrace_api.tasks.pipeline import process_recording
-            process_recording.delay(str(recording_id), str(session.id), str(repo.tenant_id))
+            # Trigger the Celery orchestration pipeline AFTER the session is
+            # linked. Best-effort: if the broker is offline (Redis not started),
+            # the session + raw evidence remain durable and the recording stays
+            # recoverable via manual SOP retry.
+            queued, error_message = self.enqueue_pipeline(recording_id, session.id, repo.tenant_id)
+            if not queued:
+                recording_result = repo.set_recording_status(
+                    recording_id,
+                    RecordingStatus.SOP_FAILED,
+                    error_message or "Could not queue SOP generation",
+                ) or recording_result
+            else:
+                logger.info(
+                    "queued async pipeline for recording %s "
+                    "(session %s; initial status %s)",
+                    recording_id,
+                    session.id,
+                    next_status.value,
+                )
 
             return recording_result
         except Exception as exc:
@@ -127,9 +198,16 @@ class RecordingProcessor:
 
     def _screenshots(
         self, recording_id: UUID, session_id: UUID, chunks: list
-    ) -> tuple[list[Screenshot], dict[str, UUID], dict[str, UUID], dict[str, dict[str, Any]]]:
+    ) -> tuple[
+        list[Screenshot],
+        dict[str, UUID],
+        dict[str, dict[str, Any]],
+        dict[str, UUID],
+        dict[str, dict[str, Any]],
+    ]:
         screenshots: list[Screenshot] = []
         screenshot_ids: dict[str, UUID] = {}
+        screenshot_metadata_by_id: dict[str, dict[str, Any]] = {}
         after_screenshot_by_event: dict[str, UUID] = {}
         after_screenshot_metadata_by_event: dict[str, dict[str, Any]] = {}
         seen_hashes: dict[str, UUID] = {}
@@ -155,6 +233,8 @@ class RecordingProcessor:
                 existing_id = seen_hashes[content_hash]
                 if original_id:
                     screenshot_ids[str(original_id)] = existing_id
+                    screenshot_metadata_by_id[str(original_id)] = metadata
+                screenshot_metadata_by_id[str(existing_id)] = metadata
 
                 event_ids = metadata.get("eventIds") or metadata.get("event_ids") or []
                 if isinstance(event_ids, list):
@@ -165,6 +245,8 @@ class RecordingProcessor:
 
             if original_id:
                 screenshot_ids[str(original_id)] = screenshot_id
+                screenshot_metadata_by_id[str(original_id)] = metadata
+            screenshot_metadata_by_id[str(screenshot_id)] = metadata
 
             seen_hashes[content_hash] = screenshot_id
 
@@ -208,6 +290,7 @@ class RecordingProcessor:
         return (
             screenshots,
             screenshot_ids,
+            screenshot_metadata_by_id,
             after_screenshot_by_event,
             after_screenshot_metadata_by_event,
         )
@@ -218,6 +301,7 @@ class RecordingProcessor:
         recording_id: UUID,
         chunks: list,
         screenshot_ids: dict[str, UUID],
+        screenshot_metadata_by_id: dict[str, dict[str, Any]],
         after_screenshot_by_event: dict[str, UUID],
         after_screenshot_metadata_by_event: dict[str, dict[str, Any]],
         tenant_id: UUID,
@@ -236,6 +320,7 @@ class RecordingProcessor:
                     tenant_id,
                     len(events) + 1,
                     screenshot_ids,
+                    screenshot_metadata_by_id,
                     after_screenshot_by_event,
                     after_screenshot_metadata_by_event,
                 )
@@ -271,6 +356,7 @@ def _normalize_event(
     tenant_id: UUID,
     fallback_sequence: int,
     screenshot_ids: dict[str, UUID],
+    screenshot_metadata_by_id: dict[str, dict[str, Any]],
     after_screenshot_by_event: dict[str, UUID],
     after_screenshot_metadata_by_event: dict[str, dict[str, Any]],
 ) -> SessionEvent:
@@ -286,20 +372,28 @@ def _normalize_event(
     sequence = int(raw.get("sequence") or fallback_sequence)
     raw_id = raw.get("id")
     event_id = _uuid_or_default(raw_id, uuid5(recording_id, f"event:{sequence}"))
-    before_id = _mapped_uuid(
-        raw.get("beforeScreenshotId") or raw.get("before_screenshot_id"), screenshot_ids
-    )
+    raw_before_screenshot_id = raw.get("beforeScreenshotId") or raw.get("before_screenshot_id")
+    raw_after_screenshot_id = raw.get("afterScreenshotId") or raw.get("after_screenshot_id")
+    before_id = _mapped_uuid(raw_before_screenshot_id, screenshot_ids)
     after_id = _mapped_uuid(
-        raw.get("afterScreenshotId") or raw.get("after_screenshot_id"), screenshot_ids
+        raw_after_screenshot_id, screenshot_ids
     ) or after_screenshot_by_event.get(str(raw_id))
+    annotation_screenshot_id = before_id or after_id
+    annotation_screenshot_metadata = (
+        _metadata_for_screenshot(
+            screenshot_metadata_by_id, annotation_screenshot_id, raw_before_screenshot_id
+        )
+        or after_screenshot_metadata_by_event.get(str(raw_id))
+        or _metadata_for_screenshot(screenshot_metadata_by_id, after_id, raw_after_screenshot_id)
+    )
     annotation = _pointer_annotation(
         event_type,
         event_id,
-        after_id,
+        annotation_screenshot_id,
         raw.get("x") if raw.get("x") is not None else data.get("x"),
         raw.get("y") if raw.get("y") is not None else data.get("y"),
         data,
-        after_screenshot_metadata_by_event.get(str(raw_id)),
+        annotation_screenshot_metadata,
     )
     if annotation:
         data["evidenceAnnotation"] = annotation
@@ -338,7 +432,7 @@ def _normalize_event(
         element_text=raw.get("element_text"),
         before_screenshot_id=before_id,
         after_screenshot_id=after_id,
-        screenshot_reference=after_id,
+        screenshot_reference=annotation_screenshot_id,
         duration_ms=duration_ms,
         event_data=data,
     )
@@ -355,6 +449,22 @@ def _pointer_annotation(
 ) -> dict[str, Any] | None:
     if event_type not in {EventType.CLICK, EventType.SCROLL} or event_id is None:
         return None
+
+    # Phase 2: accessibility element bounds, already resolved to screenshot-pixel
+    # space by the client. Preferred over the coordinate box when present.
+    image_width_ax, image_height_ax = _metadata_image_size(screenshot_metadata)
+    element_bounds = _element_bounds(data.get("targetBounds"), image_width_ax, image_height_ax)
+    if element_bounds is not None:
+        return {
+            "type": "click_rectangle" if event_type == EventType.CLICK else "scroll_focus",
+            "event_id": str(event_id),
+            "screenshot_reference": str(screenshot_id) if screenshot_id else None,
+            "coordinate_space": "screenshot_pixels",
+            "bounds": element_bounds,
+            "confidence": 0.95,
+            "source": "accessibility",
+        }
+
     if x_value is None or y_value is None:
         return None
 
@@ -423,13 +533,16 @@ def _map_pointer_to_screenshot(
         return None
 
     try:
-        display_scale = float(pointer.get("displayScaleFactor") or display.get("scaleFactor") or 1)
-        display_width = float(display_bounds["width"]) * display_scale
-        display_height = float(display_bounds["height"]) * display_scale
+        # Electron/uiohook pointer coordinates are display points (DIP), while
+        # screenshots are captured in physical pixels. Do not multiply the
+        # display bounds by scaleFactor here: doing so cancels the Retina scale.
+        # The image-to-bounds ratio is the effective point→pixel multiplier.
+        display_width = float(display_bounds["width"])
+        display_height = float(display_bounds["height"])
         image_width = float(image_size["width"])
         image_height = float(image_size["height"])
-        x = float(point["x"]) * display_scale
-        y = float(point["y"]) * display_scale
+        x = float(point["x"])
+        y = float(point["y"])
     except (KeyError, TypeError, ValueError):
         return None
 
@@ -441,6 +554,56 @@ def _map_pointer_to_screenshot(
         "y": y * (image_height / display_height),
         "image_width": image_width,
         "image_height": image_height,
+    }
+
+
+def _metadata_image_size(
+    metadata: dict[str, Any] | None,
+) -> tuple[float | None, float | None]:
+    """Best-effort extraction of the screenshot pixel dimensions from chunk
+    metadata (capture.imageSize), used to clamp accessibility element bounds."""
+    if not isinstance(metadata, dict):
+        return None, None
+    capture = metadata.get("capture")
+    image_size = capture.get("imageSize") if isinstance(capture, dict) else None
+    if not isinstance(image_size, dict):
+        return None, None
+    try:
+        return float(image_size["width"]), float(image_size["height"])
+    except (KeyError, TypeError, ValueError):
+        return None, None
+
+
+def _element_bounds(
+    raw: Any, image_width: float | None, image_height: float | None
+) -> dict[str, float] | None:
+    """Validate + clamp an accessibility element rect (already in screenshot
+    pixels). Returns None for missing/invalid input so the caller falls back to
+    the coordinate-based box."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        x = float(raw["x"])
+        y = float(raw["y"])
+        width = float(raw["width"])
+        height = float(raw["height"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    if image_width is not None and x >= image_width:
+        return None
+    if image_height is not None and y >= image_height:
+        return None
+    if image_width is not None:
+        x = max(0.0, min(x, max(0.0, image_width - 1)))
+    if image_height is not None:
+        y = max(0.0, min(y, max(0.0, image_height - 1)))
+    return {
+        "x": round(x, 2),
+        "y": round(y, 2),
+        "width": round(width, 2),
+        "height": round(height, 2),
     }
 
 
@@ -466,6 +629,20 @@ def _centered_bounds(
         "width": width,
         "height": height,
     }
+
+
+def _metadata_for_screenshot(
+    screenshot_metadata_by_id: dict[str, dict[str, Any]],
+    screenshot_id: UUID | None,
+    original_screenshot_id: Any,
+) -> dict[str, Any] | None:
+    if original_screenshot_id is not None:
+        metadata = screenshot_metadata_by_id.get(str(original_screenshot_id))
+        if metadata is not None:
+            return metadata
+    if screenshot_id is not None:
+        return screenshot_metadata_by_id.get(str(screenshot_id))
+    return None
 
 
 def _mapped_uuid(value: Any, mapping: dict[str, UUID]) -> UUID | None:

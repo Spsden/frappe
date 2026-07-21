@@ -9,6 +9,7 @@ import {
   type UiohookWheelEvent
 } from 'uiohook-napi'
 import type { RecordedEvent } from '../../shared/recording'
+import type { AccessibilityBundle, AccessibilityRect } from '../accessibility'
 import { SessionWriter } from './SessionWriter'
 
 interface InputEventCallbacks {
@@ -94,7 +95,10 @@ export class InputEventService {
   private scrollBurst: PendingScrollBurst | null = null
   private scrollTimer: NodeJS.Timeout | null = null
 
-  constructor(private readonly sessionWriter: SessionWriter) {}
+  constructor(
+    private readonly sessionWriter: SessionWriter,
+    private readonly accessibility: AccessibilityBundle | null = null
+  ) {}
 
   requestPermission(): boolean {
     if (process.platform !== 'darwin') {
@@ -114,6 +118,7 @@ export class InputEventService {
     this.active = true
     this.paused = false
     uIOhook.on('click', this.handleClick)
+    uIOhook.on('mousemove', this.handleMouseMove)
     uIOhook.on('keydown', this.handleKeyDown)
     uIOhook.on('wheel', this.handleWheel)
     uIOhook.start()
@@ -143,6 +148,7 @@ export class InputEventService {
     this.flushScrollBurst()
     this.clearTimers()
     uIOhook.off('click', this.handleClick)
+    uIOhook.off('mousemove', this.handleMouseMove)
     uIOhook.off('keydown', this.handleKeyDown)
     uIOhook.off('wheel', this.handleWheel)
     uIOhook.stop()
@@ -151,20 +157,79 @@ export class InputEventService {
   }
 
   private handleClick = (event: UiohookMouseEvent): void => {
+    console.log(`${event.x}, ${event.y}, clicked`)
+
     if (!this.shouldCapture() || this.callbacks?.shouldIgnorePoint(event.x, event.y)) {
       return
     }
 
     this.flushTypingBurst()
     this.flushScrollBurst()
-    this.saveEvent('click', {
+
+    const beforeScreenshotId = this.callbacks?.getBeforeScreenshotId()
+    const baseData: RecordedEvent['data'] = {
       x: event.x,
       y: event.y,
       button: normalizeMouseButton(event.button),
       clickCount: event.clicks,
       modifiers: getModifiers(event),
       pointer: getPointerMetadata(event.x, event.y)
-    })
+    }
+
+    if (this.accessibility?.enabled()) {
+      void this.enrichClickWithAccessibility(event.x, event.y, baseData, beforeScreenshotId)
+      return
+    }
+
+    this.saveEvent('click', baseData, beforeScreenshotId)
+  }
+
+  private handleMouseMove = (event: UiohookMouseEvent): void => {
+    console.log(`${event.x}, ${event.y}`)
+  }
+
+  /**
+   * Phase 2 (experimental): query the platform accessibility element under the
+   * click and attach its role/label/bounds to the event. Bounds are converted
+   * from the AX global-point frame to screenshot-pixel space (display-relative
+   * points x scaleFactor = display physical pixels = screenshot pixels). Falls
+   * back silently to a coordinate-only event on any failure.
+   */
+  private async enrichClickWithAccessibility(
+    x: number,
+    y: number,
+    baseData: RecordedEvent['data'],
+    beforeScreenshotId: string | undefined
+  ): Promise<void> {
+    let data = baseData
+    try {
+      const element = await this.accessibility!.inspector.getElementAtPoint(x, y)
+      if (element) {
+        const targetBounds = toScreenshotBounds(element.bounds, x, y)
+        data = { ...baseData }
+        if (element.role) {
+          data.targetRole = element.role
+        }
+        if (element.label) {
+          data.targetLabel = element.label
+        }
+        if (targetBounds) {
+          data.targetBounds = targetBounds
+        }
+        if (!element.isSecure && element.text) {
+          data.elementText = element.text
+        }
+        if (element.isSecure) {
+          data.isSecureField = true
+        }
+      }
+    } catch {
+      // Best-effort: keep the coordinate-only event.
+    }
+
+    if (this.shouldCapture()) {
+      this.saveEvent('click', data, beforeScreenshotId)
+    }
   }
 
   private handleKeyDown = (event: UiohookKeyboardEvent): void => {
@@ -272,7 +337,11 @@ export class InputEventService {
     })
   }
 
-  private saveEvent(type: RecordedEvent['type'], data: RecordedEvent['data']): void {
+  private saveEvent(
+    type: RecordedEvent['type'],
+    data: RecordedEvent['data'],
+    beforeScreenshotId?: string
+  ): void {
     if (!this.callbacks) {
       return
     }
@@ -283,7 +352,7 @@ export class InputEventService {
       timestamp: new Date().toISOString(),
       type,
       data,
-      beforeScreenshotId: this.callbacks.getBeforeScreenshotId()
+      beforeScreenshotId: beforeScreenshotId ?? this.callbacks.getBeforeScreenshotId()
     }
 
     this.callbacks.onEventCaptured(event)
@@ -380,5 +449,26 @@ function getPointerMetadata(x: number, y: number) {
       x: x - display.bounds.x,
       y: y - display.bounds.y
     }
+  }
+}
+
+/** Convert an AX element frame (global screen points) to screenshot-pixel
+ * space. Screenshot pixels equal display physical pixels, which equal display
+ * points x scaleFactor. */
+function toScreenshotBounds(
+  bounds: AccessibilityRect | null,
+  x: number,
+  y: number
+): { x: number; y: number; width: number; height: number } | null {
+  if (!bounds) {
+    return null
+  }
+  const display = screen.getDisplayNearestPoint({ x, y })
+  const scale = display.scaleFactor
+  return {
+    x: Math.round((bounds.x - display.bounds.x) * scale),
+    y: Math.round((bounds.y - display.bounds.y) * scale),
+    width: Math.max(1, Math.round(bounds.width * scale)),
+    height: Math.max(1, Math.round(bounds.height * scale))
   }
 }

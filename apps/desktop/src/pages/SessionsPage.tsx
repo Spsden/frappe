@@ -1,231 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type {
-  BackendRecordingStatus,
-  RecordingState,
-  RecordedSessionSummary
-} from '../../shared/recording'
+import type { RecordedSessionSummary } from '../../shared/recording'
 import { useRecording } from '../features/recording/useRecording'
-
-const PAGE_SIZE = 5
-
-const stageLabels: Record<BackendRecordingStatus, string> = {
-  recording: 'Recording',
-  uploading: 'Uploading',
-  validating: 'Validating',
-  transcribing_audio: 'Transcribing',
-  processing_screenshots: 'Annotating',
-  aligning_evidence: 'Aligning',
-  generating_sop: 'Creating SOP',
-  ready_for_review: 'Ready',
-  completed: 'Completed',
-  failed: 'Failed'
-}
-
-const stageDescriptions: Record<BackendRecordingStatus, string> = {
-  recording: 'Desktop app is still capturing local evidence.',
-  uploading: 'Raw events, screenshots and audio are moving to the backend.',
-  validating: 'Backend is checking chunk order, hashes and metadata.',
-  transcribing_audio: 'Audio narration is queued for transcript generation.',
-  processing_screenshots: 'Screenshots are being indexed and prepared for highlights.',
-  aligning_evidence: 'Clicks, keys, screenshots and transcript are being lined up.',
-  generating_sop: 'SOP draft is being created from the aligned evidence.',
-  ready_for_review: 'Draft SOP and evidence are ready for human review.',
-  completed: 'Processing has completed.',
-  failed: 'Backend processing failed.'
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(new Date(value))
-}
-
-function formatDuration(durationMs: number | null) {
-  if (durationMs === null) {
-    return 'Active'
-  }
-
-  const totalSeconds = Math.max(0, Math.round(durationMs / 1000))
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-
-  return `${minutes}m ${seconds.toString().padStart(2, '0')}s`
-}
-
-function activeRecordingSummary(state: RecordingState): RecordedSessionSummary | null {
-  if (
-    !state.sessionId ||
-    !state.outputPath ||
-    !state.startedAt ||
-    state.status === 'idle' ||
-    state.status === 'completed'
-  ) {
-    return null
-  }
-
-  return {
-    id: state.sessionId,
-    name: state.sessionName || 'Untitled workflow',
-    platform:
-      navigator.platform.toLowerCase().includes('win')
-        ? 'win32'
-        : navigator.platform.toLowerCase().includes('mac')
-          ? 'darwin'
-          : 'linux',
-    startedAt: state.startedAt,
-    endedAt: null,
-    durationMs: Math.max(0, Date.now() - new Date(state.startedAt).getTime()),
-    localStatus: state.status,
-    eventCount: state.eventCount,
-    screenshotCount: state.screenshotCount,
-    audioChunkCount: state.audioChunkCount,
-    outputPath: state.outputPath,
-    remoteRecordingId: state.remoteRecordingId,
-    remoteSessionId: state.remoteSessionId,
-    remoteStatus: null,
-    uploadedAt: null,
-    uploadError: state.error,
-    backend: null,
-    backendError: null
-  }
-}
-
-function statusForSession(session: RecordedSessionSummary): BackendRecordingStatus | 'local' {
-  if (session.backend?.recording.status) {
-    return session.backend.recording.status
-  }
-
-  if (session.remoteStatus) {
-    return session.remoteStatus as BackendRecordingStatus
-  }
-
-  return 'local'
-}
-
-function statusLabel(session: RecordedSessionSummary) {
-  const status = statusForSession(session)
-
-  if (status === 'local') {
-    if (session.uploadError || session.localStatus === 'error') {
-      return 'Upload failed'
-    }
-
-    if (session.localStatus === 'awaiting-save') {
-      return 'Waiting to save'
-    }
-
-    if (session.localStatus === 'paused') {
-      return 'Paused'
-    }
-
-    if (session.localStatus === 'uploading') {
-      return 'Uploading'
-    }
-
-    if (session.localStatus === 'processing') {
-      return 'Processing'
-    }
-
-    return 'Local only'
-  }
-
-  return stageLabels[status] ?? status
-}
-
-function statusDot(session: RecordedSessionSummary) {
-  const status = statusForSession(session)
-
-  if (status === 'failed' || session.uploadError || session.localStatus === 'error') {
-    return 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.55)]'
-  }
-
-  if (status === 'ready_for_review' || status === 'completed') {
-    return 'bg-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.5)]'
-  }
-
-  if (status === 'local') {
-    if (
-      session.localStatus === 'recording' ||
-      session.localStatus === 'paused' ||
-      session.localStatus === 'stopping' ||
-      session.localStatus === 'awaiting-save' ||
-      session.localStatus === 'uploading' ||
-      session.localStatus === 'processing'
-    ) {
-      return 'animate-pulse bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.45)]'
-    }
-
-    return 'bg-zinc-300'
-  }
-
-  return 'animate-pulse bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.45)]'
-}
-
-function statusDescriptionForSession(session: RecordedSessionSummary) {
-  const status = statusForSession(session)
-
-  if (session.uploadError) {
-    return session.uploadError
-  }
-
-  if (session.backend?.recording.error_message) {
-    return session.backend.recording.error_message
-  }
-
-  if (session.backendError) {
-    return session.backendError
-  }
-
-  if (status !== 'local') {
-    return stageDescriptions[status] ?? 'Backend is processing this recording.'
-  }
-
-  if (session.localStatus === 'awaiting-save') {
-    return 'Recording is captured locally. Save it to start backend processing.'
-  }
-
-  if (session.localStatus === 'uploading') {
-    return 'Electron is uploading raw events, screenshots and audio chunks.'
-  }
-
-  if (session.localStatus === 'processing') {
-    return 'Backend processing has been requested and status will sync shortly.'
-  }
-
-  if (session.localStatus === 'recording' || session.localStatus === 'paused') {
-    return 'Desktop app is still capturing local evidence.'
-  }
-
-  return 'This recording is saved locally and has not been uploaded yet.'
-}
-
-function isFinished(session: RecordedSessionSummary) {
-  const status = statusForSession(session)
-  return status === 'ready_for_review' || status === 'completed'
-}
-
-function isFailed(session: RecordedSessionSummary) {
-  return (
-    statusForSession(session) === 'failed' ||
-    session.localStatus === 'error' ||
-    Boolean(session.uploadError)
-  )
-}
-
-function canDeleteSession(session: RecordedSessionSummary) {
-  return ![
-    'recording',
-    'paused',
-    'stopping',
-    'awaiting-save',
-    'uploading',
-    'processing'
-  ].includes(session.localStatus)
-}
+import { StepProgress } from '../components/StepProgress'
+import {
+  activeRecordingSummary,
+  canDeleteSession,
+  canRetrySop,
+  canRetrySession,
+  formatDate,
+  formatDuration,
+  isFailed,
+  statusDot,
+  statusForSession,
+  statusLabel
+} from '../features/recording/sessionStatus'
 
 function statusClassName(session: RecordedSessionSummary) {
   const label = statusLabel(session).toLowerCase()
@@ -263,8 +52,11 @@ function EmptyState({ onRefresh }: { onRefresh: () => void }) {
     <section className="dashboard-page">
       <div className="dashboard-container">
         <div className="page-header">
-          <h1>Recordings</h1>
-          <p>Track recorded workflows.</p>
+          <h1>Recorded Workflows</h1>
+          <p>
+            Live processing status at a glance. Click a session for evidence,
+            transcript and SOP.
+          </p>
         </div>
 
         <div className="list-controls">
@@ -290,12 +82,17 @@ function EmptyState({ onRefresh }: { onRefresh: () => void }) {
             </button>
 
             <p>
-              No recordings yet. Finished recordings will appear here with backend processing
-              stages, evidence counts, audio transcript status and SOP readiness.
+              No recordings yet. Finished recordings will appear here with
+              backend processing stages, evidence counts, audio transcript
+              status and SOP readiness.
             </p>
 
             <div style={{ marginTop: '1.75rem' }}>
-              <button type="button" onClick={onRefresh} className="gradient-button">
+              <button
+                type="button"
+                onClick={onRefresh}
+                className="gradient-button"
+              >
                 Refresh
               </button>
             </div>
@@ -306,118 +103,31 @@ function EmptyState({ onRefresh }: { onRefresh: () => void }) {
   )
 }
 
-function ProcessingStatusCard({ session }: { session: RecordedSessionSummary }) {
-  const failed = isFailed(session)
-  const finished = isFinished(session)
-
-  return (
-    <div className="processing-card">
-      <div className="selected-card-header">
-        <div>
-          <p className="section-label">Processing status</p>
-          <h3 className="selected-title">{statusLabel(session)}</h3>
-        </div>
-
-        <span className={`size-3 rounded-full ${statusDot(session)}`} />
-      </div>
-
-      <div className="processing-visual">
-        <div className="processing-circle-wrap">
-          <span
-            className={[
-              'processing-ring',
-              failed ? 'failed' : finished ? 'finished' : 'processing'
-            ].join(' ')}
-          />
-
-          <span
-            className={[
-              'processing-icon',
-              failed ? 'failed' : finished ? 'finished' : ''
-            ].join(' ')}
-          >
-            {failed ? '!' : finished ? '✓' : '●'}
-          </span>
-        </div>
-      </div>
-
-      <p className="processing-description">{statusDescriptionForSession(session)}</p>
-
-      {!failed && !finished && (
-        <div className="processing-dots">
-          {[0, 1, 2].map((dot) => (
-            <span key={dot} style={{ animationDelay: `${dot * 180}ms` }} />
-          ))}
-        </div>
-      )}
-
-      <div className="status-detail-grid">
-        <div className="status-detail-box">
-          <p className="evidence-label">Backend status</p>
-          <p className="status-detail-text">
-            {session.backend?.recording.status ?? session.remoteStatus ?? 'not uploaded'}
-          </p>
-        </div>
-
-        <div className="status-detail-box">
-          <p className="evidence-label">Local status</p>
-          <p className="status-detail-text">{session.localStatus}</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function EvidenceMetric({
-  label,
-  value
-}: {
-  label: string
-  value: string | number
-}) {
-  return (
-    <div className="evidence-metric">
-      <p className="evidence-label">{label}</p>
-      <p className="evidence-value">{value}</p>
-    </div>
-  )
-}
-
 export function SessionsPage() {
+  const navigate = useNavigate()
   const { state: recordingState } = useRecording()
+
   const [sessions, setSessions] = useState<RecordedSessionSummary[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [busyAction, setBusyAction] = useState<
+    'upload' | 'sop' | 'delete' | null
+  >(null)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [currentPage, setCurrentPage] = useState(1)
-
-  const selected = useMemo(
-    () => {
-      const active = activeRecordingSummary(recordingState)
-      const merged =
-        active && !sessions.some((session) => session.id === active.id)
-          ? [active, ...sessions]
-          : sessions.map((session) => (active?.id === session.id ? active : session))
-
-      return merged.find((session) => session.id === selectedId) ?? merged[0] ?? null
-    },
-    [recordingState, selectedId, sessions]
-  )
 
   const displaySessions = useMemo(() => {
     const active = activeRecordingSummary(recordingState)
 
-    if (!active) {
-      return sessions
-    }
+    if (!active) return sessions
 
     if (!sessions.some((session) => session.id === active.id)) {
       return [active, ...sessions]
     }
 
-    return sessions.map((session) => (session.id === active.id ? active : session))
+    return sessions.map((session) =>
+      session.id === active.id ? active : session
+    )
   }, [recordingState, sessions])
 
   const filteredSessions = useMemo(() => {
@@ -447,15 +157,6 @@ export function SessionsPage() {
       })
   }, [displaySessions, searchTerm])
 
-  const totalPages = Math.max(1, Math.ceil(filteredSessions.length / PAGE_SIZE))
-
-  const paginatedSessions = useMemo(() => {
-    const safePage = Math.min(currentPage, totalPages)
-    const startIndex = (safePage - 1) * PAGE_SIZE
-
-    return filteredSessions.slice(startIndex, startIndex + PAGE_SIZE)
-  }, [filteredSessions, currentPage, totalPages])
-
   const refresh = async (showLoading = false) => {
     if (showLoading) {
       setIsLoading(true)
@@ -464,17 +165,47 @@ export function SessionsPage() {
     setError(null)
 
     try {
-      const nextSessions = await window.api.recording.listSessions()
-      setSessions(nextSessions)
-      setSelectedId((current) =>
-        current && nextSessions.some((session) => session.id === current)
-          ? current
-          : activeRecordingSummary(recordingState)?.id ?? nextSessions[0]?.id ?? null
-      )
+      setSessions(await window.api.recording.listSessions())
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not load recorded sessions.')
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not load recorded sessions.'
+      )
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const retrySession = async (session: RecordedSessionSummary) => {
+    setBusyId(session.id)
+    setBusyAction('upload')
+    setError(null)
+
+    try {
+      await window.api.recording.retry(session.id, 'upload')
+      void refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Retry failed.')
+    } finally {
+      setBusyId(null)
+      setBusyAction(null)
+    }
+  }
+
+  const retryServerSop = async (session: RecordedSessionSummary) => {
+    setBusyId(session.id)
+    setBusyAction('sop')
+    setError(null)
+
+    try {
+      await window.api.recording.retry(session.id, 'sop')
+      void refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'SOP retry failed.')
+    } finally {
+      setBusyId(null)
+      setBusyAction(null)
     }
   }
 
@@ -483,42 +214,51 @@ export function SessionsPage() {
       `Delete "${session.name}"? This removes the local recording and attempts to remove the backend recording too.`
     )
 
-    if (!confirmed) {
-      return
-    }
+    if (!confirmed) return
 
-    setDeletingId(session.id)
+    setBusyId(session.id)
+    setBusyAction('delete')
     setError(null)
 
     try {
       await window.api.recording.deleteSession(session.id)
-      setSessions((current) => current.filter((item) => item.id !== session.id))
-      setSelectedId((current) => (current === session.id ? null : current))
-      void refresh()
+      setSessions((current) =>
+        current.filter((item) => item.id !== session.id)
+      )
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not delete recorded session.')
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not delete recorded session.'
+      )
     } finally {
-      setDeletingId(null)
+      setBusyId(null)
+      setBusyAction(null)
     }
   }
 
   useEffect(() => {
-    void refresh(true)
+    let active = true
+    let timer: number | undefined
 
-    const timer = window.setInterval(() => void refresh(false), 3000)
+    const poll = async (showLoading: boolean) => {
+      await refresh(showLoading)
 
-    return () => window.clearInterval(timer)
-  }, [])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [searchTerm])
-
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages)
+      if (active) {
+        timer = window.setTimeout(() => void poll(false), 3000)
+      }
     }
-  }, [currentPage, totalPages])
+
+    void poll(true)
+
+    return () => {
+      active = false
+
+      if (timer) {
+        window.clearTimeout(timer)
+      }
+    }
+  }, [])
 
   if (!isLoading && displaySessions.length === 0) {
     return <EmptyState onRefresh={() => void refresh()} />
@@ -528,15 +268,12 @@ export function SessionsPage() {
     <section className="dashboard-page">
       <div className="dashboard-container">
         <div className="page-header">
-          <h1>Recordings</h1>
-          <p>Track recorded workflows.</p>
-        </div>
-
-        {error && (
-          <p className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-            {error}
+          <h1>Recorded Workflows</h1>
+          <p>
+            Live processing status at a glance. Click a session for evidence,
+            transcript and SOP.
           </p>
-        )}
+        </div>
 
         <div className="list-controls recordings-list-controls">
           <input
@@ -555,156 +292,124 @@ export function SessionsPage() {
           >
             {isLoading ? 'Refreshing...' : 'Refresh'}
           </button>
-
-          {filteredSessions.length > PAGE_SIZE && (
-            <div className="pagination-inline">
-              <button
-                type="button"
-                className="pagination-button"
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-              >
-                Previous
-              </button>
-
-              <span className="pagination-text">
-                Page {currentPage} of {totalPages}
-              </span>
-
-              <button
-                type="button"
-                className="pagination-button"
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-              >
-                Next
-              </button>
-            </div>
-          )}
         </div>
 
-        <div className="table-card recordings-card">
-          <div className="table-card-topline" />
+        {error && (
+          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {error}
+          </p>
+        )}
 
-          <div className="table-scroll">
-            <div className="recordings-table table-row table-head">
-              <span>Workflow</span>
-              <span>Duration</span>
-              <span>Events</span>
-              <span>Screenshots</span>
-              <span>Processing Status</span>
-              <span>Action</span>
-            </div>
+        <div className="mt-6 space-y-4">
+          {filteredSessions.length === 0 ? (
+            <div className="table-card recordings-card">
+              <div className="table-card-topline" />
 
-            {filteredSessions.length === 0 ? (
               <div className="empty-table-message">
                 <strong>No recordings found</strong>
-                <p>Try searching by workflow name, location, or status.</p>
+                <p>Try searching by workflow name or status.</p>
               </div>
-            ) : (
-              paginatedSessions.map((session) => {
-                const isSelected = selected?.id === session.id
-                const canDelete = canDeleteSession(session)
+            </div>
+          ) : (
+            filteredSessions.map((session) => {
+              const failed = isFailed(session)
+              const retryable = canRetrySession(session)
+              const sopRetryable = canRetrySop(session)
+              const deletable = canDeleteSession(session)
+              const isBusy = busyId === session.id
 
-                return (
-                  <div
-                    key={session.id}
-                    className={[
-                      'recordings-table table-row',
-                      isSelected ? 'selected' : ''
-                    ].join(' ')}
-                  >
+              return (
+                <article
+                  key={session.id}
+                  className="overflow-hidden rounded-2xl border border-white/70 bg-white/80 shadow-[0_16px_45px_rgba(95,60,150,0.10)] backdrop-blur transition hover:-translate-y-0.5 hover:shadow-[0_20px_55px_rgba(95,60,150,0.16)]"
+                >
+                  <div className="table-card-topline" />
+
+                  <div className="flex items-start gap-5 p-5">
                     <button
                       type="button"
-                      onClick={() => setSelectedId(session.id)}
-                      className="workflow-button"
+                      onClick={() => navigate(`/sessions/${session.id}`)}
+                      className="min-w-0 flex-1 text-left"
                     >
-                      <div className="workflow-title-line">
-                        <span
-                          className={`size-2.5 shrink-0 rounded-full ${statusDot(session)}`}
-                        />
-                        <strong className="workflow-title">{session.name}</strong>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-3">
+                            <span
+                              className={`size-2.5 shrink-0 rounded-full ${statusDot(
+                                session
+                              )}`}
+                            />
+
+                            <h3 className="truncate text-lg font-bold text-slate-800">
+                              {session.name}
+                            </h3>
+                          </div>
+
+                          <p className="mt-2 text-sm text-slate-500">
+                            {formatDate(session.startedAt)}
+                            {' · '}
+                            {formatDuration(session.durationMs)}
+                          </p>
+                        </div>
+
+                        <span className={statusClassName(session)}>
+                          {statusLabel(session)}
+                        </span>
                       </div>
 
-                      <p className="muted-text">
-                        {formatDate(session.startedAt)} · {session.outputPath}
-                      </p>
+                       <div className="mt-5">
+                        <StepProgress
+                          status={statusForSession(session)}
+                          failed={failed}
+                          hasAudio={session.audioChunkCount > 0}
+                        />
+                      </div>
                     </button>
 
-                    <span>{formatDuration(session.durationMs)}</span>
-                    <span>{session.eventCount}</span>
-                    <span>{session.screenshotCount}</span>
+                    <div className="flex shrink-0 flex-col gap-2">
+                      {sopRetryable && (
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => void retryServerSop(session)}
+                          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 transition hover:bg-amber-100 disabled:cursor-wait disabled:opacity-40"
+                        >
+                          {isBusy && busyAction === 'sop'
+                            ? 'Retrying'
+                            : 'Retry SOP'}
+                        </button>
+                      )}
 
-                    <span className={statusClassName(session)}>
-                      {statusLabel(session)}
-                    </span>
+                      {retryable && (
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => void retrySession(session)}
+                          className="rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700 transition hover:bg-purple-100 disabled:cursor-wait disabled:opacity-40"
+                        >
+                          {isBusy && busyAction === 'upload'
+                            ? 'Retrying'
+                            : 'Retry'}
+                        </button>
+                      )}
 
-                    <div className="action-group">
                       <button
                         type="button"
-                        onClick={() => setSelectedId(session.id)}
-                        className="action-button"
-                      >
-                        View
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={!canDelete || deletingId === session.id}
+                        disabled={!deletable || isBusy}
                         onClick={() => void deleteSession(session)}
-                        className="delete-button"
+                        className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        {deletingId === session.id ? 'Deleting' : 'Delete'}
+                        {isBusy && busyAction === 'delete'
+                          ? 'Deleting'
+                          : 'Delete'}
                       </button>
                     </div>
                   </div>
-                )
-              })
-            )}
-          </div>
+                </article>
+              )
+            })
+          )}
         </div>
-
-        
-        {selected && (
-          <div className="selected-recording-grid">
-            <div className="selected-card">
-              <div className="selected-card-header">
-                <div>
-                  <p className="section-label">Selected recording</p>
-                  <h3 className="selected-title">{selected.name}</h3>
-                  <p className="selected-path">{selected.outputPath}</p>
-                </div>
-
-                <span className="selected-status-pill">{statusLabel(selected)}</span>
-              </div>
-
-              <div className="metric-grid">
-                <EvidenceMetric label="Duration" value={formatDuration(selected.durationMs)} />
-                <EvidenceMetric label="Events" value={selected.eventCount} />
-                <EvidenceMetric label="Screenshots" value={selected.screenshotCount} />
-                <EvidenceMetric label="Audio" value={selected.audioChunkCount} />
-              </div>
-
-              <div className="status-detail-grid">
-                <div className="status-detail-box">
-                  <p className="evidence-label">Backend recording</p>
-                  <p className="status-detail-text">
-                    {selected.remoteRecordingId ?? 'Not uploaded yet'}
-                  </p>
-                </div>
-
-                <div className="status-detail-box">
-                  <p className="evidence-label">SOP session</p>
-                  <p className="status-detail-text">
-                    {selected.remoteSessionId ?? 'Pending'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <ProcessingStatusCard session={selected} />
-          </div>
-        )}
       </div>
     </section>
   )

@@ -1,0 +1,849 @@
+import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import type {
+  BackendTranscript,
+  BackendWorkflowSession,
+  RecordedSessionSummary
+} from '../../shared/recording'
+import { useRecording } from '../features/recording/useRecording'
+import {
+  activeRecordingSummary,
+  canDeleteSession,
+  canRetrySop,
+  canRetrySession,
+  formatDate,
+  formatDuration,
+  isFailed,
+  statusDot,
+  statusForSession,
+  statusLabel
+} from '../features/recording/sessionStatus'
+import { StepProgress } from '../components/StepProgress'
+import { EvidenceGallery } from '../components/EvidenceGallery'
+
+function EvidenceMetric({
+  label,
+  value
+}: {
+  label: string
+  value: string | number
+}) {
+  return (
+    <div className="evidence-metric">
+      <p className="evidence-label">{label}</p>
+      <p className="evidence-value">{value}</p>
+    </div>
+  )
+}
+
+function ProcessingStatusCard({
+  session
+}: {
+  session: RecordedSessionSummary
+}) {
+  const failed = isFailed(session)
+  const status = statusForSession(session)
+
+  const finished =
+    status === 'ready_for_review' ||
+    status === 'completed'
+
+  return (
+    <div className="processing-card">
+      <div className="selected-card-header">
+        <div>
+          <p className="section-label">Processing status</p>
+          <h3 className="selected-title">
+            {statusLabel(session)}
+          </h3>
+        </div>
+
+        <span
+          className={`size-3 rounded-full ${statusDot(session)}`}
+        />
+      </div>
+
+      <div className="processing-visual">
+        <div className="processing-circle-wrap">
+          <span
+            className={[
+              'processing-ring',
+              failed
+                ? 'failed'
+                : finished
+                  ? 'finished'
+                  : 'processing'
+            ].join(' ')}
+          />
+
+          <span
+            className={[
+              'processing-icon',
+              failed
+                ? 'failed'
+                : finished
+                  ? 'finished'
+                  : ''
+            ].join(' ')}
+          >
+            {failed ? '!' : finished ? '✓' : '●'}
+          </span>
+        </div>
+      </div>
+
+
+
+      <div className="status-detail-grid">
+        <div className="status-detail-box">
+          <p className="evidence-label">
+            Backend status
+          </p>
+
+          <p className="status-detail-text">
+            {session.backend?.recording.status ??
+              session.remoteStatus ??
+              'Not uploaded'}
+          </p>
+        </div>
+
+        <div className="status-detail-box">
+          <p className="evidence-label">
+            Local status
+          </p>
+
+          <p className="status-detail-text">
+            {session.localStatus}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function formatTimestamp(ms: number) {
+  const seconds = Math.floor(ms / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+
+  return `${minutes}:${remainder
+    .toString()
+    .padStart(2, '0')}`
+}
+
+function TranscriptPanel({
+  session,
+  editable,
+  value,
+  onChange
+}: {
+  session: BackendWorkflowSession | null
+  editable?: boolean
+  value?: string
+  onChange?: (value: string) => void
+}) {
+  if (!session) {
+    return (
+      <p className="muted-text">
+        Transcript is unavailable until the recording finishes uploading.
+      </p>
+    )
+  }
+
+  const transcript: BackendTranscript | null = session.transcript
+
+  if (!transcript || transcript.status === 'not_recorded') {
+    if (!editable) {
+      return (
+        <p className="muted-text">
+          No audio narration was recorded.
+        </p>
+      )
+    }
+
+    return (
+      <textarea
+        value={value ?? ''}
+        onChange={(event) => onChange?.(event.target.value)}
+        placeholder="No audio was recorded. Add reviewer notes for the SOP if useful."
+        className="save-input min-h-36 w-full resize-y"
+      />
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="evidence-label">
+        Status · {transcript.status}
+      </p>
+
+      {transcript.text ? (
+        editable ? (
+          <textarea
+            value={value ?? ''}
+            onChange={(event) => onChange?.(event.target.value)}
+            className="save-input min-h-44 w-full resize-y"
+            placeholder="Review and edit the transcript..."
+          />
+        ) : (
+          <p className="text-sm leading-6 text-slate-600">
+            {transcript.text}
+          </p>
+        )
+      ) : editable ? (
+        <textarea
+          value={value ?? ''}
+          onChange={(event) => onChange?.(event.target.value)}
+          className="save-input min-h-44 w-full resize-y"
+          placeholder="Transcript is empty. Add context for the SOP..."
+        />
+      ) : (
+        <p className="muted-text">
+          {transcript.status === 'pending_transcription'
+            ? 'Audio is queued for transcription.'
+            : 'No transcript text available.'}
+        </p>
+      )}
+
+      {!editable && transcript.segments.length > 0 && (
+        <ul className="space-y-2">
+          {transcript.segments.map((segment, index) => (
+            <li
+              key={index}
+              className="flex gap-3 text-sm text-slate-600"
+            >
+              <span className="shrink-0 font-mono text-[10px] text-slate-400">
+                {formatTimestamp(segment.start_ms)}
+              </span>
+
+              <span>{segment.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+export function SessionDetailPage() {
+  const { id = '' } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const { state: recordingState } = useRecording()
+
+  const [session, setSession] =
+    useState<RecordedSessionSummary | null>(null)
+
+  const [backendSession, setBackendSession] =
+    useState<BackendWorkflowSession | null>(null)
+
+  const [isLoading, setIsLoading] = useState(true)
+
+  const [acting, setActing] = useState<
+    'upload' | 'sop' | 'review' | 'delete' | null
+  >(null)
+
+  const [error, setError] = useState<string | null>(null)
+  const [transcriptDraft, setTranscriptDraft] = useState('')
+  const [customInstruction, setCustomInstruction] = useState('')
+  const [reviewDirty, setReviewDirty] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: number | undefined
+
+    const load = async () => {
+      setError(null)
+
+      try {
+        const sessions =
+          await window.api.recording.listSessions()
+
+        if (cancelled) return
+
+        const active =
+          activeRecordingSummary(recordingState)
+
+        const merged =
+          active &&
+          !sessions.some((item) => item.id === active.id)
+            ? [active, ...sessions]
+            : sessions.map((item) =>
+                item.id === active?.id ? active : item
+              )
+
+        const found =
+          merged.find((item) => item.id === id) ?? null
+
+        setSession(found)
+        setBackendSession(null)
+
+        if (found?.remoteSessionId) {
+          try {
+            const backend =
+              await window.api.recording.getSession(
+                found.remoteSessionId
+              )
+
+            if (!cancelled) {
+              setBackendSession(backend)
+            }
+          } catch {
+            // Local session summary can still render.
+          }
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : 'Could not load session.'
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+
+          timer = window.setTimeout(
+            () => void load(),
+            3000
+          )
+        }
+      }
+    }
+
+    void load()
+
+    return () => {
+      cancelled = true
+
+      if (timer) {
+        window.clearTimeout(timer)
+      }
+    }
+  }, [id, recordingState])
+
+  useEffect(() => {
+    if (reviewDirty) return
+
+    const transcript = backendSession?.transcript
+
+    const transcriptText =
+      transcript?.text ??
+      transcript?.segments
+        .map((segment) => segment.text)
+        .join('\n') ??
+      ''
+
+    setTranscriptDraft(transcriptText)
+
+    setCustomInstruction(
+      session?.backend?.recording.custom_sop_instruction ?? ''
+    )
+  }, [
+    backendSession,
+    reviewDirty,
+    session?.backend?.recording.custom_sop_instruction
+  ])
+
+  const retry = async () => {
+    setActing('upload')
+    setError(null)
+
+    try {
+      await window.api.recording.retry(id, 'upload')
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Retry failed.'
+      )
+    } finally {
+      setActing(null)
+    }
+  }
+
+  const retryServerSop = async () => {
+    setActing('sop')
+    setError(null)
+
+    try {
+      await window.api.recording.retry(id, 'sop')
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'SOP retry failed.'
+      )
+    } finally {
+      setActing(null)
+    }
+  }
+
+  const saveReview = async () => {
+    if (!session?.remoteRecordingId) return
+
+    setActing('review')
+    setError(null)
+
+    try {
+      const recording =
+        await window.api.recording.saveManualReview(
+          session.remoteRecordingId,
+          transcriptDraft,
+          customInstruction
+        )
+
+      setSession((current) =>
+        current
+          ? {
+              ...current,
+              remoteStatus: recording.status,
+              backend: current.backend
+                ? {
+                    ...current.backend,
+                    recording
+                  }
+                : current.backend
+            }
+          : current
+      )
+
+      setReviewDirty(false)
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not save review.'
+      )
+    } finally {
+      setActing(null)
+    }
+  }
+
+  const generateSop = async () => {
+    if (!session?.remoteRecordingId) return
+
+    setActing('sop')
+    setError(null)
+
+    try {
+      if (reviewDirty) {
+        await window.api.recording.saveManualReview(
+          session.remoteRecordingId,
+          transcriptDraft,
+          customInstruction
+        )
+
+        setReviewDirty(false)
+      }
+
+      const recording =
+        await window.api.recording.generateSop(
+          session.remoteRecordingId,
+          customInstruction
+        )
+
+      setSession((current) =>
+        current
+          ? {
+              ...current,
+              remoteStatus: recording.status,
+              backend: current.backend
+                ? {
+                    ...current.backend,
+                    recording
+                  }
+                : current.backend
+            }
+          : current
+      )
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not start SOP generation.'
+      )
+    } finally {
+      setActing(null)
+    }
+  }
+
+  const remove = async () => {
+    if (!session) return
+
+    const confirmed = window.confirm(
+      `Delete "${session.name}"? This removes the local recording and attempts to remove the backend recording too.`
+    )
+
+    if (!confirmed) return
+
+    setActing('delete')
+    setError(null)
+
+    try {
+      await window.api.recording.deleteSession(id)
+      navigate('/sessions')
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not delete session.'
+      )
+
+      setActing(null)
+    }
+  }
+
+  if (isLoading && !session) {
+    return (
+      <main className="grid min-h-[calc(100vh-3.5rem)] place-items-center bg-[#fafafb]">
+        <span className="size-2.5 animate-pulse rounded-full bg-purple-400" />
+      </main>
+    )
+  }
+
+  if (!session) {
+    return (
+      <main className="dashboard-page">
+        <div className="dashboard-container">
+          <button
+            type="button"
+            onClick={() => navigate('/sessions')}
+            className="record-workflow-link"
+          >
+            ← Back to sessions
+          </button>
+
+          <p className="muted-text">
+            {error ?? 'This session could not be found.'}
+          </p>
+        </div>
+      </main>
+    )
+  }
+
+  const failed = isFailed(session)
+  const retryable = canRetrySession(session)
+  const sopRetryable = canRetrySop(session)
+  const deletable = canDeleteSession(session)
+
+  const backendRecording =
+    session.backend?.recording
+
+  const currentStatus =
+    statusForSession(session)
+
+  const isManualReview =
+    Boolean(backendRecording?.manual_mode) &&
+    (currentStatus === 'awaiting_manual_review' ||
+      currentStatus === 'sop_failed')
+
+  const sopReady =
+    currentStatus === 'ready_for_review' ||
+    currentStatus === 'completed'
+
+  return (
+    <main className="dashboard-page">
+      <div className="dashboard-container">
+        <button
+          type="button"
+          onClick={() => navigate('/sessions')}
+          className="record-workflow-link"
+        >
+          ← Back to sessions
+        </button>
+
+        {error && (
+          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {error}
+          </p>
+        )}
+
+        <div className="selected-recording-grid">
+          <section className="selected-card">
+            <div className="selected-card-header">
+              <div className="min-w-0">
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`size-2.5 shrink-0 rounded-full ${statusDot(
+                      session
+                    )}`}
+                  />
+
+                  <h2 className="selected-title truncate">
+                    {session.name}
+                  </h2>
+                </div>
+
+                <p className="selected-path">
+                  {formatDate(session.startedAt)} ·{' '}
+                  {formatDuration(session.durationMs)}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {session.remoteSessionId && sopReady && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(`/sessions/${id}/sop`)
+                    }
+                    className="gradient-button"
+                  >
+                    View SOP
+                  </button>
+                )}
+
+                {isManualReview && (
+                  <button
+                    type="button"
+                    disabled={acting !== null}
+                    onClick={() => void generateSop()}
+                    className="gradient-button"
+                  >
+                    {acting === 'sop'
+                      ? 'Starting'
+                      : 'Generate SOP'}
+                  </button>
+                )}
+
+                {sopRetryable && !isManualReview && (
+                  <button
+                    type="button"
+                    disabled={acting !== null}
+                    onClick={() => void retryServerSop()}
+                    className="action-button"
+                  >
+                    {acting === 'sop'
+                      ? 'Retrying'
+                      : 'Retry SOP'}
+                  </button>
+                )}
+
+                {retryable && (
+                  <button
+                    type="button"
+                    disabled={acting !== null}
+                    onClick={() => void retry()}
+                    className="action-button"
+                  >
+                    {acting === 'upload'
+                      ? 'Retrying'
+                      : 'Retry'}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  disabled={!deletable || acting !== null}
+                  onClick={() => void remove()}
+                  className="delete-button"
+                >
+                  {acting === 'delete'
+                    ? 'Deleting'
+                    : 'Delete'}
+                </button>
+              </div>
+            </div>
+            <div className="mt-5">
+              <StepProgress
+                status={statusForSession(session)}
+                failed={failed}
+                hasAudio={session.audioChunkCount > 0}
+                barClassName="h-2"
+              />
+            </div>
+
+            <div className="metric-grid">
+              <EvidenceMetric
+                label="Duration"
+                value={formatDuration(session.durationMs)}
+              />
+
+              <EvidenceMetric
+                label="Events"
+                value={session.eventCount}
+              />
+
+              <EvidenceMetric
+                label="Screenshots"
+                value={session.screenshotCount}
+              />
+
+              <EvidenceMetric
+                label="Audio"
+                value={session.audioChunkCount}
+              />
+            </div>
+
+            <div className="status-detail-grid">
+              <div className="status-detail-box">
+                <p className="evidence-label">
+                  Backend recording
+                </p>
+
+                <p className="status-detail-text break-all">
+                  {session.remoteRecordingId ??
+                    'Not uploaded yet'}
+                </p>
+              </div>
+
+              <div className="status-detail-box">
+                <p className="evidence-label">
+                  SOP session
+                </p>
+
+                <p className="status-detail-text break-all">
+                  {session.remoteSessionId ?? 'Pending'}
+                </p>
+              </div>
+            </div>
+
+            {session.uploadError && (
+              <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                {session.uploadError}
+              </p>
+            )}
+          </section>
+
+          <ProcessingStatusCard session={session} />
+        </div>
+
+        {isManualReview && (
+          <section className="table-card recordings-card mt-6">
+            <div className="table-card-topline" />
+
+            <div style={{ padding: '1.5rem' }}>
+              <div className="selected-card-header">
+                <div>
+                  <p className="section-label">
+                    Manual review
+                  </p>
+
+                  <h3 className="selected-title">
+                    Evidence is ready for human edits
+                  </h3>
+
+                  <p className="muted-text mt-2">
+                    Adjust annotations, clean up the transcript,
+                    and add a short instruction for the SOP prompt.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={acting !== null || !reviewDirty}
+                    onClick={() => void saveReview()}
+                    className="action-button"
+                  >
+                    {acting === 'review'
+                      ? 'Saving'
+                      : reviewDirty
+                        ? 'Save review'
+                        : 'Saved'}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={acting !== null}
+                    onClick={() => void generateSop()}
+                    className="gradient-button"
+                  >
+                    {acting === 'sop'
+                      ? 'Starting'
+                      : 'Generate SOP'}
+                  </button>
+                </div>
+              </div>
+
+              <label className="save-field mt-5">
+                <span>Custom SOP instruction</span>
+
+                <textarea
+                  value={customInstruction}
+                  onChange={(event) => {
+                    setCustomInstruction(event.target.value)
+                    setReviewDirty(true)
+                  }}
+                  placeholder="Example: make this SOP concise, mention checks before approval..."
+                  className="save-input min-h-24 w-full resize-y"
+                />
+              </label>
+            </div>
+          </section>
+        )}
+
+        <section className="table-card recordings-card mt-6">
+          <div className="table-card-topline" />
+
+          <div style={{ padding: '1.5rem' }}>
+            <div className="selected-card-header">
+              <div>
+                <p className="section-label">
+                  Session data
+                </p>
+
+                <h3 className="selected-title">
+                  Transcript
+                </h3>
+              </div>
+
+              <span className="selected-status-pill">
+                {statusLabel(session)}
+              </span>
+            </div>
+
+            <div style={{ marginTop: '1.25rem' }}>
+              <TranscriptPanel
+                session={backendSession}
+                editable={isManualReview}
+                value={transcriptDraft}
+                onChange={(value) => {
+                  setTranscriptDraft(value)
+                  setReviewDirty(true)
+                }}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="table-card recordings-card mt-6">
+          <div className="table-card-topline" />
+
+          <div style={{ padding: '1.5rem' }}>
+            <div className="selected-card-header">
+              <div>
+                <p className="section-label">
+                  Captured evidence
+                </p>
+
+                <h3 className="selected-title">
+                  Screenshots
+                </h3>
+
+                <p className="muted-text mt-1">
+                  Captured screenshots with click &amp; scroll highlights.
+                </p>
+              </div>
+
+              {session.remoteSessionId && (
+                <span className="selected-status-pill">
+                  {session.screenshotCount}{' '}
+                  frame
+                  {session.screenshotCount === 1 ? '' : 's'}
+                </span>
+              )}
+            </div>
+
+            <div style={{ marginTop: '1.25rem' }}>
+              <EvidenceGallery
+                remoteSessionId={session.remoteSessionId}
+                editable={isManualReview}
+              />
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  )
+}

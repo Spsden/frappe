@@ -1,0 +1,180 @@
+"""Screenshot annotation rendering.
+
+Re-bakes a screenshot PNG so the stored image reflects the on-screen overlays
+shown by the evidence editor. Each annotation type renders distinctly:
+
+* ``click_rectangle`` -> the branded pointer asset (``assets/pointer.png``)
+  pasted at the click target, anchored so the fingertip lands on the exact
+  click coordinate.
+* ``scroll_focus`` / ``pointer_focus`` -> a soft glow box (rounded, tinted).
+* ``manual_box`` -> a crisp user-drawn rectangle (emerald).
+* ``text_box`` -> a reviewer-authored note box.
+
+The raw screenshot is never modified; the rendered bytes are written to the
+separate ``*-annotated.png`` artifact.
+"""
+
+from __future__ import annotations
+
+import io
+from pathlib import Path
+from typing import Any
+
+from PIL import Image, ImageDraw, ImageFont
+
+_ANNOTATION_RGB: dict[str, tuple[int, int, int]] = {
+    "click_rectangle": (239, 68, 68),
+    "scroll_focus": (56, 189, 248),
+    "pointer_focus": (251, 191, 36),
+    "manual_box": (16, 185, 129),
+    "text_box": (168, 85, 247),
+}
+
+_ASSETS_DIR = Path(__file__).parent / "assets"
+_POINTER_PATH = _ASSETS_DIR / "pointer.png"
+
+# Pointer overlay cache keyed by max edge size. The PNG is decoded once per size
+# and reused for every subsequent render in the process.
+_pointer_cache: dict[int, tuple[Image.Image, tuple[int, int]]] = {}
+
+
+def _rgba(rgb: tuple[int, int, int], alpha: int) -> tuple[int, int, int, int]:
+    return (rgb[0], rgb[1], rgb[2], alpha)
+
+
+def _detect_pointer_hotspot(pointer: Image.Image) -> tuple[int, int]:
+    """Find the fingertip hotspot from the first strongly visible alpha row."""
+    alpha = pointer.getchannel("A")
+    for y in range(pointer.height):
+        visible_x = [
+            x for x in range(pointer.width) if alpha.getpixel((x, y)) >= 64
+        ]
+        if visible_x:
+            return (round((visible_x[0] + visible_x[-1]) / 2), y)
+    return (pointer.width // 2, 0)
+
+
+def _load_pointer(size: int) -> tuple[Image.Image, tuple[int, int]]:
+    """Load pointer.png downscaled to fit within ``size`` px (cached per size).
+
+    The source asset has transparent padding, so crop to visible pixels before
+    scaling. That keeps the fingertip hotspot aligned to the click coordinate
+    instead of offsetting it by the asset's empty margin.
+    """
+    cached = _pointer_cache.get(size)
+    if cached is None:
+        with Image.open(_POINTER_PATH) as img:
+            pointer = img.convert("RGBA")
+            visible_mask = pointer.getchannel("A").point(lambda value: 255 if value >= 8 else 0)
+            visible_box = visible_mask.getbbox()
+            if visible_box:
+                pointer = pointer.crop(visible_box)
+            pointer.thumbnail((size, size), Image.Resampling.LANCZOS)
+            cached = (pointer, _detect_pointer_hotspot(pointer))
+        _pointer_cache[size] = cached
+    return cached
+
+
+def _paste_pointer(
+    base: Image.Image, bounds: dict[str, Any], width: int, height: int
+) -> None:
+    """Paste the pointer asset onto ``base`` at the click target.
+
+    Size scales with the screenshot's shorter edge so the pointer stays
+    visible across resolutions (~60px on 1080p, ~80px on 1440p, ~120px on 4K).
+    The fingertip is anchored at the target's center. The paste position is
+    clamped to keep the whole pointer inside the frame.
+    """
+    size = max(48, min(width, height) // 18)
+    pointer, hotspot = _load_pointer(size)
+    tx = int(bounds.get("x", 0) + bounds.get("width", 0) / 2)
+    ty = int(bounds.get("y", 0) + bounds.get("height", 0) / 2)
+    paste_x = min(max(tx - hotspot[0], 0), max(0, width - pointer.width))
+    paste_y = min(max(ty - hotspot[1], 0), max(0, height - pointer.height))
+    # Third arg = alpha mask; required so transparent pixels in the PNG stay
+    # transparent instead of being painted as solid black.
+    base.paste(pointer, (paste_x, paste_y), pointer)
+
+
+def _draw_box(
+    draw: ImageDraw.ImageDraw,
+    bounds: dict[str, Any],
+    rgb: tuple[int, int, int],
+    *,
+    rounded: bool,
+) -> None:
+    x = float(bounds.get("x", 0))
+    y = float(bounds.get("y", 0))
+    w = float(bounds.get("width", 0))
+    h = float(bounds.get("height", 0))
+    box = [x, y, x + w, y + h]
+    halo = [x - 6, y - 6, x + w + 6, y + h + 6]
+    fill = _rgba(rgb, 45)
+    outline = _rgba(rgb, 225)
+    halo_outline = _rgba(rgb, 60)
+    if rounded:
+        draw.rounded_rectangle(halo, radius=12, outline=halo_outline, width=3)
+        draw.rounded_rectangle(box, radius=8, fill=fill, outline=outline, width=3)
+    else:
+        draw.rectangle(halo, outline=halo_outline, width=3)
+        draw.rectangle(box, fill=fill, outline=outline, width=3)
+
+
+def _draw_text_box(
+    draw: ImageDraw.ImageDraw,
+    bounds: dict[str, Any],
+    rgb: tuple[int, int, int],
+    label: str | None,
+) -> None:
+    x = float(bounds.get("x", 0))
+    y = float(bounds.get("y", 0))
+    w = max(80.0, float(bounds.get("width", 0)))
+    h = max(32.0, float(bounds.get("height", 0)))
+    box = [x, y, x + w, y + h]
+    draw.rounded_rectangle(
+        box,
+        radius=10,
+        fill=_rgba((8, 8, 8), 215),
+        outline=_rgba(rgb, 235),
+        width=3,
+    )
+
+    text = (label or "Note").strip() or "Note"
+    font = ImageFont.load_default()
+    max_chars = max(12, int((w - 24) / 7))
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if len(candidate) > max_chars and current:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+
+    for index, line in enumerate(lines[:4]):
+        draw.text((x + 12, y + 10 + index * 14), line, fill=_rgba((255, 255, 255), 245), font=font)
+
+
+def render_annotated_png(image_bytes: bytes, annotations: list[dict[str, Any]]) -> bytes:
+    """Render every annotation onto a copy of ``image_bytes`` and return PNG bytes."""
+    with Image.open(io.BytesIO(image_bytes)) as img:
+        img = img.convert("RGBA")
+        draw = ImageDraw.Draw(img, "RGBA")
+        width, height = img.size
+        for annotation in annotations:
+            ann_type = annotation.get("type", "click_rectangle")
+            rgb = _ANNOTATION_RGB.get(ann_type, _ANNOTATION_RGB["click_rectangle"])
+            bounds = annotation.get("bounds") or {}
+            if ann_type == "click_rectangle":
+                _paste_pointer(img, bounds, width, height)
+            elif ann_type == "text_box":
+                _draw_text_box(draw, bounds, rgb, annotation.get("label"))
+            else:
+                _draw_box(draw, bounds, rgb, rounded=ann_type != "manual_box")
+        output = io.BytesIO()
+        img.save(output, format="PNG")
+        return output.getvalue()

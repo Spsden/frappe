@@ -7,6 +7,7 @@ os.environ["WORKTRACE_DATABASE_URL"] = f"sqlite:///{TEST_DATABASE.as_posix()}"
 os.environ["WORKTRACE_RECORDING_STORAGE_PATH"] = str(Path(__file__).parent / "data" / "recordings")
 os.environ["WORKTRACE_AI_PROVIDER"] = "local"
 os.environ["WORKTRACE_ALLOWED_DOMAINS"] = "example.test"
+os.environ["WORKTRACE_REDIS_URL"] = "redis://127.0.0.1:1/0"
 
 import pytest
 from fastapi.testclient import TestClient

@@ -64,6 +64,12 @@ class ChunkStorage:
     def exists(self, storage_key: str) -> bool:
         return self.resolve_storage_key(storage_key).exists()
 
+    def delete(self, storage_key: str) -> None:
+        # Idempotent: a missing file is not an error (e.g. re-run after cleanup).
+        path = self.resolve_storage_key(storage_key)
+        if path.exists():
+            path.unlink()
+
     def resolve_storage_key(self, storage_key: str) -> Path:
         path = (self.root / storage_key).resolve()
         root = self.root.resolve()

@@ -18,10 +18,14 @@ export type BackendRecordingStatus =
   | 'transcribing_audio'
   | 'processing_screenshots'
   | 'aligning_evidence'
+  | 'awaiting_manual_review'
   | 'generating_sop'
+  | 'sop_failed'
   | 'ready_for_review'
   | 'completed'
   | 'failed'
+
+export type RecordingRetryTarget = 'upload' | 'sop'
 
 export type CaptureMode = 'full-desktop' | 'display'
 export type RecordingPlatform = 'darwin' | 'win32' | 'linux'
@@ -77,6 +81,7 @@ export interface RecordingOptions {
   captureMode: CaptureMode
   displayId?: string
   recordAudio: boolean
+  manualMode: boolean
   audioTimesliceMs: number
   sampleIntervalMs: number
   settleDurationMs: number
@@ -84,18 +89,34 @@ export interface RecordingOptions {
   thumbnailWidth: number
   thumbnailHeight: number
   changeThreshold: number
+  /** 4-C: EMA background-model learning rate (weight of the new frame, 0..1). */
+  emaAlpha: number
+  /** 4-D: multiplier applied to the change threshold during input-idle periods. */
+  idleThresholdMultiplier: number
+  /** 4-D: window after an input event during which the base (lower) threshold is used. */
+  inputSensitivityWindowMs: number
+  /** 4-A: idle baseline window used to auto-calibrate the threshold. */
+  calibrationDurationMs: number
+  /** 5-B: minimum interval between captures during sustained input-driven motion. */
+  navigationSampleIntervalMs: number
 }
 
 export const defaultRecordingOptions: RecordingOptions = {
   captureMode: 'full-desktop',
   recordAudio: true,
+  manualMode: false,
   audioTimesliceMs: 2500,
   sampleIntervalMs: 250,
   settleDurationMs: 400,
   maxSettleDurationMs: 2500,
   thumbnailWidth: 160,
   thumbnailHeight: 90,
-  changeThreshold: 0.018
+  changeThreshold: 0.018,
+  emaAlpha: 0.2,
+  idleThresholdMultiplier: 3,
+  inputSensitivityWindowMs: 1500,
+  calibrationDurationMs: 3000,
+  navigationSampleIntervalMs: 1000
 }
 
 export interface RecordingState {
@@ -123,6 +144,8 @@ export interface BackendRecording {
   uploaded_chunk_count: number
   uploaded_bytes: number
   has_audio: boolean
+  manual_mode: boolean
+  custom_sop_instruction: string | null
   error_message: string | null
   created_at: string
   completed_at: string | null
@@ -131,6 +154,82 @@ export interface BackendRecording {
 export interface BackendRecordingStatusResponse {
   recording: BackendRecording
   stages: BackendRecordingStatus[]
+}
+
+export interface BackendTranscriptSegment {
+  start_ms: number
+  end_ms: number
+  text: string
+}
+
+export interface BackendTranscript {
+  status: string
+  text: string | null
+  segments: BackendTranscriptSegment[]
+  audio_chunk_count: number
+  audio_reference?: string | null
+}
+
+export interface BackendWorkflowSession {
+  id: string
+  workflow_name: string
+  duration_ms: number
+  status: string
+  transcript: BackendTranscript | null
+}
+
+export interface BackendAnnotation {
+  event_id: string | null
+  event_type: string | null
+  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus' | 'manual_box' | 'text_box'
+  coordinate_space: 'screenshot_pixels' | 'global_screen'
+  bounds: { x: number; y: number; width: number; height: number }
+  confidence: number
+  source: 'event_pointer' | 'fallback_coordinate' | 'accessibility' | 'manual'
+  label: string | null
+  role: string | null
+}
+
+/** Author-supplied annotation payload for the evidence editor save flow. */
+export interface AnnotationInput {
+  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus' | 'manual_box' | 'text_box'
+  bounds: { x: number; y: number; width: number; height: number }
+  label?: string | null
+  role?: string | null
+  source?: 'event_pointer' | 'fallback_coordinate' | 'accessibility' | 'manual'
+}
+
+export interface BackendScreenshotEvidence {
+  id: string
+  sequence: number
+  captured_at: string
+  width: number
+  height: number
+  media_type: string
+  media_url: string | null
+  annotated_media_url: string | null
+  annotations: BackendAnnotation[]
+}
+
+export interface BackendSOPStep {
+  id: string
+  position: number
+  title: string
+  instruction: string
+  warning: string | null
+  screenshot_reference: string | null
+  estimated_time_ms: number | null
+  decision_branch: string | null
+}
+
+export interface BackendSOP {
+  id: string
+  source_session_id: string
+  version: number
+  status: 'draft' | 'approved' | 'archived'
+  title: string
+  steps: BackendSOPStep[]
+  created_at: string
 }
 
 export interface RecordedSessionSummary {
@@ -218,6 +317,36 @@ export interface RecordingApi {
   getState: () => Promise<RecordingState>
   listSessions: () => Promise<RecordedSessionSummary[]>
   deleteSession: (sessionId: string) => Promise<void>
+  retry: (sessionId: string, target: RecordingRetryTarget) => Promise<void>
+  getSession: (backendSessionId: string) => Promise<BackendWorkflowSession>
+  getSessionScreenshots: (backendSessionId: string) => Promise<BackendScreenshotEvidence[]>
+  getScreenshotImage: (
+    backendSessionId: string,
+    screenshotId: string,
+    mediaUrl?: string | null
+  ) => Promise<ArrayBuffer>
+  getSessionSops: (backendSessionId: string) => Promise<BackendSOP[]>
+  getSopScreenshotImage: (
+    backendSessionId: string,
+    screenshotId: string,
+    mediaUrl?: string | null
+  ) => Promise<ArrayBuffer>
+  saveScreenshotAnnotations: (
+    backendSessionId: string,
+    screenshotId: string,
+    annotations: AnnotationInput[],
+    annotatedImage: ArrayBuffer
+  ) => Promise<BackendScreenshotEvidence>
+  deleteScreenshot: (backendSessionId: string, screenshotId: string) => Promise<void>
+  saveManualReview: (
+    recordingId: string,
+    transcriptText: string | null,
+    customInstruction: string | null
+  ) => Promise<BackendRecording>
+  generateSop: (
+    recordingId: string,
+    customInstruction?: string | null
+  ) => Promise<BackendRecording>
   openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') => Promise<void>
   onStateChanged: (listener: (state: RecordingState) => void) => () => void
 }
@@ -232,6 +361,16 @@ export const recordingIpc = {
   getState: 'recording:get-state',
   listSessions: 'recording:list-sessions',
   deleteSession: 'recording:delete-session',
+  retry: 'recording:retry',
+  getSession: 'recording:get-session',
+  getSessionScreenshots: 'recording:get-session-screenshots',
+  getSessionSops: 'recording:get-session-sops',
+  getScreenshotImage: 'recording:get-screenshot-image',
+  getSopScreenshotImage: 'recording:get-sop-screenshot-image',
+  saveScreenshotAnnotations: 'recording:save-screenshot-annotations',
+  deleteScreenshot: 'recording:delete-screenshot',
+  saveManualReview: 'recording:save-manual-review',
+  generateSop: 'recording:generate-sop',
   openPermissionSettings: 'recording:open-permission-settings',
   stateChanged: 'recording:state-changed',
   frameSample: 'recording:frame-sample',

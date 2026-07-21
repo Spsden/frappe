@@ -7,6 +7,7 @@ export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
     build: {
+      sourcemap: true,
       rollupOptions: {
         input: { index: resolve(__dirname, 'main/index.ts') }
       }
@@ -15,6 +16,7 @@ export default defineConfig({
   preload: {
     plugins: [externalizeDepsPlugin()],
     build: {
+      sourcemap: true,
       rollupOptions: {
         input: { index: resolve(__dirname, 'preload/index.ts') }
       }
@@ -24,6 +26,7 @@ export default defineConfig({
     root: 'src',
     plugins: [react(), tailwindcss()],
     build: {
+      sourcemap: true,
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/index.html') }
       }

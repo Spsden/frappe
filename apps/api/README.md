@@ -52,6 +52,22 @@ Swagger UI is available at `http://localhost:8000/docs`. The checked-in
 .\.venv\Scripts\python apps/api/scripts/export_openapi.py
 ```
 
+### Debug FastAPI inside Docker
+
+Run the API with `debugpy` exposed on port `5678`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+```
+
+Then attach from VS Code using `Attach FastAPI in Docker (:5678)`.
+
+If you need the app to pause before startup until the debugger attaches:
+
+```bash
+DEBUGPY_WAIT_FOR_CLIENT=true docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+```
+
 Run database migrations from the repository root with:
 
 ```bash

@@ -11,6 +11,8 @@ __pycache__/
 .venv/
 *.egg-info/
 data/
+apps/api/build/
+apps/desktop/native/ax_inspector/ax_inspector
 .env
 .env.*
 !.env.example
