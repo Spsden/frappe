@@ -17,17 +17,25 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "recordings",
-        sa.Column("manual_mode", sa.Boolean(), nullable=False, server_default=sa.false()),
-    )
-    op.add_column(
-        "recordings",
-        sa.Column("custom_sop_instruction", sa.Text(), nullable=True),
-    )
-    op.alter_column("recordings", "manual_mode", server_default=None)
+    bind = op.get_bind()
+    existing_columns = {column["name"] for column in sa.inspect(bind).get_columns("recordings")}
+    if "manual_mode" not in existing_columns:
+        op.add_column(
+            "recordings",
+            sa.Column("manual_mode", sa.Boolean(), nullable=False, server_default=sa.false()),
+        )
+        if bind.dialect.name != "sqlite":
+            op.alter_column("recordings", "manual_mode", server_default=None)
+    if "custom_sop_instruction" not in existing_columns:
+        op.add_column(
+            "recordings",
+            sa.Column("custom_sop_instruction", sa.Text(), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("recordings", "custom_sop_instruction")
-    op.drop_column("recordings", "manual_mode")
+    existing_columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("recordings")}
+    if "custom_sop_instruction" in existing_columns:
+        op.drop_column("recordings", "custom_sop_instruction")
+    if "manual_mode" in existing_columns:
+        op.drop_column("recordings", "manual_mode")

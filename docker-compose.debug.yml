@@ -26,6 +26,7 @@ services:
         else
           echo "FastAPI debugpy is listening on 0.0.0.0:5678"
         fi
+        alembic upgrade head
         exec python -m debugpy --listen 0.0.0.0:5678 --configure-subProcess true $${WAIT_FLAG} \
           -m uvicorn worktrace_api.main:app \
           --host 0.0.0.0 \

@@ -20,11 +20,15 @@ def upgrade() -> None:
     # Optional supporting narrative for an SOP draft (purpose / overview).
     # Stored on the single SOP row so we never need a fake "full document"
     # version again.
-    op.add_column(
-        "sops",
-        sa.Column("document", sa.Text(), nullable=True),
-    )
+    existing_columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("sops")}
+    if "document" not in existing_columns:
+        op.add_column(
+            "sops",
+            sa.Column("document", sa.Text(), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("sops", "document")
+    existing_columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("sops")}
+    if "document" in existing_columns:
+        op.drop_column("sops", "document")
