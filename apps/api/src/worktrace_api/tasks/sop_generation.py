@@ -123,14 +123,14 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
         raw = provider.complete(messages)
         try:
             generated = parse_generated_sop(raw)
+            sop = generated_to_sop(generated, bundle, UUID(tenant_id), session_uuid)
         except ValueError as repair_error:
             # One repair turn: replay the evidence with the specific errors.
             logger.warning("SOP output failed validation, attempting one repair: %s", repair_error)
             repair_messages = build_repair_messages(bundle, image_data_uris, raw, str(repair_error))
             raw = provider.complete(repair_messages)
             generated = parse_generated_sop(raw)  # raises -> outer handler -> retry/sop_failed
-
-        sop = generated_to_sop(generated, bundle, UUID(tenant_id), session_uuid)
+            sop = generated_to_sop(generated, bundle, UUID(tenant_id), session_uuid)
         saved = repo.replace_session_draft_sop(session_uuid, sop)
 
         repo.link_recording_session(recording_uuid, session_uuid, RecordingStatus.READY_FOR_REVIEW)

@@ -46,18 +46,11 @@ VALID_SOP_JSON = json.dumps(
         "steps": [
             {
                 "position": 1,
+                "evidence_position": 1,
                 "title": "Open invoices",
                 "instruction": "Open the Invoices app.",
-                "warning": None,
-                "estimated_time_ms": 1200,
-                "decision_branches": [],
-            },
-            {
-                "position": 2,
-                "title": "Submit",
-                "instruction": "Click the Submit button.",
                 "warning": "Confirm totals first.",
-                "estimated_time_ms": None,
+                "estimated_time_ms": 1200,
                 "decision_branches": [
                     {"condition": "Total > 1000", "action": "Require manager approval"}
                 ],
@@ -228,8 +221,9 @@ def test_parse_generated_sop_accepts_valid_output():
     generated = parse_generated_sop(VALID_SOP_JSON)
     assert generated.title == "Submit invoice"
     assert generated.document.startswith("How to submit")
-    assert len(generated.steps) == 2
-    assert generated.steps[1].decision_branches[0].condition == "Total > 1000"
+    assert len(generated.steps) == 1
+    assert generated.steps[0].evidence_position == 1
+    assert generated.steps[0].decision_branches[0].condition == "Total > 1000"
 
 
 def test_parse_generated_sop_rejects_invalid_json():
@@ -253,12 +247,43 @@ def test_generated_to_sop_renumbers_and_maps_screenshots():
         session_id=UUID("00000000-0000-4000-8000-000000000003"),
     )
 
-    assert [step.position for step in sop.steps] == [1, 2]
+    assert [step.position for step in sop.steps] == [1]
     # Screenshot reference comes from the evidence by position, not invented.
     assert sop.steps[0].screenshot_reference == bundle.steps[0].screenshot_id
     # Ground-truth duration overrides the model's guess for step 1.
     assert sop.steps[0].estimated_time_ms == 1500
-    assert sop.steps[1].decision_branches[0].action == "Require manager approval"
+    assert sop.steps[0].decision_branches[0].action == "Require manager approval"
+
+
+def test_generated_to_sop_rejects_bad_evidence_reference():
+    bundle = _bundle()
+    generated = parse_generated_sop(
+        json.dumps(
+            {
+                "title": "Submit invoice",
+                "document": None,
+                "steps": [
+                    {
+                        "position": 1,
+                        "evidence_position": 2,
+                        "title": "Submit",
+                        "instruction": "Click Submit.",
+                        "warning": None,
+                        "estimated_time_ms": None,
+                        "decision_branches": [],
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="each evidence step exactly once"):
+        generated_to_sop(
+            generated,
+            bundle,
+            tenant_id=TENANT,
+            session_id=UUID("00000000-0000-4000-8000-000000000003"),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +310,7 @@ def test_structured_sop_persisted_as_single_draft(monkeypatch):
     sop = sops[0]
     assert sop.document.startswith("How to submit")
     assert sop.steps[0].screenshot_reference == screenshot_id
-    assert sop.steps[1].decision_branches[0].condition == "Total > 1000"
+    assert sop.steps[0].decision_branches[0].condition == "Total > 1000"
 
 
 def test_no_fake_markdown_version_is_created(monkeypatch):

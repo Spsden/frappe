@@ -86,6 +86,7 @@ class GeneratedDecisionBranch(_LLMModel):
 
 class GeneratedSOPStep(_LLMModel):
     position: int = Field(ge=1)
+    evidence_position: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=200)
     instruction: str = Field(min_length=1, max_length=4000)
     warning: str | None = Field(default=None, max_length=1000)
@@ -261,6 +262,7 @@ _JSON_SCHEMA_DESCRIPTION = """{
   "steps": [
     {
       "position": integer,                 // 1-based, ascending
+      "evidence_position": integer,        // the exact evidence step this SOP step uses
       "title": string,                     // short imperative label, <= 200 chars
       "instruction": string,               // the actionable instruction, <= 4000 chars
       "warning": string | null,            // caveat/gotcha when applicable
@@ -345,6 +347,9 @@ def _system_prompt(bundle: EvidenceBundle) -> str:
         " than a fabricated one.\n"
         "- Number steps in order starting at 1. Give each a short imperative "
         "title and a specific instruction (name the control and where it is).\n"
+        "- Create exactly one SOP step for each evidence step. Set "
+        "`evidence_position` to the source evidence step number so screenshots "
+        "stay correctly attached.\n"
         "- Add a `warning` only when there is a real gotcha; add "
         "`decision_branches` only when the evidence shows a genuine choice.\n"
         "- `estimated_time_ms` is optional; fill it from visible timing when "
@@ -481,19 +486,27 @@ def generated_to_sop(
 
     Steps are re-sorted by ``position`` and renumbered 1..n so a slightly off
     ordering from the model never produces gaps. ``screenshot_reference`` is
-    assigned from the evidence by position (the model never invents UUIDs).
+    assigned from the explicit ``evidence_position`` returned by the model (the
+    model never invents UUIDs).
     Ground-truth ``duration_ms`` from the evidence overrides the model's guess.
     """
     ordered = sorted(generated.steps, key=lambda step: step.position)
     evidence_by_position = {step.position: step for step in bundle.steps}
+    expected_positions = sorted(evidence_by_position)
+    actual_positions = sorted(step.evidence_position for step in ordered)
+    if actual_positions != expected_positions:
+        raise ValueError(
+            "Generated SOP must reference each evidence step exactly once "
+            f"(expected {expected_positions}, got {actual_positions})."
+        )
 
     steps: list[SOPStep] = []
     for index, generated_step in enumerate(ordered, start=1):
-        evidence = evidence_by_position.get(index)
-        screenshot_reference = evidence.screenshot_id if evidence else None
+        evidence = evidence_by_position[generated_step.evidence_position]
+        screenshot_reference = evidence.screenshot_id
         estimated_time = (
             evidence.duration_ms
-            if evidence and evidence.duration_ms is not None
+            if evidence.duration_ms is not None
             else generated_step.estimated_time_ms
         )
         steps.append(
