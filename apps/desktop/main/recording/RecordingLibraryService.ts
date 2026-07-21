@@ -114,6 +114,10 @@ export class RecordingLibraryService {
     return this.apiClient.getSessionSops(backendSessionId)
   }
 
+  async listSops(): Promise<BackendSOP[]> {
+    return this.apiClient.listSops()
+  }
+
   async getSopScreenshotImage(
     backendSessionId: string,
     screenshotId: string,

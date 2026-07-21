@@ -9,6 +9,7 @@ import { RecordingControlsPage } from './pages/RecordingControlsPage'
 import { SessionsPage } from './pages/SessionsPage'
 import { SessionDetailPage } from './pages/SessionDetailPage'
 import { SOPDetailPage } from './pages/SOPDetailPage'
+import { SOPLibraryPage } from './pages/SOPLibraryPage'
 import { SettingsPage } from './pages/SettingsPage'
 
 export default function App() {
@@ -45,16 +46,7 @@ export default function App() {
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/sessions/:id" element={<SessionDetailPage />} />
           <Route path="/sessions/:id/sop" element={<SOPDetailPage />} />
-          <Route
-            path="/sop-library"
-            element={
-              <PlaceholderPage
-                eyebrow="Documentation"
-                title="SOP Library"
-                description="Review, edit and publish generated procedures."
-              />
-            }
-          />
+          <Route path="/sop-library" element={<SOPLibraryPage />} />
           <Route
             path="/analytics"
             element={

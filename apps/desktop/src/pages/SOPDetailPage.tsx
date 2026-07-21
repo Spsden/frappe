@@ -10,6 +10,7 @@ import {
 } from '../features/recording/sessionStatus'
 import { StepProgress } from '../components/StepProgress'
 import { mapWithConcurrency } from '../utils/async'
+import { triggerSopPdfExport } from '../utils/sopPdf'
 
 // ─── SOP Screenshot tile ──────────────────────────────────────────────────────
 interface StepImageProps {
@@ -112,92 +113,9 @@ function StepCard({ step, isActive, onClick }: StepCardProps) {
 }
 
 // ─── PDF download helper ──────────────────────────────────────────────────────
-// Constructs a self-contained HTML document and triggers a print/save dialog.
-// This is the most robust cross-platform approach in Electron without needing
-// any server-side library.
-function triggerPdfDownload(sop: BackendSOP, imageUrls: Record<string, string>) {
-  const escapeHtml = (value: string) =>
-    value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-
-  const stepsHtml = sop.steps
-    .map((step) => {
-      const branchesHtml = step.decision_branches.length
-        ? step.decision_branches
-            .map(
-              (branch) =>
-                `<li class="branch"><strong>If:</strong> ${escapeHtml(branch.condition)} <strong>then:</strong> ${escapeHtml(branch.action)}</li>`
-            )
-            .join('')
-        : ''
-      return `
-    <div class="step">
-      <div class="step-header">
-        <span class="step-number">${step.position}</span>
-        <div>
-          <div class="step-title">${escapeHtml(step.title)}</div>
-          <div class="step-instruction">${escapeHtml(step.instruction)}</div>
-          ${step.warning ? `<div class="step-warning">⚠️ ${escapeHtml(step.warning)}</div>` : ''}
-          ${step.estimated_time_ms ? `<div class="step-time">~ ${Math.round(step.estimated_time_ms / 1000)}s</div>` : ''}
-        </div>
-      </div>
-      ${
-        step.screenshot_reference && imageUrls[step.screenshot_reference]
-          ? `<img src="${imageUrls[step.screenshot_reference]}" class="step-image" />`
-          : ''
-      }
-      ${branchesHtml ? `<ul class="branches">${branchesHtml}</ul>` : ''}
-    </div>
-  `
-    })
-    .join('')
-
-  const documentSection = sop.document
-    ? `<div class="document"><h2>Overview</h2><p>${escapeHtml(sop.document)}</p></div>`
-    : ''
-
-  const html = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8"/>
-<title>SOP - ${escapeHtml(sop.title)}</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; padding: 32px; max-width: 900px; margin: 0 auto; }
-  h1 { font-size: 28px; font-weight: 900; border-bottom: 2px solid #eee; padding-bottom: 12px; }
-  .meta { color: #666; font-size: 12px; margin-bottom: 32px; }
-  .document { margin-bottom: 32px; background: #f9fafb; border-radius: 12px; padding: 20px 24px; }
-  .document h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7280; margin: 0 0 8px; }
-  .document p { font-size: 14px; line-height: 1.6; margin: 0; }
-  .step { margin-bottom: 32px; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; break-inside: avoid; }
-  .step-header { display: flex; gap: 16px; margin-bottom: 12px; }
-  .step-number { background: #f3f4f6; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; flex-shrink: 0; }
-  .step-title { font-weight: 700; font-size: 13px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em; }
-  .step-instruction { font-size: 15px; margin-top: 4px; color: #111; line-height: 1.6; }
-  .step-warning { font-size: 12px; color: #d97706; margin-top: 8px; }
-  .step-time { font-size: 11px; color: #9ca3af; margin-top: 6px; font-family: ui-monospace, monospace; }
-  .step-image { width: 100%; border-radius: 8px; border: 1px solid #e5e7eb; margin-top: 12px; }
-  .branches { margin-top: 12px; padding-left: 18px; }
-  .branch { font-size: 13px; color: #374151; margin-bottom: 4px; }
-  @media print { .step { break-inside: avoid; } }
-</style>
-</head>
-<body>
-<h1>${escapeHtml(sop.title)}</h1>
-<div class="meta">Generated ${new Date(sop.created_at).toLocaleDateString()} · ${sop.steps.length} steps · WorkTrace AI</div>
-${documentSection}
-${stepsHtml}
-</body>
-</html>`
-
-  const win = window.open('', '_blank')
-  if (!win) return
-  win.document.write(html)
-  win.document.close()
-  win.focus()
-  setTimeout(() => win.print(), 500)
-}
+// The actual export lives in `utils/sopPdf.ts` so the SOP Library page can
+// reuse it. This file owns the per-step image-blob lifecycle that the
+// export consumes.
 
 // ─── Processing state banner ──────────────────────────────────────────────────
 interface ProcessingBannerProps {
@@ -269,6 +187,7 @@ export function SOPDetailPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isRetryingSop, setIsRetryingSop] = useState(false)
+  const [isExportingPdf, setIsExportingPdf] = useState(false)
 
   // Which SOP version to render when more than one exists (e.g. an approved
   // version plus a regenerated draft). There is no longer a fake "full
@@ -346,6 +265,18 @@ export function SOPDetailPage() {
       setError(caught instanceof Error ? caught.message : 'SOP retry failed.')
     } finally {
       setIsRetryingSop(false)
+    }
+  }
+
+  const exportPdf = async (sop: BackendSOP) => {
+    setIsExportingPdf(true)
+    setError(null)
+    try {
+      await triggerSopPdfExport(sop, imageUrls)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'PDF export failed.')
+    } finally {
+      setIsExportingPdf(false)
     }
   }
 
@@ -483,7 +414,8 @@ export function SOPDetailPage() {
               <button
                 type="button"
                 title="Export as PDF"
-                onClick={() => triggerPdfDownload(displaySop, imageUrls)}
+                disabled={isExportingPdf}
+                onClick={() => void exportPdf(displaySop)}
                 className="flex items-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-black uppercase tracking-[0.1em] text-white/70 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -491,7 +423,7 @@ export function SOPDetailPage() {
                   <polyline points="7 10 12 15 17 10" />
                   <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
-                Export PDF
+                {isExportingPdf ? 'Exporting' : 'Export PDF'}
               </button>
             )}
           </div>

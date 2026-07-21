@@ -333,6 +333,8 @@ export interface RecordingApi {
     mediaUrl?: string | null
   ) => Promise<ArrayBuffer>
   getSessionSops: (backendSessionId: string) => Promise<BackendSOP[]>
+  listSops: () => Promise<BackendSOP[]>
+  exportSopPdf: (html: string, title: string) => Promise<string | null>
   getSopScreenshotImage: (
     backendSessionId: string,
     screenshotId: string,
@@ -372,6 +374,8 @@ export const recordingIpc = {
   getSession: 'recording:get-session',
   getSessionScreenshots: 'recording:get-session-screenshots',
   getSessionSops: 'recording:get-session-sops',
+  listSops: 'recording:list-sops',
+  exportSopPdf: 'recording:export-sop-pdf',
   getScreenshotImage: 'recording:get-screenshot-image',
   getSopScreenshotImage: 'recording:get-sop-screenshot-image',
   saveScreenshotAnnotations: 'recording:save-screenshot-annotations',

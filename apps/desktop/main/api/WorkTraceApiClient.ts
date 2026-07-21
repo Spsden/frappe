@@ -269,6 +269,13 @@ export class WorkTraceApiClient {
     return bundle.sops
   }
 
+  async listSops(): Promise<BackendSOP[]> {
+    // Tenant-wide library listing (newest first). Server returns up to 50 by
+    // default; bump the limit when the library grows.
+    const response = await this.request('/sops?limit=500')
+    return (await response.json()) as BackendSOP[]
+  }
+
   async getSopScreenshotImage(
     sessionId: string,
     screenshotId: string,

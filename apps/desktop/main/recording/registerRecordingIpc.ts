@@ -8,6 +8,7 @@ import {
 } from '../../shared/recording'
 import { RecordingManager } from './RecordingManager'
 import { RecordingLibraryService } from './RecordingLibraryService'
+import { exportSopPdf } from './SopPdfExporter'
 
 export function registerRecordingIpc(
   manager: RecordingManager,
@@ -51,6 +52,10 @@ export function registerRecordingIpc(
   )
   ipcMain.handle(recordingIpc.getSessionSops, (_event, backendSessionId: string) =>
     library.getSessionSops(backendSessionId)
+  )
+  ipcMain.handle(recordingIpc.listSops, () => library.listSops())
+  ipcMain.handle(recordingIpc.exportSopPdf, (_event, html: string, title: string) =>
+    exportSopPdf(html, title)
   )
   ipcMain.handle(
     recordingIpc.getSopScreenshotImage,
@@ -126,6 +131,8 @@ export function registerRecordingIpc(
     ipcMain.removeHandler(recordingIpc.getSessionScreenshots)
     ipcMain.removeHandler(recordingIpc.getScreenshotImage)
     ipcMain.removeHandler(recordingIpc.getSessionSops)
+    ipcMain.removeHandler(recordingIpc.listSops)
+    ipcMain.removeHandler(recordingIpc.exportSopPdf)
     ipcMain.removeHandler(recordingIpc.getSopScreenshotImage)
     ipcMain.removeHandler(recordingIpc.saveScreenshotAnnotations)
     ipcMain.removeHandler(recordingIpc.deleteScreenshot)

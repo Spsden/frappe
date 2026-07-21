@@ -112,6 +112,9 @@ contextBridge.exposeInMainWorld('api', {
         recordingIpc.getSessionSops,
         backendSessionId
       ) as Promise<BackendSOP[]>,
+    listSops: () => ipcRenderer.invoke(recordingIpc.listSops) as Promise<BackendSOP[]>,
+    exportSopPdf: (html: string, title: string) =>
+      ipcRenderer.invoke(recordingIpc.exportSopPdf, html, title) as Promise<string | null>,
     getSopScreenshotImage: (
       backendSessionId: string,
       screenshotId: string,
