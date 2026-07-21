@@ -5,17 +5,12 @@ import type {
   BackendAnnotation,
   BackendScreenshotEvidence
 } from '../../shared/recording'
-import { mapWithConcurrency } from '../utils/async'
+import { useEvidenceStore } from '../features/evidence/useEvidenceStore'
 import pointerUrl from '../assets/pointer.png'
 
 interface EvidenceGalleryProps {
   remoteSessionId: string | null
   editable?: boolean
-}
-
-interface LoadedScreenshot {
-  evidence: BackendScreenshotEvidence
-  url: string
 }
 
 type AnnotationType = AnnotationInput['type']
@@ -732,9 +727,15 @@ function ToolButton({
 }
 
 export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGalleryProps) {
-  const [screenshots, setScreenshots] = useState<LoadedScreenshot[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const evidenceSessions = useEvidenceStore((state) => state.sessions)
+  const loadEvidenceSession = useEvidenceStore((state) => state.loadSession)
+  const updateCachedScreenshot = useEvidenceStore((state) => state.updateScreenshot)
+  const removeCachedScreenshot = useEvidenceStore((state) => state.removeScreenshot)
+  const evidenceCache = remoteSessionId ? evidenceSessions[remoteSessionId] : null
+  const screenshots = evidenceCache?.frames ?? []
+  const isLoading = evidenceCache?.isLoading ?? Boolean(remoteSessionId)
+  const loadError = evidenceCache?.error ?? null
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const [editMode, setEditMode] = useState(false)
   const [toolMode, setToolMode] = useState<ToolMode>('move')
@@ -754,49 +755,12 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
 
   useEffect(() => {
     if (!remoteSessionId) {
-      setScreenshots([])
+      setActionError(null)
       return
     }
-
-    let cancelled = false
-    const objectUrls: string[] = []
-
-    const load = async () => {
-      setIsLoading(true)
-      setError(null)
-      try {
-        const evidence = await window.api.recording.getSessionScreenshots(remoteSessionId)
-        if (cancelled) return
-        const loaded = await mapWithConcurrency(
-          evidence,
-          4,
-          async (item) => {
-            const buffer = await window.api.recording.getScreenshotImage(
-              remoteSessionId,
-              item.id
-            )
-            const blob = new Blob([buffer], { type: item.media_type || 'image/png' })
-            const url = URL.createObjectURL(blob)
-            objectUrls.push(url)
-            return { evidence: item, url }
-          }
-        )
-        if (!cancelled) setScreenshots(loaded)
-      } catch (caught) {
-        if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : 'Could not load evidence.')
-        }
-      } finally {
-        if (!cancelled) setIsLoading(false)
-      }
-    }
-
-    void load()
-    return () => {
-      cancelled = true
-      for (const url of objectUrls) URL.revokeObjectURL(url)
-    }
-  }, [remoteSessionId])
+    setActionError(null)
+    void loadEvidenceSession(remoteSessionId)
+  }, [loadEvidenceSession, remoteSessionId])
 
   const enterEdit = () => {
     const initial: Record<string, AnnotationInput[]> = {}
@@ -992,7 +956,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
       return
     }
     setSaving(true)
-    setError(null)
+    setActionError(null)
     try {
       for (const id of dirty) {
         const annotations = edits[id] ?? []
@@ -1005,9 +969,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
           annotations,
           annotatedImage
         )
-        setScreenshots((prev) =>
-          prev.map((item) => (item.evidence.id === id ? { ...item, evidence: saved } : item))
-        )
+        updateCachedScreenshot(remoteSessionId, saved)
       }
       setEdits({})
       setDirty(new Set())
@@ -1017,7 +979,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
       setFuture([])
       setSelectedAnnotation(null)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not save edits.')
+      setActionError(caught instanceof Error ? caught.message : 'Could not save edits.')
     } finally {
       setSaving(false)
     }
@@ -1028,14 +990,10 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
     const confirmed = window.confirm('Delete this screenshot from the session?')
     if (!confirmed) return
     setSaving(true)
-    setError(null)
+    setActionError(null)
     try {
       await window.api.recording.deleteScreenshot(remoteSessionId, screenshotId)
-      setScreenshots((prev) => {
-        const removed = prev.find((item) => item.evidence.id === screenshotId)
-        if (removed) URL.revokeObjectURL(removed.url)
-        return prev.filter((item) => item.evidence.id !== screenshotId)
-      })
+      removeCachedScreenshot(remoteSessionId, screenshotId)
       setEdits((prev) => {
         const next = { ...prev }
         delete next[screenshotId]
@@ -1050,11 +1008,13 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
         current?.screenshotId === screenshotId ? null : current
       )
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not delete screenshot.')
+      setActionError(caught instanceof Error ? caught.message : 'Could not delete screenshot.')
     } finally {
       setSaving(false)
     }
   }
+
+  const error = actionError ?? loadError
 
   if (!remoteSessionId) {
     return (
