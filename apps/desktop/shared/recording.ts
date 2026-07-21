@@ -211,6 +211,11 @@ export interface BackendScreenshotEvidence {
   annotations: BackendAnnotation[]
 }
 
+export interface SopDecisionBranch {
+  condition: string
+  action: string
+}
+
 export interface BackendSOPStep {
   id: string
   position: number
@@ -219,7 +224,7 @@ export interface BackendSOPStep {
   warning: string | null
   screenshot_reference: string | null
   estimated_time_ms: number | null
-  decision_branch: string | null
+  decision_branches: SopDecisionBranch[]
 }
 
 export interface BackendSOP {
@@ -228,6 +233,8 @@ export interface BackendSOP {
   version: number
   status: 'draft' | 'approved' | 'archived'
   title: string
+  /** Optional supporting narrative (purpose / overview) — never a separate version. */
+  document: string | null
   steps: BackendSOPStep[]
   created_at: string
 }

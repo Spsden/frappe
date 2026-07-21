@@ -11,31 +11,6 @@ import {
 import { StepProgress } from '../components/StepProgress'
 import { mapWithConcurrency } from '../utils/async'
 
-// ─── Markdown renderer (simple, no external deps) ────────────────────────────
-// Converts the LLM-generated Markdown document into safe HTML without any
-// external library, keeping the bundle lean.
-function renderMarkdown(md: string): string {
-  return md
-    // Headers
-    .replace(/^### (.+)$/gm, '<h3 class="text-base font-black mt-5 mb-1 text-white">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 class="text-lg font-black mt-6 mb-2 text-white">$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1 class="text-xl font-black mt-2 mb-3 text-white">$1</h1>')
-    // Bold
-    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-white font-bold">$1</strong>')
-    // Blockquote warnings
-    .replace(/^> (.+)$/gm, '<blockquote class="border-l-2 border-amber-400/60 pl-3 text-amber-200/80 text-sm my-1">$1</blockquote>')
-    // Numbered list items
-    .replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal text-sm text-white/70 my-0.5">$1</li>')
-    // Bullet list items
-    .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc text-sm text-white/70 my-0.5">$1</li>')
-    // Horizontal rule
-    .replace(/^---$/gm, '<hr class="border-white/10 my-4" />')
-    // Paragraph (lines that are not blank and not already HTML)
-    .replace(/^(?!<)(.+)$/gm, '<p class="text-sm text-white/65 leading-6">$1</p>')
-    // Collapse multiple blank lines
-    .replace(/\n{3,}/g, '\n\n')
-}
-
 // ─── SOP Screenshot tile ──────────────────────────────────────────────────────
 interface StepImageProps {
   imageUrl: string | null
@@ -68,12 +43,12 @@ function StepImage({ imageUrl, stepNumber }: StepImageProps) {
 // ─── Individual step card ─────────────────────────────────────────────────────
 interface StepCardProps {
   step: BackendSOPStep
-  sessionId: string
   isActive: boolean
   onClick: () => void
 }
 
-function StepCard({ step, sessionId, isActive, onClick }: StepCardProps) {
+function StepCard({ step, isActive, onClick }: StepCardProps) {
+  const hasBranches = step.decision_branches.length > 0
   return (
     <button
       type="button"
@@ -87,9 +62,7 @@ function StepCard({ step, sessionId, isActive, onClick }: StepCardProps) {
       <div className="flex items-start gap-3">
         <span
           className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] font-black tracking-widest ${
-            isActive
-              ? 'bg-emerald-400/25 text-emerald-300'
-              : 'bg-white/10 text-white/40'
+            isActive ? 'bg-emerald-400/25 text-emerald-300' : 'bg-white/10 text-white/40'
           }`}
         >
           {String(step.position).padStart(2, '0')}
@@ -102,6 +75,12 @@ function StepCard({ step, sessionId, isActive, onClick }: StepCardProps) {
           {step.warning && (
             <p className="mt-2 text-[11px] text-amber-400/70">⚠️ {step.warning}</p>
           )}
+          {hasBranches && (
+            <p className="mt-2 font-mono text-[9px] uppercase tracking-[0.18em] text-sky-300/60">
+              {step.decision_branches.length} branch
+              {step.decision_branches.length === 1 ? '' : 'es'}
+            </p>
+          )}
         </div>
       </div>
     </button>
@@ -112,21 +91,32 @@ function StepCard({ step, sessionId, isActive, onClick }: StepCardProps) {
 // Constructs a self-contained HTML document and triggers a print/save dialog.
 // This is the most robust cross-platform approach in Electron without needing
 // any server-side library.
-function triggerPdfDownload(
-  sop: BackendSOP,
-  markdownSop: BackendSOP | null,
-  imageUrls: Record<string, string>
-) {
+function triggerPdfDownload(sop: BackendSOP, imageUrls: Record<string, string>) {
+  const escapeHtml = (value: string) =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+
   const stepsHtml = sop.steps
-    .map(
-      (step) => `
+    .map((step) => {
+      const branchesHtml = step.decision_branches.length
+        ? step.decision_branches
+            .map(
+              (branch) =>
+                `<li class="branch"><strong>If:</strong> ${escapeHtml(branch.condition)} <strong>then:</strong> ${escapeHtml(branch.action)}</li>`
+            )
+            .join('')
+        : ''
+      return `
     <div class="step">
       <div class="step-header">
         <span class="step-number">${step.position}</span>
         <div>
-          <div class="step-title">${step.title}</div>
-          <div class="step-instruction">${step.instruction}</div>
-          ${step.warning ? `<div class="step-warning">⚠️ ${step.warning}</div>` : ''}
+          <div class="step-title">${escapeHtml(step.title)}</div>
+          <div class="step-instruction">${escapeHtml(step.instruction)}</div>
+          ${step.warning ? `<div class="step-warning">⚠️ ${escapeHtml(step.warning)}</div>` : ''}
+          ${step.estimated_time_ms ? `<div class="step-time">~ ${Math.round(step.estimated_time_ms / 1000)}s</div>` : ''}
         </div>
       </div>
       ${
@@ -134,41 +124,46 @@ function triggerPdfDownload(
           ? `<img src="${imageUrls[step.screenshot_reference]}" class="step-image" />`
           : ''
       }
+      ${branchesHtml ? `<ul class="branches">${branchesHtml}</ul>` : ''}
     </div>
   `
-    )
+    })
     .join('')
 
-  const markdownSection = markdownSop?.steps[0]?.instruction
-    ? `<div class="markdown-doc"><pre>${markdownSop.steps[0].instruction}</pre></div>`
+  const documentSection = sop.document
+    ? `<div class="document"><h2>Overview</h2><p>${escapeHtml(sop.document)}</p></div>`
     : ''
 
   const html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8"/>
-<title>SOP - ${sop.title}</title>
+<title>SOP - ${escapeHtml(sop.title)}</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; padding: 32px; max-width: 900px; margin: 0 auto; }
   h1 { font-size: 28px; font-weight: 900; border-bottom: 2px solid #eee; padding-bottom: 12px; }
   .meta { color: #666; font-size: 12px; margin-bottom: 32px; }
+  .document { margin-bottom: 32px; background: #f9fafb; border-radius: 12px; padding: 20px 24px; }
+  .document h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7280; margin: 0 0 8px; }
+  .document p { font-size: 14px; line-height: 1.6; margin: 0; }
   .step { margin-bottom: 32px; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; break-inside: avoid; }
   .step-header { display: flex; gap: 16px; margin-bottom: 12px; }
   .step-number { background: #f3f4f6; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; flex-shrink: 0; }
   .step-title { font-weight: 700; font-size: 13px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em; }
   .step-instruction { font-size: 15px; margin-top: 4px; color: #111; line-height: 1.6; }
   .step-warning { font-size: 12px; color: #d97706; margin-top: 8px; }
+  .step-time { font-size: 11px; color: #9ca3af; margin-top: 6px; font-family: ui-monospace, monospace; }
   .step-image { width: 100%; border-radius: 8px; border: 1px solid #e5e7eb; margin-top: 12px; }
-  .markdown-doc { margin-top: 40px; border-top: 2px solid #eee; padding-top: 24px; }
-  .markdown-doc pre { background: #f9fafb; padding: 20px; border-radius: 8px; font-size: 13px; white-space: pre-wrap; }
+  .branches { margin-top: 12px; padding-left: 18px; }
+  .branch { font-size: 13px; color: #374151; margin-bottom: 4px; }
   @media print { .step { break-inside: avoid; } }
 </style>
 </head>
 <body>
-<h1>${sop.title}</h1>
+<h1>${escapeHtml(sop.title)}</h1>
 <div class="meta">Generated ${new Date(sop.created_at).toLocaleDateString()} · ${sop.steps.length} steps · WorkTrace AI</div>
+${documentSection}
 ${stepsHtml}
-${markdownSection}
 </body>
 </html>`
 
@@ -197,9 +192,7 @@ function ProcessingBanner({ session, isRetryingSop, onRetry }: ProcessingBannerP
 
   return (
     <div className={`rounded-2xl border p-4 ${
-      failed
-        ? 'border-red-500/25 bg-red-500/10'
-        : 'border-amber-400/20 bg-amber-400/[0.06]'
+      failed ? 'border-red-500/25 bg-red-500/10' : 'border-amber-400/20 bg-amber-400/[0.06]'
     }`}>
       <div className="flex items-center justify-between gap-4">
         <div>
@@ -241,13 +234,6 @@ function ProcessingBanner({ session, isRetryingSop, onRetry }: ProcessingBannerP
   )
 }
 
-function isFullDocumentSop(sop: BackendSOP) {
-  return (
-    sop.title.endsWith('— Full Document') ||
-    sop.steps.some((step) => step.title === 'Full SOP Document')
-  )
-}
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 export function SOPDetailPage() {
   const { id = '' } = useParams<{ id: string }>()
@@ -260,7 +246,9 @@ export function SOPDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [isRetryingSop, setIsRetryingSop] = useState(false)
 
-  // Which structured SOP to render when multiple worker outputs exist.
+  // Which SOP version to render when more than one exists (e.g. an approved
+  // version plus a regenerated draft). There is no longer a fake "full
+  // document" version to filter out.
   const [activeSopIndex, setActiveSopIndex] = useState(0)
   // Which step card in the left rail is highlighted
   const [activeStepIndex, setActiveStepIndex] = useState(0)
@@ -289,7 +277,8 @@ export function SOPDetailPage() {
           try {
             const fetched = await window.api.recording.getSessionSops(found.remoteSessionId)
             if (!cancelled) {
-              // Sort ascending by version so v1=rule-based, v2=AI steps, v3=markdown
+              // Sort ascending by version. Each SOP is one structured draft;
+              // there is no separate markdown version anymore.
               setSops(fetched.sort((a, b) => a.version - b.version))
             }
           } catch {
@@ -330,9 +319,7 @@ export function SOPDetailPage() {
 
   // ── Derived state ─────────────────────────────────────────────────────────
   const sessionId = session?.remoteSessionId ?? null
-  const markdownSop = sops.find(isFullDocumentSop) ?? null
-  const structuredSops = sops.filter((sop) => !isFullDocumentSop(sop))
-  const displaySop = structuredSops[activeSopIndex] ?? structuredSops[0] ?? null
+  const displaySop = sops[activeSopIndex] ?? sops[0] ?? null
   const activeStep = displaySop?.steps[activeStepIndex] ?? null
   const hasScreenshot = Boolean(activeStep?.screenshot_reference)
 
@@ -344,7 +331,7 @@ export function SOPDetailPage() {
       ...new Set(
         displaySop.steps
           .map((s) => s.screenshot_reference)
-          .filter((id): id is string => Boolean(id))
+          .filter((ref): ref is string => Boolean(ref))
       )
     ]
 
@@ -437,21 +424,24 @@ export function SOPDetailPage() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
-            {/* Version selector (only shown when multiple SOPs exist) */}
-            {structuredSops.length > 1 && (
+            {/* Version selector — only meaningful when multiple SOP versions exist. */}
+            {sops.length > 1 && (
               <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-1">
-                {structuredSops.map((sop, idx) => (
+                {sops.map((sop, idx) => (
                   <button
                     key={sop.id}
                     type="button"
                     onClick={() => { setActiveSopIndex(idx); setActiveStepIndex(0) }}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-black uppercase tracking-[0.1em] transition ${
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-black uppercase tracking-[0.1em] transition ${
                       activeSopIndex === idx
                         ? 'bg-white text-black'
                         : 'text-white/50 hover:text-white/80'
                     }`}
                   >
                     v{sop.version}
+                    {sop.status === 'approved' && (
+                      <span className="size-1.5 rounded-full bg-emerald-500" />
+                    )}
                   </button>
                 ))}
               </div>
@@ -461,7 +451,7 @@ export function SOPDetailPage() {
               <button
                 type="button"
                 title="Export as PDF"
-                onClick={() => triggerPdfDownload(displaySop, markdownSop, imageUrls)}
+                onClick={() => triggerPdfDownload(displaySop, imageUrls)}
                 className="flex items-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-black uppercase tracking-[0.1em] text-white/70 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -517,7 +507,6 @@ export function SOPDetailPage() {
                     <StepCard
                       key={step.id}
                       step={step}
-                      sessionId={sessionId ?? ''}
                       isActive={activeStepIndex === idx}
                       onClick={() => setActiveStepIndex(idx)}
                     />
@@ -527,6 +516,18 @@ export function SOPDetailPage() {
 
               {/* ── Right panel: active step detail ─────────────────── */}
               <section className="space-y-5">
+                {/* Supporting overview document (not a separate version) */}
+                {displaySop.document && (
+                  <div className="rounded-2xl border border-white/10 bg-[#090909] p-6">
+                    <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">
+                      Overview
+                    </p>
+                    <p className="mt-3 whitespace-pre-line text-sm leading-7 text-white/70">
+                      {displaySop.document}
+                    </p>
+                  </div>
+                )}
+
                 {activeStep && (
                   <>
                     {/* Annotated screenshot */}
@@ -556,12 +557,35 @@ export function SOPDetailPage() {
                       <p className="mt-3 text-base leading-7 text-white/75">
                         {activeStep.instruction}
                       </p>
+
                       {activeStep.warning && (
                         <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-4 py-3">
                           <p className="text-sm text-amber-300/80">⚠️ {activeStep.warning}</p>
                         </div>
                       )}
-                      {activeStep.estimated_time_ms && (
+
+                      {activeStep.decision_branches.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-sky-300/70">
+                            Decision branches
+                          </p>
+                          {activeStep.decision_branches.map((branch, idx) => (
+                            <div
+                              key={idx}
+                              className="rounded-xl border border-sky-400/15 bg-sky-400/[0.05] px-4 py-3 text-sm"
+                            >
+                              <p className="text-white/80">
+                                <span className="text-sky-300/80">If</span> {branch.condition}
+                              </p>
+                              <p className="mt-1 text-white/80">
+                                <span className="text-sky-300/80">then</span> {branch.action}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {activeStep.estimated_time_ms != null && (
                         <p className="mt-3 font-mono text-[10px] text-white/30">
                           Est. {Math.round(activeStep.estimated_time_ms / 1000)}s
                         </p>
@@ -588,27 +612,6 @@ export function SOPDetailPage() {
                       </button>
                     </div>
                   </>
-                )}
-
-                {/* Full Markdown document panel */}
-                {markdownSop?.steps[0]?.instruction && (
-                  <div className="rounded-2xl border border-white/10 bg-[#090909] p-6">
-                    <div className="mb-4 flex items-center justify-between">
-                      <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">
-                        Full SOP Document
-                      </p>
-                      <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-emerald-400/70">
-                        AI Generated
-                      </span>
-                    </div>
-                    <div
-                      className="prose-sm space-y-1 text-white/65"
-                      // Safe: renderMarkdown only produces known class-tagged HTML
-                      dangerouslySetInnerHTML={{
-                        __html: renderMarkdown(markdownSop.steps[0].instruction)
-                      }}
-                    />
-                  </div>
                 )}
               </section>
             </div>
