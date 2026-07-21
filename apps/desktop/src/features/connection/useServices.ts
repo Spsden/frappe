@@ -17,20 +17,22 @@ export function useServices(enabled: boolean): BackendHealth | null {
     }
 
     let active = true
+    let timer: number | undefined
     const poll = async () => {
       try {
         const next = await window.api.connection.getHealth()
         if (active) setHealth(next)
       } catch {
         if (active) setHealth(null)
+      } finally {
+        if (active) timer = window.setTimeout(() => void poll(), 10_000)
       }
     }
 
     void poll()
-    const interval = window.setInterval(poll, 10_000)
     return () => {
       active = false
-      window.clearInterval(interval)
+      if (timer) window.clearTimeout(timer)
     }
   }, [enabled])
 

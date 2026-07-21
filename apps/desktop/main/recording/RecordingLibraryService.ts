@@ -16,6 +16,7 @@ import { RecordingUploader } from './RecordingUploader'
 export class RecordingLibraryService {
   private readonly uploader: RecordingUploader
   private listSessionsRequest: Promise<RecordedSessionSummary[]> | null = null
+  private readonly sessionRequests = new Map<string, Promise<BackendWorkflowSession>>()
 
   constructor(
     private readonly recordingsPath: string,
@@ -83,7 +84,18 @@ export class RecordingLibraryService {
   }
 
   async getSession(backendSessionId: string): Promise<BackendWorkflowSession> {
-    return this.apiClient.getSession(backendSessionId)
+    const existing = this.sessionRequests.get(backendSessionId)
+    if (existing) return existing
+
+    const request = this.apiClient.getSession(backendSessionId)
+    this.sessionRequests.set(backendSessionId, request)
+    try {
+      return await request
+    } finally {
+      if (this.sessionRequests.get(backendSessionId) === request) {
+        this.sessionRequests.delete(backendSessionId)
+      }
+    }
   }
 
   async getSessionScreenshots(backendSessionId: string): Promise<BackendScreenshotEvidence[]> {

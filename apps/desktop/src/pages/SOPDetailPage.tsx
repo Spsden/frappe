@@ -271,6 +271,7 @@ export function SOPDetailPage() {
   // ── Load session + SOPs ───────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false
+    let timer: number | undefined
 
     const load = async () => {
       setError(null)
@@ -300,15 +301,17 @@ export function SOPDetailPage() {
           setError(caught instanceof Error ? caught.message : 'Could not load session.')
         }
       } finally {
-        if (!cancelled) setIsLoading(false)
+        if (!cancelled) {
+          setIsLoading(false)
+          timer = window.setTimeout(() => void load(), 5000)
+        }
       }
     }
 
     void load()
-    const timer = window.setInterval(() => void load(), 5000)
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      if (timer) window.clearTimeout(timer)
     }
   }, [id, recordingState])
 
