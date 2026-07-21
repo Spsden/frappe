@@ -450,6 +450,29 @@ def retry_recording_step(
     )
 
 
+def _dispatch_sop_generation(recording: Recording, repo: Repository) -> Recording:
+    """Shared tail for the retry and manual-generate routes: mark the recording
+    as generating, enqueue the SOP task, and on dispatch failure land cleanly on
+    ``sop_failed`` (never generic ``failed``) with a non-sensitive message."""
+    updated = repo.set_recording_status(recording.id, RecordingStatus.GENERATING_SOP) or recording
+    queued, error_message = recording_processor.enqueue_sop_generation(
+        recording.id,
+        recording.session_id,
+        repo.tenant_id,
+    )
+    if not queued:
+        repo.set_recording_status(
+            recording.id,
+            RecordingStatus.SOP_FAILED,
+            error_message or "Could not queue SOP generation",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=error_message or "Could not queue SOP generation",
+        )
+    return updated
+
+
 def _retry_sop_generation(recording_id: UUID, repo: Repository) -> Recording:
     recording = repo.get_recording(recording_id)
     if not recording:
@@ -465,26 +488,7 @@ def _retry_sop_generation(recording_id: UUID, repo: Repository) -> Recording:
             detail="SOP retry is only available after SOP generation fails",
         )
 
-    updated = repo.set_recording_status(
-        recording_id,
-        RecordingStatus.GENERATING_SOP,
-    ) or recording
-    queued, error_message = recording_processor.enqueue_sop_generation(
-        recording_id,
-        recording.session_id,
-        repo.tenant_id,
-    )
-    if not queued:
-        repo.set_recording_status(
-            recording_id,
-            RecordingStatus.SOP_FAILED,
-            error_message or "Could not queue SOP generation",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=error_message or "Could not queue SOP generation",
-        )
-    return updated
+    return _dispatch_sop_generation(recording, repo)
 
 
 @app.put(
@@ -541,23 +545,7 @@ def generate_recording_sop(
         repo.set_recording_custom_instruction(recording_id, payload.custom_instruction)
         or recording
     )
-    updated = repo.set_recording_status(recording_id, RecordingStatus.GENERATING_SOP) or updated
-    queued, error_message = recording_processor.enqueue_sop_generation(
-        recording_id,
-        recording.session_id,
-        repo.tenant_id,
-    )
-    if not queued:
-        repo.set_recording_status(
-            recording_id,
-            RecordingStatus.SOP_FAILED,
-            error_message or "Could not queue SOP generation",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=error_message or "Could not queue SOP generation",
-        )
-    return updated
+    return _dispatch_sop_generation(updated, repo)
 
 
 @app.get(
