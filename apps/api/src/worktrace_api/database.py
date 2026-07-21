@@ -90,6 +90,23 @@ class LLMProviderSettingsRecord(Base):
     )
 
 
+class SopLimitsSettingsRecord(Base):
+    __tablename__ = "sop_limits_settings"
+
+    # One row per tenant; NULL means "use the env default" for that field.
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
+    )
+    sop_max_evidence_steps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sop_max_vision_frames: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sop_image_max_dimension_px: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sop_image_jpeg_quality: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sop_max_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 class WorkflowSessionRecord(TenantRecord, Base):
     __tablename__ = "workflow_sessions"
 

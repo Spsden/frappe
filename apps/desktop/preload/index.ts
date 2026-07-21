@@ -6,7 +6,9 @@ import {
   type LLMProviderSettings,
   type LLMProviderSettingsUpdate,
   type LoginCredentials,
-  type SignUpCredentials
+  type SignUpCredentials,
+  type SopLimitsSettings,
+  type SopLimitsSettingsUpdate
 } from '../shared/connection'
 import {
   recordingIpc,
@@ -49,6 +51,13 @@ contextBridge.exposeInMainWorld('api', {
         connectionIpc.saveLLMProviderSettings,
         settings
       ) as Promise<LLMProviderSettings>,
+    getSopLimitsSettings: () =>
+      ipcRenderer.invoke(connectionIpc.getSopLimitsSettings) as Promise<SopLimitsSettings>,
+    saveSopLimitsSettings: (settings: SopLimitsSettingsUpdate) =>
+      ipcRenderer.invoke(
+        connectionIpc.saveSopLimitsSettings,
+        settings
+      ) as Promise<SopLimitsSettings>,
     onStatusChanged: (listener: (status: ConnectionStatus) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, status: ConnectionStatus) =>
         listener(status)
@@ -103,6 +112,9 @@ contextBridge.exposeInMainWorld('api', {
         recordingIpc.getSessionSops,
         backendSessionId
       ) as Promise<BackendSOP[]>,
+    listSops: () => ipcRenderer.invoke(recordingIpc.listSops) as Promise<BackendSOP[]>,
+    exportSopPdf: (html: string, title: string) =>
+      ipcRenderer.invoke(recordingIpc.exportSopPdf, html, title) as Promise<string | null>,
     getSopScreenshotImage: (
       backendSessionId: string,
       screenshotId: string,

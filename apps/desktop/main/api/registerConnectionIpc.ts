@@ -33,4 +33,8 @@ export function registerConnectionIpc(
   ipcMain.handle(connectionIpc.saveLLMProviderSettings, (_event, payload) =>
     apiClient.saveLLMProviderSettings(payload)
   )
+  ipcMain.handle(connectionIpc.getSopLimitsSettings, () => apiClient.getSopLimitsSettings())
+  ipcMain.handle(connectionIpc.saveSopLimitsSettings, (_event, payload) =>
+    apiClient.saveSopLimitsSettings(payload)
+  )
 }

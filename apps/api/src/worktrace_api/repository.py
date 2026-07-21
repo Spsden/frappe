@@ -15,11 +15,13 @@ from worktrace_api.database import (
     RecordingRecord,
     ScreenshotRecord,
     SessionLocal,
+    SopLimitsSettingsRecord,
     SOPRecord,
     WorkflowSessionRecord,
 )
 from worktrace_api.schemas import (
     SOP,
+    SOP_LIMIT_FIELDS,
     CaptureSource,
     ChunkContentType,
     ChunkReceipt,
@@ -30,6 +32,8 @@ from worktrace_api.schemas import (
     RecordingStatus,
     RecordingTranscript,
     Screenshot,
+    SopLimitsSettings,
+    SopLimitsSettingsUpdate,
     SOPStatus,
     TranscriptSegment,
     WorkflowSession,
@@ -663,6 +667,27 @@ class Repository:
         ).all()
         return [self._sop_from_record(record) for record in records]
 
+    def list_sops(
+        self,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[SOP]:
+        """List all SOPs for the tenant, newest first.
+
+        Optional ``status`` filter narrows the result to a single SOPStatus
+        (e.g. ``"approved"``). Used by the SOP library view that spans every
+        session in the tenant.
+        """
+        query = tenant_query(SOPRecord, self.tenant_id)
+        if status:
+            query = query.where(SOPRecord.status == status)
+        query = query.order_by(SOPRecord.created_at.desc()).offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
+        records = self.db.scalars(query).all()
+        return [self._sop_from_record(record) for record in records]
+
     def set_sop_status(self, sop_id: UUID, status: str) -> SOP | None:
         record = self.db.scalar(
             tenant_query(SOPRecord, self.tenant_id).where(SOPRecord.id == str(sop_id))
@@ -788,6 +813,43 @@ class Repository:
             has_api_key=bool(record.api_key or default_api_key),
             updated_at=record.updated_at,
         )
+
+    def get_sop_limits(self, defaults: dict[str, int]) -> SopLimitsSettings:
+        """Effective SOP guardrails: per-tenant override when set, else env default."""
+        record = self.db.get(SopLimitsSettingsRecord, str(self.tenant_id))
+        effective: dict[str, int] = {}
+        overridden: dict[str, bool] = {}
+        for field in SOP_LIMIT_FIELDS:
+            override = getattr(record, field, None) if record else None
+            overridden[field] = override is not None
+            effective[field] = override if override is not None else defaults[field]
+        return SopLimitsSettings(
+            **effective,
+            defaults=dict(defaults),
+            overridden=overridden,
+            updated_at=record.updated_at if record else None,
+        )
+
+    def get_sop_limits_overrides(self) -> SopLimitsSettingsRecord | None:
+        """Raw override row for the generation task (NULL fields = use env default)."""
+        return self.db.get(SopLimitsSettingsRecord, str(self.tenant_id))
+
+    def save_sop_limits(
+        self, payload: SopLimitsSettingsUpdate, defaults: dict[str, int]
+    ) -> SopLimitsSettings:
+        """Apply a partial update. Only fields present in the request are touched:
+        an explicit ``null`` clears an override (revert to default); an int sets
+        or replaces it. Omitted fields are left unchanged."""
+        provided = payload.model_dump(exclude_unset=True)
+        record = self.db.get(SopLimitsSettingsRecord, str(self.tenant_id))
+        if not record:
+            record = SopLimitsSettingsRecord(tenant_id=str(self.tenant_id))
+            self.db.add(record)
+        for field, value in provided.items():
+            setattr(record, field, value)
+        record.updated_at = datetime.now(UTC)
+        self.db.commit()
+        return self.get_sop_limits(defaults)
 
     def _require_tenant(self, tenant_id: UUID) -> None:
         if tenant_id != self.tenant_id:

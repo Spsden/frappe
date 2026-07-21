@@ -430,6 +430,51 @@ class LLMProviderSettingsUpdate(StrictModel):
     clear_api_key: bool = False
 
 
+# Per-tenant overrides for the SOP generation guardrails (see Settings). Each
+# name matches a ``sop_*`` field on Settings so env defaults and overrides stay
+# in lockstep.
+SOP_LIMIT_FIELDS: tuple[str, ...] = (
+    "sop_max_evidence_steps",
+    "sop_max_vision_frames",
+    "sop_image_max_dimension_px",
+    "sop_image_jpeg_quality",
+    "sop_max_output_tokens",
+)
+
+
+class SopLimitsSettings(StrictModel):
+    """Effective SOP generation guardrails for a tenant.
+
+    Each ``sop_*`` value is the override when one is set, otherwise the env
+    default. ``defaults`` carries the env defaults and ``overridden`` flags which
+    fields the tenant has customized, so the UI can show "default" badges and a
+    reset-to-default action.
+    """
+
+    sop_max_evidence_steps: int
+    sop_max_vision_frames: int
+    sop_image_max_dimension_px: int
+    sop_image_jpeg_quality: int
+    sop_max_output_tokens: int
+    defaults: dict[str, int]
+    overridden: dict[str, bool]
+    updated_at: datetime | None = None
+
+
+class SopLimitsSettingsUpdate(StrictModel):
+    """Partial update of SOP guardrails. Bounds mirror ``Settings``.
+
+    Omit a field to leave it unchanged; send ``null`` to clear the override
+    (revert to the env default); send an int to set/replace the override.
+    """
+
+    sop_max_evidence_steps: int | None = Field(default=None, ge=1, le=500)
+    sop_max_vision_frames: int | None = Field(default=None, ge=0, le=100)
+    sop_image_max_dimension_px: int | None = Field(default=None, ge=320, le=4096)
+    sop_image_jpeg_quality: int | None = Field(default=None, ge=30, le=95)
+    sop_max_output_tokens: int | None = Field(default=None, ge=1000, le=32000)
+
+
 class ManualReviewUpdate(StrictModel):
     transcript_text: str | None = Field(default=None, max_length=20_000)
     custom_instruction: str | None = Field(default=None, max_length=4000)

@@ -5,7 +5,9 @@ import type {
   LLMProviderSettings,
   LLMProviderSettingsUpdate,
   LoginCredentials,
-  SignUpCredentials
+  SignUpCredentials,
+  SopLimitsSettings,
+  SopLimitsSettingsUpdate
 } from '../../shared/connection'
 import type {
   AnnotationInput,
@@ -130,6 +132,20 @@ export class WorkTraceApiClient {
     return (await response.json()) as LLMProviderSettings
   }
 
+  async getSopLimitsSettings(): Promise<SopLimitsSettings> {
+    const response = await this.request('/settings/sop-limits')
+    return (await response.json()) as SopLimitsSettings
+  }
+
+  async saveSopLimitsSettings(payload: SopLimitsSettingsUpdate): Promise<SopLimitsSettings> {
+    const response = await this.request('/settings/sop-limits', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    return (await response.json()) as SopLimitsSettings
+  }
+
   async createRecording(payload: {
     id?: string
     workflowName: string
@@ -251,6 +267,13 @@ export class WorkTraceApiClient {
     const response = await this.request(`/exports/${sessionId}`)
     const bundle = (await response.json()) as { sops: BackendSOP[] }
     return bundle.sops
+  }
+
+  async listSops(): Promise<BackendSOP[]> {
+    // Tenant-wide library listing (newest first). Server returns up to 50 by
+    // default; bump the limit when the library grows.
+    const response = await this.request('/sops?limit=500')
+    return (await response.json()) as BackendSOP[]
   }
 
   async getSopScreenshotImage(
