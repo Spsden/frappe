@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, delete, select
+from sqlalchemy import Select, delete, distinct, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,7 @@ from worktrace_api.schemas import (
     CaptureSource,
     ChunkContentType,
     ChunkReceipt,
+    DashboardSummary,
     Feedback,
     LLMProviderSettings,
     LLMProviderSettingsUpdate,
@@ -545,6 +546,76 @@ class Repository:
         records = self.db.scalars(query).all()
         return [self._session_from_record(record) for record in records]
 
+    def dashboard_summary(self, now: datetime | None = None) -> DashboardSummary:
+        now = now or datetime.now(UTC)
+        month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
+        if now.month == 1:
+            previous_month_start = datetime(now.year - 1, 12, 1, tzinfo=UTC)
+        else:
+            previous_month_start = datetime(now.year, now.month - 1, 1, tzinfo=UTC)
+
+        workflows_recorded = self._count(
+            select(func.count()).select_from(WorkflowSessionRecord).where(
+                WorkflowSessionRecord.tenant_id == str(self.tenant_id)
+            )
+        )
+        current_month_workflows = self._count(
+            select(func.count()).select_from(WorkflowSessionRecord).where(
+                WorkflowSessionRecord.tenant_id == str(self.tenant_id),
+                WorkflowSessionRecord.created_at >= month_start,
+            )
+        )
+        previous_month_workflows = self._count(
+            select(func.count()).select_from(WorkflowSessionRecord).where(
+                WorkflowSessionRecord.tenant_id == str(self.tenant_id),
+                WorkflowSessionRecord.created_at >= previous_month_start,
+                WorkflowSessionRecord.created_at < month_start,
+            )
+        )
+        sops_generated = self._count(
+            select(func.count()).select_from(SOPRecord).where(
+                SOPRecord.tenant_id == str(self.tenant_id)
+            )
+        )
+        approved_sops = self._count(
+            select(func.count()).select_from(SOPRecord).where(
+                SOPRecord.tenant_id == str(self.tenant_id),
+                SOPRecord.status == SOPStatus.APPROVED.value,
+            )
+        )
+        active_workflows = self._count(
+            select(func.count(distinct(WorkflowSessionRecord.workflow_name))).where(
+                WorkflowSessionRecord.tenant_id == str(self.tenant_id)
+            )
+        )
+        average_completion = self._average_duration()
+        current_month_average = self._average_duration(earliest=month_start)
+        previous_month_average = self._average_duration(
+            earliest=previous_month_start,
+            before=month_start,
+        )
+
+        return DashboardSummary(
+            tenant_id=self.tenant_id,
+            workflows_recorded=workflows_recorded,
+            workflows_recorded_this_month=current_month_workflows,
+            workflows_recorded_change_percent=percentage_change(
+                current_month_workflows,
+                previous_month_workflows,
+            ),
+            sops_generated=sops_generated,
+            approved_sops=approved_sops,
+            active_workflows=active_workflows,
+            average_completion_ms=(
+                round(average_completion) if average_completion is not None else None
+            ),
+            average_completion_delta_ms=(
+                round(previous_month_average - current_month_average)
+                if previous_month_average is not None and current_month_average is not None
+                else None
+            ),
+        )
+
     def delete_session(self, session_id: UUID) -> bool:
         session = self.get_session(session_id)
         if not session:
@@ -855,6 +926,24 @@ class Repository:
         if tenant_id != self.tenant_id:
             raise ValueError("Cross-tenant write rejected")
 
+    def _count(self, query: Select) -> int:
+        return int(self.db.scalar(query) or 0)
+
+    def _average_duration(
+        self,
+        earliest: datetime | None = None,
+        before: datetime | None = None,
+    ) -> float | None:
+        query = select(func.avg(WorkflowSessionRecord.duration_ms)).where(
+            WorkflowSessionRecord.tenant_id == str(self.tenant_id)
+        )
+        if earliest:
+            query = query.where(WorkflowSessionRecord.created_at >= earliest)
+        if before:
+            query = query.where(WorkflowSessionRecord.created_at < before)
+        result = self.db.scalar(query)
+        return float(result) if result is not None else None
+
     @staticmethod
     def _session_from_record(record: WorkflowSessionRecord) -> WorkflowSession:
         return WorkflowSession.model_validate(
@@ -975,3 +1064,9 @@ class Repository:
                 "created_at": record.created_at,
             }
         )
+
+
+def percentage_change(current: int, previous: int) -> float | None:
+    if previous == 0:
+        return None if current == 0 else 100.0
+    return round(((current - previous) / previous) * 100, 1)

@@ -2,6 +2,7 @@ import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises
 import { join } from 'node:path'
 import type {
   AnnotationInput,
+  BackendDashboardSummary,
   BackendScreenshotEvidence,
   BackendRecordingStatusResponse,
   BackendSOP,
@@ -116,6 +117,10 @@ export class RecordingLibraryService {
 
   async listSops(): Promise<BackendSOP[]> {
     return this.apiClient.listSops()
+  }
+
+  async getDashboardSummary(): Promise<BackendDashboardSummary> {
+    return this.apiClient.getDashboardSummary()
   }
 
   async getSopScreenshotImage(

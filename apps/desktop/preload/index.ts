@@ -14,6 +14,7 @@ import {
   recordingIpc,
   type AnnotationInput,
   type AudioRecorderApi,
+  type BackendDashboardSummary,
   type BackendScreenshotEvidence,
   type BackendSOP,
   type RecordingOptions,
@@ -113,6 +114,8 @@ contextBridge.exposeInMainWorld('api', {
         backendSessionId
       ) as Promise<BackendSOP[]>,
     listSops: () => ipcRenderer.invoke(recordingIpc.listSops) as Promise<BackendSOP[]>,
+    getDashboardSummary: () =>
+      ipcRenderer.invoke(recordingIpc.getDashboardSummary) as Promise<BackendDashboardSummary>,
     exportSopPdf: (html: string, title: string) =>
       ipcRenderer.invoke(recordingIpc.exportSopPdf, html, title) as Promise<string | null>,
     getSopScreenshotImage: (

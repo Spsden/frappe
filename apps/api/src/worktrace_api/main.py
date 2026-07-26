@@ -51,6 +51,7 @@ from worktrace_api.schemas import (
     AuthSession,
     ChunkContentType,
     ChunkReceipt,
+    DashboardSummary,
     ExportBundle,
     ExternalAIApprovalRequest,
     ExternalAIPayloadPreview,
@@ -1027,6 +1028,11 @@ def export_session(session_id: UUID, repo: Repository = Depends(repository)) -> 
         sops=repo.list_sops_for_session(session_id),
         feedback=repo.list_feedback_for_session(session_id),
     )
+
+
+@app.get("/dashboard/summary", response_model=DashboardSummary, tags=["analytics"])
+def dashboard_summary(repo: Repository = Depends(repository)) -> DashboardSummary:
+    return repo.dashboard_summary()
 
 
 @app.get("/analytics/{workflow_name}", response_model=AnalyticsSummary, tags=["analytics"])
