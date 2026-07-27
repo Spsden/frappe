@@ -1,226 +1,573 @@
-import { useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import {
+  NavLink,
+  Outlet,
+  useLocation
+} from 'react-router-dom'
 import { useConnection } from '../features/connection/useConnection'
-import { useServices } from '../features/connection/useServices'
+import { useTheme } from '../features/theme/ThemeContext'
 
-type IconName = 'dashboard' | 'sessions' | 'library' | 'analytics' | 'settings'
-
-const navigation: Array<{ label: string; to: string; icon: IconName }> = [
-  { label: 'Dashboard', to: '/dashboard', icon: 'dashboard' },
-  { label: 'Sessions', to: '/sessions', icon: 'sessions' },
-  { label: 'SOP Library', to: '/sop-library', icon: 'library' },
-  { label: 'Analytics', to: '/analytics', icon: 'analytics' },
-  { label: 'Settings', to: '/settings', icon: 'settings' }
-]
-
-const routeTitles: Record<string, string> = {
-  '/dashboard': 'Overview',
-  '/sessions': 'Sessions',
-  '/sop-library': 'SOPs',
-  '/analytics': 'Analytics',
-  '/settings': 'Settings'
+interface NavigationItem {
+  label: string
+  to: string
+  end?: boolean
+  icon: React.ReactNode
 }
 
-const LAST_SESSION_PATH_KEY = 'worktrace:last-session-path'
-
-function isSessionDetailPath(pathname: string): boolean {
-  return /^\/sessions\/[^/]+(?:\/sop)?$/.test(pathname)
-}
-
-function NavIcon({ name }: { name: IconName }) {
-  const paths: Record<IconName, ReactNode> = {
-    dashboard: (
-      <>
-        <rect x="3" y="3" width="7" height="7" rx="1" />
-        <rect x="14" y="3" width="7" height="7" rx="1" />
-        <rect x="3" y="14" width="7" height="7" rx="1" />
-        <rect x="14" y="14" width="7" height="7" rx="1" />
-      </>
-    ),
-    sessions: (
-      <>
-        <path d="M3 12a9 9 0 1 0 3-6.7" />
-        <path d="M3 4v5h5" />
-        <path d="M12 7v5l3 2" />
-      </>
-    ),
-    library: (
-      <>
-        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" />
-        <path d="M8 7h8M8 11h7" />
-      </>
-    ),
-    analytics: (
-      <>
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-        <path d="M8 17v-5M12 17V7M16 17v-8" />
-      </>
-    ),
-    settings: (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.55V21h-4v-.08A1.7 1.7 0 0 0 8.97 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.6 8.97a1.7 1.7 0 0 0-.34-1.88l-.06-.06L7.03 4.2l.06.06A1.7 1.7 0 0 0 8.97 4.6 1.7 1.7 0 0 0 10 3.08V3h4v.08a1.7 1.7 0 0 0 1.03 1.52 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06a1.7 1.7 0 0 0-.34 1.88A1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
-      </>
+const navigation: NavigationItem[] = [
+  {
+    label: 'Dashboard',
+    to: '/dashboard',
+    end: true,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      >
+        <rect
+          x="3"
+          y="3"
+          width="7"
+          height="7"
+          rx="1.5"
+        />
+        <rect
+          x="14"
+          y="3"
+          width="7"
+          height="7"
+          rx="1.5"
+        />
+        <rect
+          x="3"
+          y="14"
+          width="7"
+          height="7"
+          rx="1.5"
+        />
+        <rect
+          x="14"
+          y="14"
+          width="7"
+          height="7"
+          rx="1.5"
+        />
+      </svg>
+    )
+  },
+  {
+    label: 'Recorded Workflows',
+    to: '/sessions',
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      >
+        <rect
+          x="3"
+          y="5"
+          width="18"
+          height="14"
+          rx="2"
+        />
+        <path d="M8 3v4M16 3v4M3 10h18" />
+      </svg>
+    )
+  },
+  {
+    label: 'SOP Library',
+    to: '/sop-library',
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      >
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+        <path d="M14 2v6h6M8 13h8M8 17h6" />
+      </svg>
+    )
+  },
+  {
+    label: 'Analytics',
+    to: '/analytics',
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      >
+        <path d="M4 19V9M10 19V5M16 19v-7M22 19V3" />
+      </svg>
+    )
+  },
+  {
+    label: 'Settings',
+    to: '/settings',
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      >
+        <circle
+          cx="12"
+          cy="12"
+          r="3"
+        />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.12.38.34.72.6 1 .3.28.69.43 1.1.4H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51.6Z" />
+      </svg>
     )
   }
+]
 
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      className="size-5 shrink-0"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {paths[name]}
-    </svg>
-  )
+function getPageTitle(pathname: string) {
+  if (
+    pathname.startsWith('/sessions/') &&
+    pathname.endsWith('/sop')
+  ) {
+    return 'SOP Detail'
+  }
+
+  if (pathname.startsWith('/sessions/')) {
+    return 'Session Detail'
+  }
+
+  if (pathname.startsWith('/sessions')) {
+    return 'Recorded Workflows'
+  }
+
+  if (pathname.startsWith('/sop-library')) {
+    return 'SOP Library'
+  }
+
+  if (pathname.startsWith('/analytics')) {
+    return 'Analytics'
+  }
+
+  if (pathname.startsWith('/settings')) {
+    return 'Settings'
+  }
+
+  return 'Dashboard'
+}
+
+function connectionLabel(state: string) {
+  if (state === 'connected') {
+    return 'Connected'
+  }
+
+  if (state === 'checking') {
+    return 'Checking'
+  }
+
+  if (state === 'error') {
+    return 'Connection failed'
+  }
+
+  return 'Signed out'
+}
+
+function connectionDot(
+  state: string,
+  isDark: boolean
+) {
+  if (state === 'connected') {
+    return 'bg-emerald-400'
+  }
+
+  if (state === 'checking') {
+    return 'animate-pulse bg-amber-400'
+  }
+
+  if (state === 'error') {
+    return 'bg-red-500'
+  }
+
+  return isDark
+    ? 'bg-white/30'
+    : 'bg-slate-300'
 }
 
 export function AppShell() {
+  const { status } = useConnection()
+  const { theme } = useTheme()
   const location = useLocation()
 
-  const [lastSessionPath, setLastSessionPath] = useState(
-    () => sessionStorage.getItem(LAST_SESSION_PATH_KEY) ?? '/sessions'
+  const isDark = theme === 'dark'
+  const account = status.account
+
+  const email =
+    account?.email || 'WorkTrace user'
+
+  const company =
+    account?.companyName ||
+    'WorkTrace workspace'
+
+  const role =
+    account?.role || 'Member'
+
+  const avatarLetter =
+    email
+      .trim()
+      .charAt(0)
+      .toUpperCase() || 'W'
+
+  const title = getPageTitle(
+    location.pathname
   )
 
-  const pageTitle = routeTitles[location.pathname] ?? 'WorkTrace'
-
-  const { status: connection } = useConnection()
-  const health = useServices(connection.state === 'connected')
-
-  const connectionLabel =
-    connection.state === 'connected'
-      ? 'SYSTEM SYNCED'
-      : connection.state === 'checking'
-        ? 'CHECKING SYSTEM'
-        : connection.state === 'error'
-          ? 'SYSTEM OFFLINE'
-          : 'SIGNED OUT'
-
-  const connectionColor =
-    connection.state === 'connected'
-      ? 'bg-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.7)]'
-      : connection.state === 'checking'
-        ? 'animate-pulse bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.55)]'
-        : connection.state === 'error'
-          ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.55)]'
-          : 'bg-zinc-300'
-
-  useEffect(() => {
-    if (isSessionDetailPath(location.pathname)) {
-      sessionStorage.setItem(LAST_SESSION_PATH_KEY, location.pathname)
-      setLastSessionPath(location.pathname)
-    } else if (location.pathname === '/sessions') {
-      sessionStorage.removeItem(LAST_SESSION_PATH_KEY)
-      setLastSessionPath('/sessions')
-    }
-  }, [location.pathname])
-
   return (
-    <div className="min-h-screen bg-[#fafafb] text-zinc-950 md:grid md:grid-cols-[240px_minmax(0,1fr)]">
-      <aside className="border-b border-white/10 bg-[#18181b] text-white md:fixed md:inset-y-0 md:w-60 md:border-b-0 md:border-r md:border-white/10">
-        <div className="flex h-full flex-col">
-          <div className="px-5 py-7">
-            <p className="text-xl font-bold tracking-[-0.03em]">
-              WorkTrace AI
-            </p>
+    <div
+      className={[
+        'min-h-screen',
+        isDark
+          ? 'bg-[#070707] text-white'
+          : 'bg-[#fafafb] text-slate-900'
+      ].join(' ')}
+    >
+      {/* Sidebar */}
 
-            <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.22em] text-white/40">
-              Enterprise Edition
-            </p>
+      <aside
+        className={[
+          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r',
+          isDark
+            ? 'border-white/10 bg-[#1b1b1b]'
+            : 'border-slate-200 bg-white shadow-[8px_0_35px_rgba(95,60,150,0.05)]'
+        ].join(' ')}
+      >
+        {/* Logo */}
+
+        <div
+          className={[
+            'flex h-16 shrink-0 items-center gap-3 border-b px-5',
+            isDark
+              ? 'border-white/10'
+              : 'border-slate-200'
+          ].join(' ')}
+        >
+          <div
+            className={[
+              'grid size-9 shrink-0 place-items-center rounded-xl text-sm font-black',
+              isDark
+                ? 'border border-white/15 bg-white text-black'
+                : 'bg-gradient-to-br from-[#a66ad8] to-[#d783b6] text-white shadow-[0_8px_20px_rgba(166,106,216,0.24)]'
+            ].join(' ')}
+          >
+            W
           </div>
 
-          <nav className="flex gap-1 overflow-x-auto px-3 pb-4 md:flex-col md:overflow-visible md:pb-0">
-            {navigation.map((item) => {
-              const to =
-                item.icon === 'sessions'
-                  ? lastSessionPath
-                  : item.to
+          <div className="min-w-0">
+            <p
+              className={[
+                'truncate text-sm font-black tracking-[-0.02em]',
+                isDark
+                  ? 'text-white'
+                  : 'text-slate-900'
+              ].join(' ')}
+            >
+              WorkTrace
+            </p>
 
-              return (
-                <NavLink
-                  key={item.to}
-                  to={to}
-                  className={({ isActive }) =>
-                    [
-                      'flex min-w-max items-center gap-3 rounded-xl px-4 py-3 text-[15px] font-medium transition duration-200',
-                      isActive
-                        ? 'bg-gradient-to-r from-[#a66ad8] to-[#d783b6] text-white shadow-[0_14px_32px_rgba(166,106,216,0.26)]'
-                        : 'text-white/60 hover:bg-white/10 hover:text-white'
-                    ].join(' ')
-                  }
-                >
-                  <NavIcon name={item.icon} />
-                  {item.label}
-                </NavLink>
-              )
-            })}
-          </nav>
+            <p
+              className={[
+                'mt-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.16em]',
+                isDark
+                  ? 'text-white/35'
+                  : 'text-slate-400'
+              ].join(' ')}
+            >
+              Desktop recorder
+            </p>
+          </div>
+        </div>
 
-          <div className="mt-auto hidden border-t border-white/10 p-5 md:block">
+        {/* Navigation */}
+
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5">
+          <p
+            className={[
+              'mb-3 px-3 font-mono text-[9px] font-bold uppercase tracking-[0.2em]',
+              isDark
+                ? 'text-white/30'
+                : 'text-slate-400'
+            ].join(' ')}
+          >
+            Workspace
+          </p>
+
+          {navigation.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) =>
+                [
+                  'group relative flex min-h-11 items-center gap-3 px-3 py-2.5 text-sm font-bold transition',
+                  isDark
+                    ? 'rounded-md'
+                    : 'rounded-xl',
+                  isActive
+                    ? isDark
+                      ? 'border-l-2 border-white bg-white/12 text-white'
+                      : 'bg-gradient-to-r from-purple-100 to-pink-50 text-purple-800 shadow-[0_8px_20px_rgba(166,106,216,0.08)]'
+                    : isDark
+                      ? 'border-l-2 border-transparent text-white/50 hover:bg-white/[0.06] hover:text-white'
+                      : 'text-slate-500 hover:bg-purple-50 hover:text-purple-700'
+                ].join(' ')
+              }
+            >
+              <span className="size-[18px] shrink-0">
+                {item.icon}
+              </span>
+
+              <span className="truncate">
+                {item.label}
+              </span>
+            </NavLink>
+          ))}
+        </nav>
+
+        {/* Sidebar account/status */}
+
+        <div
+          className={[
+            'shrink-0 border-t p-4',
+            isDark
+              ? 'border-white/10'
+              : 'border-slate-200'
+          ].join(' ')}
+        >
+          <div
+            className={[
+              'rounded-xl border p-3',
+              isDark
+                ? 'border-white/10 bg-black/20'
+                : 'border-purple-100 bg-purple-50/50'
+            ].join(' ')}
+          >
             <div className="flex items-center gap-3">
-              <div className="grid size-9 place-items-center rounded-full border border-white/15 bg-white/8 text-xs font-bold">
-                {connection.account?.email.slice(0, 2).toUpperCase() || 'WT'}
+              <div
+                className={[
+                  'grid size-9 shrink-0 place-items-center rounded-full border text-xs font-black',
+                  isDark
+                    ? 'border-white/15 bg-white/[0.06] text-white'
+                    : 'border-purple-200 bg-white text-purple-700'
+                ].join(' ')}
+              >
+                {avatarLetter}
               </div>
 
-              <div className="min-w-0">
-                <p className="truncate font-mono text-xs font-bold tracking-wide text-white">
-                  {connection.account?.email || 'WorkTrace user'}
+              <div className="min-w-0 flex-1">
+                <p
+                  className={[
+                    'truncate text-xs font-bold',
+                    isDark
+                      ? 'text-white/80'
+                      : 'text-slate-800'
+                  ].join(' ')}
+                >
+                  {email}
                 </p>
 
-                <p className="mt-0.5 truncate text-[10px] capitalize text-white/45">
-                  {connection.account?.role || 'member'} ·{' '}
-                  {connection.account?.companyName}
+                <p
+                  className={[
+                    'mt-1 truncate text-[10px]',
+                    isDark
+                      ? 'text-white/35'
+                      : 'text-slate-400'
+                  ].join(' ')}
+                >
+                  {role} · {company}
                 </p>
               </div>
+            </div>
+
+            <div
+              className={[
+                'mt-3 flex items-center gap-2 border-t pt-3 font-mono text-[9px] font-bold uppercase tracking-[0.14em]',
+                isDark
+                  ? 'border-white/10 text-white/45'
+                  : 'border-purple-100 text-slate-500'
+              ].join(' ')}
+            >
+              <span
+                className={[
+                  'size-1.5 rounded-full',
+                  connectionDot(
+                    status.state,
+                    isDark
+                  )
+                ].join(' ')}
+              />
+
+              {connectionLabel(
+                status.state
+              )}
             </div>
           </div>
         </div>
       </aside>
 
-      <div className="min-w-0 md:col-start-2">
-        <header className="sticky top-0 z-20 flex h-14 items-center bg-[#fafafb] px-8 text-zinc-950">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold tracking-[-0.03em]">
-              {pageTitle}
+      {/* Right side */}
+
+      <div className="ml-64 flex min-h-screen flex-col">
+        {/* Header */}
+
+        <header
+          className={[
+            'sticky top-0 z-30 flex shrink-0 items-center border-b px-6',
+            isDark
+              ? 'h-16 border-white/10 bg-black/90 backdrop-blur'
+              : 'h-16 border-slate-200 bg-white/90 shadow-[0_8px_25px_rgba(95,60,150,0.04)] backdrop-blur'
+          ].join(' ')}
+        >
+          <div className="min-w-0">
+            <p
+              className={[
+                'font-mono text-[9px] font-bold uppercase tracking-[0.18em]',
+                isDark
+                  ? 'text-white/35'
+                  : 'text-purple-500'
+              ].join(' ')}
+            >
+              WorkTrace workspace
+            </p>
+
+            <h1
+              className={[
+                'mt-0.5 truncate text-sm font-black',
+                isDark
+                  ? 'text-white'
+                  : 'text-slate-900'
+              ].join(' ')}
+            >
+              {title}
             </h1>
+          </div>
 
-            <span className="h-5 w-px bg-zinc-200" />
+          {/* Search — both themes */}
 
-            <div className="flex items-center gap-2 text-xs font-medium text-zinc-400">
-              <span
-                className={`size-1.5 rounded-full ${connectionColor}`}
+          <div className="ml-auto flex items-center gap-3">
+            <div
+              className={[
+                'flex h-9 w-64 items-center gap-2 rounded-lg border px-3 transition focus-within:ring-2',
+                isDark
+                  ? 'border-white/10 bg-white/[0.04] text-white/45 focus-within:border-white/25 focus-within:ring-white/5'
+                  : 'border-slate-200 bg-white text-slate-400 shadow-sm focus-within:border-purple-300 focus-within:ring-purple-100'
+              ].join(' ')}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                className="size-4 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <circle
+                  cx="11"
+                  cy="11"
+                  r="7"
+                />
+
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+
+              <input
+                type="text"
+                placeholder="Search..."
+                className={[
+                  'min-w-0 flex-1 bg-transparent text-xs outline-none',
+                  isDark
+                    ? 'text-white placeholder:text-white/30'
+                    : 'text-slate-700 placeholder:text-slate-400'
+                ].join(' ')}
               />
-              {connectionLabel}
+            </div>
+
+            {/* Header connection status */}
+
+            <div
+              className={[
+                'hidden items-center gap-2 rounded-full border px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.12em] xl:flex',
+                isDark
+                  ? 'border-white/10 bg-white/[0.04] text-white/50'
+                  : status.state ===
+                      'connected'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : status.state ===
+                        'error'
+                      ? 'border-red-200 bg-red-50 text-red-600'
+                      : 'border-slate-200 bg-slate-50 text-slate-500'
+              ].join(' ')}
+            >
+              <span
+                className={[
+                  'size-1.5 rounded-full',
+                  connectionDot(
+                    status.state,
+                    isDark
+                  )
+                ].join(' ')}
+              />
+
+              {connectionLabel(
+                status.state
+              )}
+            </div>
+
+            {/* Avatar — both themes */}
+
+            <div
+              className={[
+                'grid size-9 shrink-0 place-items-center rounded-full border text-xs font-black',
+                isDark
+                  ? 'border-white/15 bg-white/[0.06] text-white'
+                  : 'border-purple-200 bg-purple-50 text-purple-700 shadow-sm'
+              ].join(' ')}
+              title={email}
+            >
+              {avatarLetter}
             </div>
           </div>
         </header>
 
-        {connection.state === 'connected' &&
-          health &&
-          (health.services.redis === 'down' ||
-            health.services.worker === 'down') && (
-            <div className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-5 py-2.5 text-xs text-amber-800 md:px-8">
-              <span className="mt-1.5 size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />
+        {/* Connection error */}
 
-              <p>
-                Background services offline (Redis {health.services.redis}
-                {health.services.worker !== 'up'
-                  ? `, worker ${health.services.worker}`
-                  : ''}
-                ). Recordings still save, but transcription &amp; annotation
-                won&apos;t run until Redis and the Celery worker are started.
-              </p>
-            </div>
-          )}
+        {status.error && (
+          <div
+            className={
+              isDark
+                ? 'shrink-0 border-b border-amber-400/20 bg-amber-400/[0.06] px-6 py-2.5 text-xs text-amber-200'
+                : 'shrink-0 border-b border-amber-200 bg-amber-50 px-6 py-2.5 text-xs text-amber-700'
+            }
+          >
+            {status.error}
+          </div>
+        )}
 
-        <main className="min-h-[calc(100vh-3.5rem)] bg-[#fafafb]">
+        {/* Page content */}
+
+        <main
+          className={[
+            'min-h-0 flex-1',
+            isDark
+              ? 'bg-[#070707]'
+              : 'bg-[#fafafb]'
+          ].join(' ')}
+        >
           <Outlet />
         </main>
       </div>

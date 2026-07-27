@@ -6,6 +6,7 @@ import type {
   BackendScreenshotEvidence
 } from '../../shared/recording'
 import { useEvidenceStore } from '../features/evidence/useEvidenceStore'
+import { useTheme } from '../features/theme/ThemeContext'
 import pointerUrl from '../assets/pointer.png'
 
 interface EvidenceGalleryProps {
@@ -419,6 +420,7 @@ interface FrameProps {
   onSelect: (index: number | null) => void
   onClear: () => void
   onDelete: () => void
+  isDark: boolean
 }
 
 function ScreenshotFrame({
@@ -431,7 +433,8 @@ function ScreenshotFrame({
   onChange,
   onSelect,
   onClear,
-  onDelete
+  onDelete,
+  isDark
 }: FrameProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
@@ -574,7 +577,14 @@ function ScreenshotFrame({
   }))
 
   return (
-    <figure className="overflow-hidden rounded-xl border border-white/10 bg-black/40">
+    <figure
+      className={[
+        'overflow-hidden rounded-xl border',
+        isDark
+          ? 'border-white/10 bg-black/40'
+          : 'border-slate-200 bg-white shadow-sm'
+      ].join(' ')}
+    >
       <div ref={containerRef} className="relative">
         <img src={url} alt={`Screenshot ${evidence.sequence}`} className="block w-full" />
         {/* highlight visuals (read + edit) */}
@@ -659,13 +669,25 @@ function ScreenshotFrame({
           </>
         )}
       </div>
-      <figcaption className="flex items-center justify-between gap-3 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-white/45">
+      <figcaption
+        className={[
+          'flex items-center justify-between gap-3 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em]',
+          isDark
+            ? 'text-white/45'
+            : 'border-t border-slate-200 bg-slate-50 text-slate-500'
+        ].join(' ')}
+      >
         <span>Frame {evidence.sequence}</span>
         <div className="flex items-center gap-3">
           {editMode && (
             <button
               type="button"
-              className="rounded border border-white/10 px-2 py-0.5 text-white/60 transition hover:bg-white/5 hover:text-white"
+              className={[
+                'rounded border px-2 py-0.5 transition',
+                isDark
+                  ? 'border-white/10 text-white/60 hover:bg-white/5 hover:text-white'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              ].join(' ')}
               onClick={onClear}
             >
               Clear
@@ -674,7 +696,12 @@ function ScreenshotFrame({
           {editMode && (
             <button
               type="button"
-              className="rounded border border-red-500/20 px-2 py-0.5 text-red-300/75 transition hover:bg-red-500/10 hover:text-red-200"
+              className={[
+                'rounded border px-2 py-0.5 transition',
+                isDark
+                  ? 'border-red-500/20 text-red-300/75 hover:bg-red-500/10 hover:text-red-200'
+                  : 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'
+              ].join(' ')}
               onClick={onDelete}
             >
               Delete frame
@@ -704,11 +731,13 @@ function ScreenshotFrame({
 function ToolButton({
   active,
   children,
-  onClick
+  onClick,
+  isDark
 }: {
   active?: boolean
   children: ReactNode
   onClick: () => void
+  isDark: boolean
 }) {
   return (
     <button
@@ -716,8 +745,12 @@ function ToolButton({
       className={[
         'rounded-xl px-3 py-2 text-left text-xs font-black uppercase tracking-[0.12em] transition',
         active
-          ? 'bg-white text-black'
-          : 'border border-white/10 bg-white/[0.04] text-white/62 hover:bg-white/[0.08] hover:text-white'
+          ? isDark
+            ? 'bg-white text-black'
+            : 'border border-purple-200 bg-purple-100 text-purple-800'
+          : isDark
+            ? 'border border-white/10 bg-white/[0.04] text-white/62 hover:bg-white/[0.08] hover:text-white'
+            : 'border border-slate-200 bg-white text-slate-600 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-800'
       ].join(' ')}
       onClick={onClick}
     >
@@ -727,6 +760,9 @@ function ToolButton({
 }
 
 export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGalleryProps) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+
   const evidenceSessions = useEvidenceStore((state) => state.sessions)
   const loadEvidenceSession = useEvidenceStore((state) => state.loadSession)
   const updateCachedScreenshot = useEvidenceStore((state) => state.updateScreenshot)
@@ -1018,19 +1054,34 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
 
   if (!remoteSessionId) {
     return (
-      <p className="text-sm text-white/45">
+      <p className={isDark ? 'text-sm text-white/45' : 'text-sm text-slate-500'}>
         Evidence is unavailable until the session has been uploaded.
       </p>
     )
   }
   if (isLoading && screenshots.length === 0) {
-    return <span className="inline-block size-2.5 animate-pulse rounded-full bg-white/45" />
+    return (
+      <span
+        className={[
+          'inline-block size-2.5 animate-pulse rounded-full',
+          isDark ? 'bg-white/45' : 'bg-purple-400'
+        ].join(' ')}
+      />
+    )
   }
   if (error && screenshots.length === 0) {
-    return <p className="text-sm text-white/50">{error}</p>
+    return (
+      <p className={isDark ? 'text-sm text-white/50' : 'text-sm text-slate-600'}>
+        {error}
+      </p>
+    )
   }
   if (screenshots.length === 0) {
-    return <p className="text-sm text-white/45">No screenshots captured for this session.</p>
+    return (
+      <p className={isDark ? 'text-sm text-white/45' : 'text-sm text-slate-500'}>
+        No screenshots captured for this session.
+      </p>
+    )
   }
 
   return (
@@ -1038,7 +1089,12 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
       {editable && !editMode && (
         <button
           type="button"
-          className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-white/80 transition hover:bg-white/10 hover:text-white"
+          className={[
+            'rounded-xl border px-4 py-2 text-xs font-black uppercase tracking-[0.14em] transition',
+            isDark
+              ? 'border-white/10 bg-white/[0.04] text-white/80 hover:bg-white/10 hover:text-white'
+              : 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
+          ].join(' ')}
           onClick={enterEdit}
         >
           Edit evidence
@@ -1047,7 +1103,12 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
 
       {editMode && (
         <aside
-          className="fixed z-30 max-h-[calc(100vh-32px)] w-60 overflow-y-auto rounded-2xl border border-white/12 bg-[#090909]/95 p-4 shadow-[0_22px_80px_rgba(0,0,0,0.65)] backdrop-blur"
+          className={[
+            'fixed z-30 max-h-[calc(100vh-32px)] w-60 overflow-y-auto rounded-2xl border p-4 backdrop-blur',
+            isDark
+              ? 'border-white/12 bg-[#090909]/95 shadow-[0_22px_80px_rgba(0,0,0,0.65)]'
+              : 'border-purple-100 bg-white/95 shadow-[0_22px_60px_rgba(126,63,182,0.18)]'
+          ].join(' ')}
           style={{ left: palettePosition.x, top: palettePosition.y }}
         >
           <div
@@ -1056,41 +1117,92 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
             title="Drag editor panel"
           >
             <div>
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">
+              <p
+                className={[
+                  'font-mono text-[10px] font-bold uppercase tracking-[0.2em]',
+                  isDark ? 'text-emerald-300' : 'text-purple-600'
+                ].join(' ')}
+              >
                 Editor
               </p>
-              <p className="mt-1 text-xs text-white/40">{dirty.size} unsaved frame{dirty.size === 1 ? '' : 's'}</p>
+              <p className={isDark ? 'mt-1 text-xs text-white/40' : 'mt-1 text-xs text-slate-500'}>
+                {dirty.size} unsaved frame{dirty.size === 1 ? '' : 's'}
+              </p>
             </div>
-            <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
+            <span
+              className={[
+                'size-2 animate-pulse rounded-full',
+                isDark ? 'bg-emerald-400' : 'bg-purple-500'
+              ].join(' ')}
+            />
           </div>
 
           <div className="mt-4 grid gap-2">
-            <ToolButton active={toolMode === 'move'} onClick={() => setToolMode('move')}>
+            <ToolButton
+              active={toolMode === 'move'}
+              onClick={() => setToolMode('move')}
+              isDark={isDark}
+            >
               Move pointer
             </ToolButton>
-            <ToolButton active={toolMode === 'pointer'} onClick={() => setToolMode('pointer')}>
+            <ToolButton
+              active={toolMode === 'pointer'}
+              onClick={() => setToolMode('pointer')}
+              isDark={isDark}
+            >
               Add pointer
             </ToolButton>
-            <ToolButton active={toolMode === 'box'} onClick={() => setToolMode('box')}>
+            <ToolButton
+              active={toolMode === 'box'}
+              onClick={() => setToolMode('box')}
+              isDark={isDark}
+            >
               Draw box
             </ToolButton>
-            <ToolButton active={toolMode === 'text'} onClick={() => setToolMode('text')}>
+            <ToolButton
+              active={toolMode === 'text'}
+              onClick={() => setToolMode('text')}
+              isDark={isDark}
+            >
               Add text
             </ToolButton>
-            <ToolButton active={toolMode === 'erase'} onClick={() => setToolMode('erase')}>
+            <ToolButton
+              active={toolMode === 'erase'}
+              onClick={() => setToolMode('erase')}
+              isDark={isDark}
+            >
               Erase mark
             </ToolButton>
           </div>
 
           {toolMode === 'pointer' && (
-            <p className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-5 text-white/42">
+            <p
+              className={[
+                'mt-3 rounded-xl border p-3 text-xs leading-5',
+                isDark
+                  ? 'border-white/10 bg-white/[0.03] text-white/42'
+                  : 'border-purple-100 bg-purple-50 text-slate-600'
+              ].join(' ')}
+            >
               Click anywhere on a screenshot to drop a new hand pointer.
             </p>
           )}
 
           {selectedInput?.type === 'text_box' && (
-            <div className="mt-4 rounded-xl border border-violet-300/15 bg-violet-400/[0.06] p-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-violet-200/70">
+            <div
+              className={[
+                'mt-4 rounded-xl border p-3',
+                isDark
+                  ? 'border-violet-300/15 bg-violet-400/[0.06]'
+                  : 'border-purple-200 bg-purple-50'
+              ].join(' ')}
+            >
+              <p
+                className={[
+                  'font-mono text-[10px] uppercase tracking-[0.16em]',
+                  isDark ? 'text-violet-200/70' : 'text-purple-600'
+                ].join(' ')}
+              >
                 Selected text
               </p>
               <textarea
@@ -1099,19 +1211,43 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
                   updateSelectedAnnotation((item) => ({ ...item, label: event.target.value }))
                 }
                 placeholder="Type the note shown on this screenshot"
-                className="mt-2 min-h-24 w-full resize-y rounded-lg border border-white/10 bg-black/45 px-3 py-2 text-xs leading-5 text-white outline-none placeholder:text-white/25 focus:border-violet-300/45"
+                className={[
+                  'mt-2 min-h-24 w-full resize-y rounded-lg border px-3 py-2 text-xs leading-5 outline-none',
+                  isDark
+                    ? 'border-white/10 bg-black/45 text-white placeholder:text-white/25 focus:border-violet-300/45'
+                    : 'border-purple-200 bg-white text-slate-800 placeholder:text-slate-400 focus:border-purple-400'
+                ].join(' ')}
               />
             </div>
           )}
 
           {toolMode === 'text' && selectedInput?.type !== 'text_box' && (
-            <p className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-5 text-white/42">
+            <p
+              className={[
+                'mt-3 rounded-xl border p-3 text-xs leading-5',
+                isDark
+                  ? 'border-white/10 bg-white/[0.03] text-white/42'
+                  : 'border-purple-100 bg-purple-50 text-slate-600'
+              ].join(' ')}
+            >
               Click or drag on a screenshot to place a note, then type here.
             </p>
           )}
 
-          <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/38">
+          <div
+            className={[
+              'mt-4 rounded-xl border p-3',
+              isDark
+                ? 'border-white/10 bg-white/[0.03]'
+                : 'border-slate-200 bg-slate-50'
+            ].join(' ')}
+          >
+            <p
+              className={[
+                'font-mono text-[10px] uppercase tracking-[0.16em]',
+                isDark ? 'text-white/38' : 'text-slate-500'
+              ].join(' ')}
+            >
               Offset all
             </p>
             <div className="mt-2 grid grid-cols-2 gap-2">
@@ -1120,19 +1256,34 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
                 value={offsetX}
                 onChange={(event) => setOffsetX(event.target.value)}
                 placeholder="x"
-                className="rounded-lg border border-white/10 bg-black/40 px-2 py-2 text-xs text-white outline-none focus:border-white/30"
+                className={[
+                  'rounded-lg border px-2 py-2 text-xs outline-none',
+                  isDark
+                    ? 'border-white/10 bg-black/40 text-white focus:border-white/30'
+                    : 'border-slate-200 bg-white text-slate-800 focus:border-purple-400'
+                ].join(' ')}
               />
               <input
                 type="number"
                 value={offsetY}
                 onChange={(event) => setOffsetY(event.target.value)}
                 placeholder="y"
-                className="rounded-lg border border-white/10 bg-black/40 px-2 py-2 text-xs text-white outline-none focus:border-white/30"
+                className={[
+                  'rounded-lg border px-2 py-2 text-xs outline-none',
+                  isDark
+                    ? 'border-white/10 bg-black/40 text-white focus:border-white/30'
+                    : 'border-slate-200 bg-white text-slate-800 focus:border-purple-400'
+                ].join(' ')}
               />
             </div>
             <button
               type="button"
-              className="mt-2 w-full rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition hover:bg-white/8 hover:text-white"
+              className={[
+                'mt-2 w-full rounded-lg border px-3 py-2 text-xs font-bold transition',
+                isDark
+                  ? 'border-white/10 text-white/70 hover:bg-white/8 hover:text-white'
+                  : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-50'
+              ].join(' ')}
               onClick={applyGlobalOffset}
             >
               Apply offset
@@ -1142,7 +1293,12 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button
               type="button"
-              className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/65 transition hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-35"
+              className={[
+                'rounded-lg border px-3 py-2 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-35',
+                isDark
+                  ? 'border-white/10 text-white/65 hover:bg-white/8'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+              ].join(' ')}
               onClick={undo}
               disabled={history.length === 0}
             >
@@ -1150,7 +1306,12 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
             </button>
             <button
               type="button"
-              className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/65 transition hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-35"
+              className={[
+                'rounded-lg border px-3 py-2 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-35',
+                isDark
+                  ? 'border-white/10 text-white/65 hover:bg-white/8'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+              ].join(' ')}
               onClick={redo}
               disabled={future.length === 0}
             >
@@ -1158,14 +1319,24 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
             </button>
             <button
               type="button"
-              className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/65 transition hover:bg-white/8"
+              className={[
+                'rounded-lg border px-3 py-2 text-xs font-bold transition',
+                isDark
+                  ? 'border-white/10 text-white/65 hover:bg-white/8'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+              ].join(' ')}
               onClick={resetAll}
             >
               Reset
             </button>
             <button
               type="button"
-              className="rounded-lg border border-red-500/20 px-3 py-2 text-xs font-bold text-red-300/80 transition hover:bg-red-500/10"
+              className={[
+                'rounded-lg border px-3 py-2 text-xs font-bold transition',
+                isDark
+                  ? 'border-red-500/20 text-red-300/80 hover:bg-red-500/10'
+                  : 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'
+              ].join(' ')}
               onClick={clearAll}
             >
               Clear all
@@ -1175,7 +1346,12 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
           <div className="mt-4 grid gap-2">
             <button
               type="button"
-              className="rounded-xl bg-emerald-400 px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
+              className={[
+                'rounded-xl px-4 py-3 text-xs font-black uppercase tracking-[0.14em] transition disabled:cursor-not-allowed disabled:opacity-45',
+                isDark
+                  ? 'bg-emerald-400 text-black hover:bg-emerald-300'
+                  : 'bg-gradient-to-r from-[#a66ad8] to-[#d783b6] text-white shadow-[0_10px_24px_rgba(166,106,216,0.22)] hover:opacity-90'
+              ].join(' ')}
               onClick={saveAll}
               disabled={saving || dirty.size === 0}
             >
@@ -1183,7 +1359,12 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
             </button>
             <button
               type="button"
-              className="rounded-xl border border-white/10 px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-white/55 transition hover:bg-white/8 hover:text-white"
+              className={[
+                'rounded-xl border px-4 py-3 text-xs font-black uppercase tracking-[0.14em] transition',
+                isDark
+                  ? 'border-white/10 text-white/55 hover:bg-white/8 hover:text-white'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              ].join(' ')}
               onClick={cancelEdit}
               disabled={saving}
             >
@@ -1193,7 +1374,11 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
         </aside>
       )}
 
-      {error && <p className="text-sm text-red-300/80">{error}</p>}
+      {error && (
+        <p className={isDark ? 'text-sm text-red-300/80' : 'text-sm text-red-600'}>
+          {error}
+        </p>
+      )}
 
       {screenshots.map(({ evidence, url }) => {
         const annotations = editMode ? edits[evidence.id] ?? [] : evidence.annotations.map(toInput)
@@ -1212,6 +1397,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
             }
             onClear={() => clearFrame(evidence.id)}
             onDelete={() => void deleteFrame(evidence.id)}
+            isDark={isDark}
           />
         )
       })}

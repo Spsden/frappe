@@ -6,6 +6,10 @@ import type {
 } from '../../shared/connection'
 import type { ExperimentalFlags } from '../../shared/settings'
 import { useConnection } from '../features/connection/useConnection'
+import {
+  useTheme,
+  type Theme
+} from '../features/theme/ThemeContext'
 
 function cleanError(error: unknown): string {
   const message =
@@ -23,6 +27,9 @@ function cleanError(error: unknown): string {
 
 export function SettingsPage() {
   const { status, logout, test } = useConnection()
+  const { theme, setTheme } = useTheme()
+  const isDark = theme === 'dark'
+
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -42,71 +49,165 @@ export function SettingsPage() {
   }
 
   return (
-    <section className="dashboard-page">
-      <div className="dashboard-container settings-container">
-        <div className="page-header">
-          <span className="eyebrow">WORKSPACE</span>
+    <section
+      className={
+        isDark
+          ? 'px-5 py-8 md:px-8'
+          : 'dashboard-page'
+      }
+    >
+      <div
+        className={
+          isDark
+            ? 'mx-auto max-w-3xl'
+            : 'dashboard-container settings-container'
+        }
+      >
+        {isDark ? (
+          <div>
+            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">
+              Workspace
+            </p>
 
-          <h1>Account settings</h1>
+            <h2 className="mt-3 text-3xl font-black tracking-[-0.04em]">
+              Account settings
+            </h2>
 
-          <p>
-            Your encrypted session connects this recorder to the correct
-            tenant automatically.
-          </p>
-        </div>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/55">
+              Your encrypted session connects this recorder to the correct
+              tenant automatically.
+            </p>
+          </div>
+        ) : (
+          <div className="page-header">
+            <span className="eyebrow">
+              WORKSPACE
+            </span>
 
-        <div className="settings-card">
-          <div className="settings-card-header">
+            <h1>Account settings</h1>
+
+            <p>
+              Your encrypted session connects this recorder to the correct
+              tenant automatically.
+            </p>
+          </div>
+        )}
+
+        <AppearanceSection
+          theme={theme}
+          onChange={setTheme}
+          isDark={isDark}
+        />
+
+        <div
+          className={
+            isDark
+              ? 'mt-5 overflow-hidden rounded-xl border border-white/15 bg-[#0c0c0c]'
+              : 'settings-card'
+          }
+        >
+          <div
+            className={
+              isDark
+                ? 'flex items-center justify-between border-b border-white/10 px-6 py-5'
+                : 'settings-card-header'
+            }
+          >
             <div>
-              <p className="settings-label">Workspace</p>
+              {isDark ? (
+                <>
+                  <p className="text-sm font-bold">
+                    {account?.companyName || 'WorkTrace workspace'}
+                  </p>
 
-              <h2>
-                {account?.companyName || 'WorkTrace workspace'}
-              </h2>
+                  <p className="mt-1 text-xs text-white/45">
+                    {status.apiUrl}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="settings-label">
+                    Workspace
+                  </p>
 
-              <p>{status.apiUrl}</p>
+                  <h2>
+                    {account?.companyName || 'WorkTrace workspace'}
+                  </h2>
+
+                  <p>{status.apiUrl}</p>
+                </>
+              )}
             </div>
 
-            <ConnectionBadge state={status.state} />
+            <ConnectionBadge
+              state={status.state}
+              isDark={isDark}
+            />
           </div>
 
-          <dl className="settings-grid">
+          <dl
+            className={
+              isDark
+                ? 'grid gap-px bg-white/10 sm:grid-cols-2'
+                : 'settings-grid'
+            }
+          >
             <AccountDetail
               label="Email"
               value={account?.email || '—'}
+              isDark={isDark}
             />
 
             <AccountDetail
               label="Role"
               value={account?.role || '—'}
               capitalize
+              isDark={isDark}
             />
 
             <AccountDetail
               label="Tenant ID"
               value={account?.tenantId || '—'}
               mono
+              isDark={isDark}
             />
 
             <AccountDetail
               label="User ID"
               value={account?.userId || '—'}
               mono
+              isDark={isDark}
             />
           </dl>
 
           {(error || status.error) && (
-            <p className="settings-error">
+            <p
+              className={
+                isDark
+                  ? 'mx-6 mt-5 rounded-lg border border-red-500/25 bg-red-500/8 px-4 py-3 text-xs leading-5 text-red-300'
+                  : 'settings-error'
+              }
+            >
               {error || status.error}
             </p>
           )}
 
-          <div className="settings-actions">
+          <div
+            className={
+              isDark
+                ? 'flex flex-wrap justify-end gap-3 border-t border-white/10 px-6 py-5'
+                : 'settings-actions'
+            }
+          >
             <button
               type="button"
               disabled={busy || status.state === 'checking'}
               onClick={() => void test()}
-              className="secondary-button"
+              className={
+                isDark
+                  ? 'rounded-lg border border-white/15 px-5 py-2.5 text-xs font-bold text-white transition hover:bg-white/8 disabled:opacity-50'
+                  : 'secondary-button'
+              }
             >
               Test connection
             </button>
@@ -115,21 +216,47 @@ export function SettingsPage() {
               type="button"
               disabled={busy}
               onClick={() => void signOut()}
-              className="delete-button"
+              className={
+                isDark
+                  ? 'rounded-lg border border-red-500/35 bg-red-500/8 px-5 py-2.5 text-xs font-bold text-red-300 transition hover:bg-red-500/15 disabled:opacity-50'
+                  : 'delete-button'
+              }
             >
               {busy ? 'Signing out...' : 'Sign out'}
             </button>
           </div>
         </div>
 
-        <div className="security-card">
-          <p>Credential security</p>
+        <div
+          className={
+            isDark
+              ? 'mt-5 rounded-xl border border-white/10 bg-white/[0.025] p-5'
+              : 'security-card'
+          }
+        >
+          <p
+            className={
+              isDark
+                ? 'text-xs font-bold'
+                : ''
+            }
+          >
+            Credential security
+          </p>
 
-          <span>
-            The access token is encrypted using the operating system
-            credential service. React receives only your account and
-            connection status, never the token.
-          </span>
+          {isDark ? (
+            <p className="mt-2 text-xs leading-5 text-white/45">
+              The access token is encrypted using the operating system
+              credential service. React receives only your account and
+              connection status, never the token.
+            </p>
+          ) : (
+            <span>
+              The access token is encrypted using the operating system
+              credential service. React receives only your account and
+              connection status, never the token.
+            </span>
+          )}
         </div>
 
         <LLMProviderSection
@@ -137,6 +264,7 @@ export function SettingsPage() {
             status.hasSession &&
             status.state === 'connected'
           }
+          isDark={isDark}
         />
 
         <SopLimitsSection
@@ -144,18 +272,128 @@ export function SettingsPage() {
             status.hasSession &&
             status.state === 'connected'
           }
+          isDark={isDark}
         />
 
-        <ExperimentalSection />
+        <ExperimentalSection isDark={isDark} />
       </div>
     </section>
   )
 }
 
+function AppearanceSection({
+  theme,
+  onChange,
+  isDark
+}: {
+  theme: Theme
+  onChange: (theme: Theme) => void
+  isDark: boolean
+}) {
+  const isLight = theme === 'light'
+
+  return (
+    <div
+      className={
+        isDark
+          ? 'mt-5 flex items-center justify-between gap-5 rounded-xl border border-white/10 bg-white/[0.025] p-5'
+          : 'mt-8 flex items-center justify-between gap-5 rounded-3xl border border-slate-200 bg-white px-7 py-6 shadow-[0_16px_45px_rgba(95,60,150,0.08)]'
+      }
+    >
+      <div>
+        <p
+          className={
+            isDark
+              ? 'font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/35'
+              : 'text-xs font-black uppercase tracking-[0.16em] text-[#a66ad8]'
+          }
+        >
+          Appearance
+        </p>
+
+        <h2
+          className={
+            isDark
+              ? 'mt-2 text-sm font-bold text-white'
+              : 'mt-2 text-lg font-black tracking-[-0.02em] text-slate-900'
+          }
+        >
+          Application theme
+        </h2>
+
+        <p
+          className={
+            isDark
+              ? 'mt-1 text-xs leading-5 text-white/45'
+              : 'mt-1 text-sm leading-6 text-slate-500'
+          }
+        >
+          Use the original dark interface or the optional light interface.
+        </p>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-3">
+        <span
+          className={
+            theme === 'dark'
+              ? isDark
+                ? 'text-xs font-bold text-white'
+                : 'text-xs font-bold text-slate-900'
+              : isDark
+                ? 'text-xs font-bold text-white/35'
+                : 'text-xs font-bold text-slate-400'
+          }
+        >
+          Dark
+        </span>
+
+        <button
+          type="button"
+          role="switch"
+          aria-label="Switch application theme"
+          aria-checked={isLight}
+          onClick={() =>
+            onChange(isLight ? 'dark' : 'light')
+          }
+          className={[
+            'relative flex h-7 w-[52px] shrink-0 items-center rounded-full border p-[3px] transition',
+            isLight
+              ? 'border-purple-400 bg-gradient-to-r from-[#a66ad8] to-[#d783b6]'
+              : 'border-white/20 bg-white/10'
+          ].join(' ')}
+        >
+          <span
+            className={[
+              'block size-5 rounded-full bg-white shadow-[0_2px_8px_rgba(0,0,0,0.35)] transition-transform',
+              isLight
+                ? 'translate-x-6'
+                : 'translate-x-0'
+            ].join(' ')}
+          />
+        </button>
+
+        <span
+          className={
+            theme === 'light'
+              ? 'text-xs font-bold text-slate-900'
+              : isDark
+                ? 'text-xs font-bold text-white/35'
+                : 'text-xs font-bold text-slate-400'
+          }
+        >
+          Light
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function LLMProviderSection({
-  enabled
+  enabled,
+  isDark
 }: {
   enabled: boolean
+  isDark: boolean
 }) {
   const [settings, setSettings] =
     useState<LLMProviderSettings | null>(null)
@@ -237,52 +475,99 @@ function LLMProviderSection({
   }
 
   return (
-    <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_45px_rgba(95,60,150,0.08)]">
-      <div className="h-1 bg-gradient-to-r from-[#a66ad8] via-[#c778d7] to-[#d783b6]" />
+    <div
+      className={
+        isDark
+          ? 'mt-5 overflow-hidden rounded-xl border border-white/10 bg-white/[0.025]'
+          : 'mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_45px_rgba(95,60,150,0.08)]'
+      }
+    >
+      {!isDark && (
+        <div className="h-1 bg-gradient-to-r from-[#a66ad8] via-[#c778d7] to-[#d783b6]" />
+      )}
 
-      <div className="flex items-center justify-between gap-5 border-b border-slate-200 px-6 py-5">
+      <div
+        className={
+          isDark
+            ? 'flex items-center justify-between border-b border-white/10 px-5 py-4'
+            : 'flex items-center justify-between gap-5 border-b border-slate-200 px-6 py-5'
+        }
+      >
         <div>
-          <p className="settings-label">
-            AI generation
-          </p>
+          {isDark ? (
+            <>
+              <p className="text-xs font-bold">
+                LLM provider
+              </p>
 
-          <h2 className="mt-1 text-lg font-black tracking-[-0.02em] text-slate-900">
-            LLM provider
-          </h2>
+              <p className="mt-1 text-xs text-white/45">
+                OpenRouter-compatible generation settings.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="settings-label">
+                AI generation
+              </p>
 
-          <p className="mt-1 text-sm leading-6 text-slate-500">
-            OpenRouter-compatible generation settings.
-          </p>
+              <h2 className="mt-1 text-lg font-black tracking-[-0.02em] text-slate-900">
+                LLM provider
+              </h2>
+
+              <p className="mt-1 text-sm leading-6 text-slate-500">
+                OpenRouter-compatible generation settings.
+              </p>
+            </>
+          )}
         </div>
 
-        <span
-          className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${
-            settings?.has_api_key
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              : 'border-slate-200 bg-slate-50 text-slate-500'
-          }`}
-        >
-          <span
-            className={`size-2 rounded-full ${
-              settings?.has_api_key
-                ? 'bg-emerald-500'
-                : 'bg-slate-300'
-            }`}
-          />
+        {isDark ? (
+          <span className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/50">
+            <span
+              className={`size-1.5 rounded-full ${
+                settings?.has_api_key
+                  ? 'bg-emerald-400'
+                  : 'bg-white/25'
+              }`}
+            />
 
-          {settings?.has_api_key
-            ? 'Key saved'
-            : 'No key'}
-        </span>
+            {settings?.has_api_key ? 'Key saved' : 'No key'}
+          </span>
+        ) : (
+          <span
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${
+              settings?.has_api_key
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-slate-200 bg-slate-50 text-slate-500'
+            }`}
+          >
+            <span
+              className={`size-2 rounded-full ${
+                settings?.has_api_key
+                  ? 'bg-emerald-500'
+                  : 'bg-slate-300'
+              }`}
+            />
+
+            {settings?.has_api_key ? 'Key saved' : 'No key'}
+          </span>
+        )}
       </div>
 
-      <div className="grid gap-5 p-6">
+      <div
+        className={
+          isDark
+            ? 'grid gap-4 p-5'
+            : 'grid gap-5 p-6'
+        }
+      >
         <TextInput
           label="Endpoint"
           value={baseUrl}
           disabled={!enabled || busy}
           placeholder="https://openrouter.ai/api/v1"
           onChange={setBaseUrl}
+          isDark={isDark}
         />
 
         <TextInput
@@ -291,6 +576,7 @@ function LLMProviderSection({
           disabled={!enabled || busy}
           placeholder="openai/gpt-4o"
           onChange={setModel}
+          isDark={isDark}
         />
 
         <TextInput
@@ -304,12 +590,23 @@ function LLMProviderSection({
           }
           secret
           onChange={setApiKey}
+          isDark={isDark}
         />
 
-        <label className="flex items-center gap-3 text-sm font-medium text-slate-600">
+        <label
+          className={
+            isDark
+              ? 'flex items-center gap-3 text-xs text-white/55'
+              : 'flex items-center gap-3 text-sm font-medium text-slate-600'
+          }
+        >
           <input
             type="checkbox"
-            className="size-4 accent-[#a66ad8]"
+            className={
+              isDark
+                ? 'size-4 accent-emerald-400'
+                : 'size-4 accent-[#a66ad8]'
+            }
             checked={clearApiKey}
             disabled={!enabled || busy}
             onChange={(event) =>
@@ -323,10 +620,16 @@ function LLMProviderSection({
         {(error || saved) && (
           <p
             className={[
-              'rounded-xl border px-4 py-3 text-sm leading-6',
+              isDark
+                ? 'rounded-lg border px-4 py-3 text-xs leading-5'
+                : 'rounded-xl border px-4 py-3 text-sm leading-6',
               error
-                ? 'border-red-200 bg-red-50 text-red-600'
-                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                ? isDark
+                  ? 'border-red-500/25 bg-red-500/8 text-red-300'
+                  : 'border-red-200 bg-red-50 text-red-600'
+                : isDark
+                  ? 'border-emerald-400/20 bg-emerald-400/8 text-emerald-300'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'
             ].join(' ')}
           >
             {error || 'Provider settings saved.'}
@@ -343,7 +646,11 @@ function LLMProviderSection({
               !model.trim()
             }
             onClick={() => void save()}
-            className="rounded-xl bg-gradient-to-r from-[#a66ad8] to-[#d783b6] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(166,106,216,0.22)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(166,106,216,0.3)] disabled:cursor-not-allowed disabled:opacity-50"
+            className={
+              isDark
+                ? 'rounded-lg border border-white/15 bg-white px-5 py-2.5 text-xs font-black text-black transition hover:bg-white/90 disabled:opacity-50'
+                : 'rounded-xl bg-gradient-to-r from-[#a66ad8] to-[#d783b6] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(166,106,216,0.22)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(166,106,216,0.3)] disabled:cursor-not-allowed disabled:opacity-50'
+            }
           >
             {busy ? 'Saving...' : 'Save provider'}
           </button>
@@ -388,9 +695,11 @@ const sopLimitFields: Array<{
 ]
 
 function SopLimitsSection({
-  enabled
+  enabled,
+  isDark
 }: {
   enabled: boolean
+  isDark: boolean
 }) {
   const [settings, setSettings] =
     useState<SopLimitsSettings | null>(null)
@@ -409,9 +718,7 @@ function SopLimitsSection({
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
-  const syncDraft = (
-    next: SopLimitsSettings
-  ) => {
+  const syncDraft = (next: SopLimitsSettings) => {
     setSettings(next)
 
     setDraft({
@@ -503,9 +810,7 @@ function SopLimitsSection({
     }
   }
 
-  const resetField = (
-    field: SopLimitField
-  ) => {
+  const resetField = (field: SopLimitField) => {
     if (!settings) return
 
     setDraft((current) => ({
@@ -515,24 +820,58 @@ function SopLimitsSection({
   }
 
   return (
-    <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_45px_rgba(95,60,150,0.08)]">
-      <div className="h-1 bg-gradient-to-r from-[#a66ad8] via-[#c778d7] to-[#d783b6]" />
+    <div
+      className={
+        isDark
+          ? 'mt-5 overflow-hidden rounded-xl border border-white/10 bg-white/[0.025]'
+          : 'mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_45px_rgba(95,60,150,0.08)]'
+      }
+    >
+      {!isDark && (
+        <div className="h-1 bg-gradient-to-r from-[#a66ad8] via-[#c778d7] to-[#d783b6]" />
+      )}
 
-      <div className="border-b border-slate-200 px-6 py-5">
-        <p className="settings-label">
-          Generation controls
-        </p>
+      <div
+        className={
+          isDark
+            ? 'border-b border-white/10 px-5 py-4'
+            : 'border-b border-slate-200 px-6 py-5'
+        }
+      >
+        {isDark ? (
+          <>
+            <p className="text-xs font-bold">
+              SOP generation limits
+            </p>
 
-        <h2 className="mt-1 text-lg font-black tracking-[-0.02em] text-slate-900">
-          SOP generation limits
-        </h2>
+            <p className="mt-1 text-xs text-white/45">
+              Tenant guardrails for LLM request size.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="settings-label">
+              Generation controls
+            </p>
 
-        <p className="mt-1 text-sm leading-6 text-slate-500">
-          Tenant guardrails for LLM request size.
-        </p>
+            <h2 className="mt-1 text-lg font-black tracking-[-0.02em] text-slate-900">
+              SOP generation limits
+            </h2>
+
+            <p className="mt-1 text-sm leading-6 text-slate-500">
+              Tenant guardrails for LLM request size.
+            </p>
+          </>
+        )}
       </div>
 
-      <div className="grid gap-3 p-6">
+      <div
+        className={
+          isDark
+            ? 'grid gap-3 p-5'
+            : 'grid gap-3 p-6'
+        }
+      >
         {sopLimitFields.map((field) => {
           const overridden =
             settings?.overridden[field.key] ?? false
@@ -543,14 +882,30 @@ function SopLimitsSection({
           return (
             <div
               key={field.key}
-              className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:grid-cols-[1fr_150px_auto] sm:items-center"
+              className={
+                isDark
+                  ? 'grid gap-3 rounded-xl border border-white/10 bg-black/20 p-4 sm:grid-cols-[1fr_150px_auto]'
+                  : 'grid gap-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:grid-cols-[1fr_150px_auto] sm:items-center'
+              }
             >
               <div>
-                <p className="text-sm font-bold text-slate-800">
+                <p
+                  className={
+                    isDark
+                      ? 'text-sm font-bold text-white/85'
+                      : 'text-sm font-bold text-slate-800'
+                  }
+                >
                   {field.label}
                 </p>
 
-                <p className="mt-1 text-xs leading-5 text-slate-500">
+                <p
+                  className={
+                    isDark
+                      ? 'mt-1 text-xs leading-5 text-white/45'
+                      : 'mt-1 text-xs leading-5 text-slate-500'
+                  }
+                >
                   {field.hint}
                 </p>
               </div>
@@ -569,7 +924,11 @@ function SopLimitsSection({
                     [field.key]: event.target.value
                   }))
                 }
-                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-purple-400 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:opacity-60"
+                className={
+                  isDark
+                    ? 'h-10 rounded-lg border border-white/10 bg-black/35 px-3 text-sm text-white outline-none transition focus:border-emerald-400/50 disabled:opacity-50'
+                    : 'h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-purple-400 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:opacity-60'
+                }
               />
 
               <button
@@ -583,7 +942,11 @@ function SopLimitsSection({
                 onClick={() =>
                   resetField(field.key)
                 }
-                className="h-10 rounded-lg border border-purple-200 bg-white px-3 text-xs font-bold text-purple-700 transition hover:border-purple-300 hover:bg-purple-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:opacity-60"
+                className={
+                  isDark
+                    ? 'h-10 rounded-lg border border-white/10 px-3 text-xs font-black uppercase tracking-[0.1em] text-white/55 transition hover:bg-white/8 disabled:opacity-35'
+                    : 'h-10 rounded-lg border border-purple-200 bg-white px-3 text-xs font-bold text-purple-700 transition hover:border-purple-300 hover:bg-purple-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:opacity-60'
+                }
               >
                 {overridden
                   ? 'Default'
@@ -596,17 +959,23 @@ function SopLimitsSection({
         {(error || saved) && (
           <p
             className={[
-              'rounded-xl border px-4 py-3 text-sm leading-6',
+              isDark
+                ? 'rounded-lg border px-4 py-3 text-xs leading-5'
+                : 'rounded-xl border px-4 py-3 text-sm leading-6',
               error
-                ? 'border-red-200 bg-red-50 text-red-600'
-                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                ? isDark
+                  ? 'border-red-500/25 bg-red-500/8 text-red-300'
+                  : 'border-red-200 bg-red-50 text-red-600'
+                : isDark
+                  ? 'border-emerald-400/20 bg-emerald-400/8 text-emerald-300'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'
             ].join(' ')}
           >
             {error || 'SOP limits saved.'}
           </p>
         )}
 
-        <div className="flex justify-end pt-1">
+        <div className="flex justify-end">
           <button
             type="button"
             disabled={
@@ -615,7 +984,11 @@ function SopLimitsSection({
               settings === null
             }
             onClick={() => void save()}
-            className="rounded-xl bg-gradient-to-r from-[#a66ad8] to-[#d783b6] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(166,106,216,0.22)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(166,106,216,0.3)] disabled:cursor-not-allowed disabled:opacity-50"
+            className={
+              isDark
+                ? 'rounded-lg border border-white/15 bg-white px-5 py-2.5 text-xs font-black text-black transition hover:bg-white/90 disabled:opacity-50'
+                : 'rounded-xl bg-gradient-to-r from-[#a66ad8] to-[#d783b6] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(166,106,216,0.22)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(166,106,216,0.3)] disabled:cursor-not-allowed disabled:opacity-50'
+            }
           >
             {busy ? 'Saving...' : 'Save limits'}
           </button>
@@ -625,7 +998,11 @@ function SopLimitsSection({
   )
 }
 
-function ExperimentalSection() {
+function ExperimentalSection({
+  isDark
+}: {
+  isDark: boolean
+}) {
   const [flags, setFlags] =
     useState<ExperimentalFlags | null>(null)
 
@@ -676,6 +1053,42 @@ function ExperimentalSection() {
     }
   }
 
+  if (isDark) {
+    return (
+      <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.025] p-5">
+        <p className="text-xs font-bold">
+          Experimental
+        </p>
+
+        <div className="mt-4 space-y-4">
+          <FlagToggle
+            title="Manual mode"
+            description="Pause after annotation and transcription so you can adjust evidence before creating the SOP."
+            checked={flags?.manualMode ?? false}
+            disabled={busy || flags === null}
+            onChange={(value) =>
+              void toggle('manualMode', value)
+            }
+            isDark
+          />
+
+          <FlagToggle
+            title="Accessibility capture"
+            description="Also query the focused UI element for more precise click bounds. Requires Accessibility permission and affects the next recording."
+            checked={
+              flags?.accessibilityCapture ?? false
+            }
+            disabled={busy || flags === null}
+            onChange={(value) =>
+              void toggle('accessibilityCapture', value)
+            }
+            isDark
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_45px_rgba(95,60,150,0.08)]">
       <div className="h-1 bg-gradient-to-r from-[#a66ad8] via-[#c778d7] to-[#d783b6]" />
@@ -698,19 +1111,12 @@ function ExperimentalSection() {
         <FlagToggle
           title="Manual mode"
           description="Pause after annotation and transcription so you can adjust evidence before creating the SOP."
-          checked={
-            flags?.manualMode ?? false
-          }
-          disabled={
-            busy ||
-            flags === null
-          }
+          checked={flags?.manualMode ?? false}
+          disabled={busy || flags === null}
           onChange={(value) =>
-            void toggle(
-              'manualMode',
-              value
-            )
+            void toggle('manualMode', value)
           }
+          isDark={false}
         />
 
         <FlagToggle
@@ -719,16 +1125,11 @@ function ExperimentalSection() {
           checked={
             flags?.accessibilityCapture ?? false
           }
-          disabled={
-            busy ||
-            flags === null
-          }
+          disabled={busy || flags === null}
           onChange={(value) =>
-            void toggle(
-              'accessibilityCapture',
-              value
-            )
+            void toggle('accessibilityCapture', value)
           }
+          isDark={false}
         />
       </div>
     </div>
@@ -741,7 +1142,8 @@ function TextInput({
   disabled,
   placeholder,
   secret = false,
-  onChange
+  onChange,
+  isDark
 }: {
   label: string
   value: string
@@ -749,10 +1151,17 @@ function TextInput({
   placeholder: string
   secret?: boolean
   onChange: (value: string) => void
+  isDark: boolean
 }) {
   return (
     <label className="block">
-      <span className="settings-label">
+      <span
+        className={
+          isDark
+            ? 'font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white/35'
+            : 'settings-label'
+        }
+      >
         {label}
       </span>
 
@@ -764,7 +1173,11 @@ function TextInput({
         onChange={(event) =>
           onChange(event.target.value)
         }
-        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-purple-400 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:opacity-60"
+        className={
+          isDark
+            ? 'mt-2 w-full rounded-lg border border-white/10 bg-black/35 px-4 py-3 text-sm text-white/85 outline-none transition placeholder:text-white/25 focus:border-emerald-400/50 disabled:opacity-50'
+            : 'mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-purple-400 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:opacity-60'
+        }
       />
     </label>
   )
@@ -775,29 +1188,53 @@ function FlagToggle({
   description,
   checked,
   disabled,
-  onChange
+  onChange,
+  isDark
 }: {
   title: string
   description: string
   checked: boolean
   disabled: boolean
   onChange: (value: boolean) => void
+  isDark: boolean
 }) {
   return (
-    <label className="flex items-start justify-between gap-5 rounded-xl border border-slate-200 bg-slate-50/70 px-5 py-4 transition hover:border-purple-200 hover:bg-purple-50/40">
+    <label
+      className={
+        isDark
+          ? 'flex items-start justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3'
+          : 'flex items-start justify-between gap-5 rounded-xl border border-slate-200 bg-slate-50/70 px-5 py-4 transition hover:border-purple-200 hover:bg-purple-50/40'
+      }
+    >
       <span>
-        <span className="block text-sm font-bold text-slate-800">
+        <span
+          className={
+            isDark
+              ? 'block text-sm font-bold text-white/85'
+              : 'block text-sm font-bold text-slate-800'
+          }
+        >
           {title}
         </span>
 
-        <span className="mt-1 block text-xs leading-5 text-slate-500">
+        <span
+          className={
+            isDark
+              ? 'mt-1 block text-xs leading-5 text-white/45'
+              : 'mt-1 block text-xs leading-5 text-slate-500'
+          }
+        >
           {description}
         </span>
       </span>
 
       <input
         type="checkbox"
-        className="mt-1 size-4 shrink-0 accent-[#a66ad8]"
+        className={
+          isDark
+            ? 'mt-1 size-4 shrink-0 accent-emerald-400'
+            : 'mt-1 size-4 shrink-0 accent-[#a66ad8]'
+        }
         disabled={disabled}
         checked={checked}
         onChange={(event) =>
@@ -812,13 +1249,35 @@ function AccountDetail({
   label,
   value,
   mono = false,
-  capitalize = false
+  capitalize = false,
+  isDark
 }: {
   label: string
   value: string
   mono?: boolean
   capitalize?: boolean
+  isDark: boolean
 }) {
+  if (isDark) {
+    return (
+      <div className="bg-[#0c0c0c] px-6 py-5">
+        <dt className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/35">
+          {label}
+        </dt>
+
+        <dd
+          className={[
+            'mt-2 break-all text-sm text-white/80',
+            mono ? 'font-mono text-xs' : '',
+            capitalize ? 'capitalize' : ''
+          ].join(' ')}
+        >
+          {value}
+        </dd>
+      </div>
+    )
+  }
+
   return (
     <div>
       <dt className="settings-label">
@@ -828,9 +1287,7 @@ function AccountDetail({
       <dd
         className={[
           'settings-value',
-          mono
-            ? 'settings-value-mono'
-            : '',
+          mono ? 'settings-value-mono' : '',
           capitalize
             ? 'settings-value-capitalize'
             : ''
@@ -843,9 +1300,11 @@ function AccountDetail({
 }
 
 function ConnectionBadge({
-  state
+  state,
+  isDark
 }: {
   state: string
+  isDark: boolean
 }) {
   const labels: Record<string, string> = {
     connected: 'Connected',
@@ -854,12 +1313,32 @@ function ConnectionBadge({
     'signed-out': 'Signed out'
   }
 
+  if (isDark) {
+    const color =
+      state === 'connected'
+        ? 'bg-emerald-400'
+        : state === 'checking'
+          ? 'animate-pulse bg-amber-400'
+          : state === 'error'
+            ? 'bg-red-500'
+            : 'bg-white/30'
+
+    return (
+      <span className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/60">
+        <span
+          className={`size-1.5 rounded-full ${color}`}
+        />
+
+        {labels[state] || state}
+      </span>
+    )
+  }
+
   return (
     <span
       className={`connection-badge connection-badge-${state}`}
     >
       <span />
-
       {labels[state] || state}
     </span>
   )

@@ -5,6 +5,8 @@ import type {
   BackendWorkflowSession,
   RecordedSessionSummary
 } from '../../shared/recording'
+import { EvidenceGallery } from '../components/EvidenceGallery'
+import { StepProgress } from '../components/StepProgress'
 import { useRecording } from '../features/recording/useRecording'
 import {
   activeRecordingSummary,
@@ -18,8 +20,27 @@ import {
   statusForSession,
   statusLabel
 } from '../features/recording/sessionStatus'
-import { StepProgress } from '../components/StepProgress'
-import { EvidenceGallery } from '../components/EvidenceGallery'
+import { useTheme } from '../features/theme/ThemeContext'
+
+function DarkMetric({
+  label,
+  value
+}: {
+  label: string
+  value: string | number
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">
+        {label}
+      </p>
+
+      <p className="mt-2 text-2xl font-black">
+        {value}
+      </p>
+    </div>
+  )
+}
 
 function EvidenceMetric({
   label,
@@ -30,8 +51,13 @@ function EvidenceMetric({
 }) {
   return (
     <div className="evidence-metric">
-      <p className="evidence-label">{label}</p>
-      <p className="evidence-value">{value}</p>
+      <p className="evidence-label">
+        {label}
+      </p>
+
+      <p className="evidence-value">
+        {value}
+      </p>
     </div>
   )
 }
@@ -52,14 +78,19 @@ function ProcessingStatusCard({
     <div className="processing-card">
       <div className="selected-card-header">
         <div>
-          <p className="section-label">Processing status</p>
+          <p className="section-label">
+            Processing status
+          </p>
+
           <h3 className="selected-title">
             {statusLabel(session)}
           </h3>
         </div>
 
         <span
-          className={`size-3 rounded-full ${statusDot(session)}`}
+          className={`size-3 rounded-full ${statusDot(
+            session
+          )}`}
         />
       </div>
 
@@ -90,8 +121,6 @@ function ProcessingStatusCard({
           </span>
         </div>
       </div>
-
-
 
       <div className="status-detail-grid">
         <div className="status-detail-box">
@@ -134,27 +163,45 @@ function TranscriptPanel({
   session,
   editable,
   value,
-  onChange
+  onChange,
+  isDark
 }: {
   session: BackendWorkflowSession | null
   editable?: boolean
   value?: string
   onChange?: (value: string) => void
+  isDark: boolean
 }) {
   if (!session) {
     return (
-      <p className="muted-text">
+      <p
+        className={
+          isDark
+            ? 'text-sm text-white/45'
+            : 'muted-text'
+        }
+      >
         Transcript is unavailable until the recording finishes uploading.
       </p>
     )
   }
 
-  const transcript: BackendTranscript | null = session.transcript
+  const transcript: BackendTranscript | null =
+    session.transcript
 
-  if (!transcript || transcript.status === 'not_recorded') {
+  if (
+    !transcript ||
+    transcript.status === 'not_recorded'
+  ) {
     if (!editable) {
       return (
-        <p className="muted-text">
+        <p
+          className={
+            isDark
+              ? 'text-sm text-white/45'
+              : 'muted-text'
+          }
+        >
           No audio narration was recorded.
         </p>
       )
@@ -163,16 +210,28 @@ function TranscriptPanel({
     return (
       <textarea
         value={value ?? ''}
-        onChange={(event) => onChange?.(event.target.value)}
+        onChange={(event) =>
+          onChange?.(event.target.value)
+        }
         placeholder="No audio was recorded. Add reviewer notes for the SOP if useful."
-        className="save-input min-h-36 w-full resize-y"
+        className={
+          isDark
+            ? 'min-h-36 w-full resize-y rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/25 focus:border-white/30'
+            : 'save-input min-h-36 w-full resize-y'
+        }
       />
     )
   }
 
   return (
     <div className="space-y-3">
-      <p className="evidence-label">
+      <p
+        className={
+          isDark
+            ? 'font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/35'
+            : 'evidence-label'
+        }
+      >
         Status · {transcript.status}
       </p>
 
@@ -180,71 +239,139 @@ function TranscriptPanel({
         editable ? (
           <textarea
             value={value ?? ''}
-            onChange={(event) => onChange?.(event.target.value)}
-            className="save-input min-h-44 w-full resize-y"
+            onChange={(event) =>
+              onChange?.(event.target.value)
+            }
+            className={
+              isDark
+                ? 'min-h-44 w-full resize-y rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/25 focus:border-white/30'
+                : 'save-input min-h-44 w-full resize-y'
+            }
             placeholder="Review and edit the transcript..."
           />
         ) : (
-          <p className="text-sm leading-6 text-slate-600">
+          <p
+            className={
+              isDark
+                ? 'text-sm leading-6 text-white/70'
+                : 'text-sm leading-6 text-slate-600'
+            }
+          >
             {transcript.text}
           </p>
         )
       ) : editable ? (
         <textarea
           value={value ?? ''}
-          onChange={(event) => onChange?.(event.target.value)}
-          className="save-input min-h-44 w-full resize-y"
+          onChange={(event) =>
+            onChange?.(event.target.value)
+          }
+          className={
+            isDark
+              ? 'min-h-44 w-full resize-y rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/25 focus:border-white/30'
+              : 'save-input min-h-44 w-full resize-y'
+          }
           placeholder="Transcript is empty. Add context for the SOP..."
         />
       ) : (
-        <p className="muted-text">
-          {transcript.status === 'pending_transcription'
+        <p
+          className={
+            isDark
+              ? 'text-sm text-white/45'
+              : 'muted-text'
+          }
+        >
+          {transcript.status ===
+          'pending_transcription'
             ? 'Audio is queued for transcription.'
             : 'No transcript text available.'}
         </p>
       )}
 
-      {!editable && transcript.segments.length > 0 && (
-        <ul className="space-y-2">
-          {transcript.segments.map((segment, index) => (
-            <li
-              key={index}
-              className="flex gap-3 text-sm text-slate-600"
-            >
-              <span className="shrink-0 font-mono text-[10px] text-slate-400">
-                {formatTimestamp(segment.start_ms)}
-              </span>
+      {!editable &&
+        transcript.segments.length > 0 && (
+          <ul
+            className={
+              isDark
+                ? 'space-y-1.5'
+                : 'space-y-2'
+            }
+          >
+            {transcript.segments.map(
+              (segment, index) => (
+                <li
+                  key={index}
+                  className={
+                    isDark
+                      ? 'flex gap-3 text-sm text-white/55'
+                      : 'flex gap-3 text-sm text-slate-600'
+                  }
+                >
+                  <span
+                    className={
+                      isDark
+                        ? 'shrink-0 font-mono text-[10px] text-white/35'
+                        : 'shrink-0 font-mono text-[10px] text-slate-400'
+                    }
+                  >
+                    {formatTimestamp(
+                      segment.start_ms
+                    )}
+                  </span>
 
-              <span>{segment.text}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+                  <span>
+                    {segment.text}
+                  </span>
+                </li>
+              )
+            )}
+          </ul>
+        )}
     </div>
   )
 }
 
 export function SessionDetailPage() {
-  const { id = '' } = useParams<{ id: string }>()
+  const { id = '' } =
+    useParams<{ id: string }>()
+
   const navigate = useNavigate()
-  const { state: recordingState } = useRecording()
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+
+  const { state: recordingState } =
+    useRecording()
 
   const [session, setSession] =
-    useState<RecordedSessionSummary | null>(null)
+    useState<RecordedSessionSummary | null>(
+      null
+    )
 
   const [backendSession, setBackendSession] =
-    useState<BackendWorkflowSession | null>(null)
+    useState<BackendWorkflowSession | null>(
+      null
+    )
 
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] =
+    useState(true)
 
   const [acting, setActing] = useState<
     'upload' | 'sop' | 'review' | 'delete' | null
   >(null)
 
-  const [error, setError] = useState<string | null>(null)
-  const [transcriptDraft, setTranscriptDraft] = useState('')
-  const [customInstruction, setCustomInstruction] = useState('')
-  const [reviewDirty, setReviewDirty] = useState(false)
+  const [error, setError] =
+    useState<string | null>(null)
+
+  const [transcriptDraft, setTranscriptDraft] =
+    useState('')
+
+  const [
+    customInstruction,
+    setCustomInstruction
+  ] = useState('')
+
+  const [reviewDirty, setReviewDirty] =
+    useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -264,14 +391,20 @@ export function SessionDetailPage() {
 
         const merged =
           active &&
-          !sessions.some((item) => item.id === active.id)
+          !sessions.some(
+            (item) => item.id === active.id
+          )
             ? [active, ...sessions]
             : sessions.map((item) =>
-                item.id === active?.id ? active : item
+                item.id === active?.id
+                  ? active
+                  : item
               )
 
         const found =
-          merged.find((item) => item.id === id) ?? null
+          merged.find(
+            (item) => item.id === id
+          ) ?? null
 
         setSession(found)
         setBackendSession(null)
@@ -324,7 +457,8 @@ export function SessionDetailPage() {
   useEffect(() => {
     if (reviewDirty) return
 
-    const transcript = backendSession?.transcript
+    const transcript =
+      backendSession?.transcript
 
     const transcriptText =
       transcript?.text ??
@@ -336,12 +470,14 @@ export function SessionDetailPage() {
     setTranscriptDraft(transcriptText)
 
     setCustomInstruction(
-      session?.backend?.recording.custom_sop_instruction ?? ''
+      session?.backend?.recording
+        .custom_sop_instruction ?? ''
     )
   }, [
     backendSession,
     reviewDirty,
-    session?.backend?.recording.custom_sop_instruction
+    session?.backend?.recording
+      .custom_sop_instruction
   ])
 
   const retry = async () => {
@@ -349,7 +485,10 @@ export function SessionDetailPage() {
     setError(null)
 
     try {
-      await window.api.recording.retry(id, 'upload')
+      await window.api.recording.retry(
+        id,
+        'upload'
+      )
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -366,7 +505,10 @@ export function SessionDetailPage() {
     setError(null)
 
     try {
-      await window.api.recording.retry(id, 'sop')
+      await window.api.recording.retry(
+        id,
+        'sop'
+      )
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -379,7 +521,9 @@ export function SessionDetailPage() {
   }
 
   const saveReview = async () => {
-    if (!session?.remoteRecordingId) return
+    if (!session?.remoteRecordingId) {
+      return
+    }
 
     setActing('review')
     setError(null)
@@ -396,7 +540,8 @@ export function SessionDetailPage() {
         current
           ? {
               ...current,
-              remoteStatus: recording.status,
+              remoteStatus:
+                recording.status,
               backend: current.backend
                 ? {
                     ...current.backend,
@@ -420,7 +565,9 @@ export function SessionDetailPage() {
   }
 
   const generateSop = async () => {
-    if (!session?.remoteRecordingId) return
+    if (!session?.remoteRecordingId) {
+      return
+    }
 
     setActing('sop')
     setError(null)
@@ -446,7 +593,8 @@ export function SessionDetailPage() {
         current
           ? {
               ...current,
-              remoteStatus: recording.status,
+              remoteStatus:
+                recording.status,
               backend: current.backend
                 ? {
                     ...current.backend,
@@ -480,7 +628,10 @@ export function SessionDetailPage() {
     setError(null)
 
     try {
-      await window.api.recording.deleteSession(id)
+      await window.api.recording.deleteSession(
+        id
+      )
+
       navigate('/sessions')
     } catch (caught) {
       setError(
@@ -495,26 +646,62 @@ export function SessionDetailPage() {
 
   if (isLoading && !session) {
     return (
-      <main className="grid min-h-[calc(100vh-3.5rem)] place-items-center bg-[#fafafb]">
-        <span className="size-2.5 animate-pulse rounded-full bg-purple-400" />
+      <main
+        className={
+          isDark
+            ? 'grid h-[calc(100vh-4rem)] place-items-center px-6'
+            : 'grid min-h-[calc(100vh-3.5rem)] place-items-center bg-[#fafafb]'
+        }
+      >
+        <span
+          className={
+            isDark
+              ? 'size-2.5 animate-pulse rounded-full bg-white/45'
+              : 'size-2.5 animate-pulse rounded-full bg-purple-400'
+          }
+        />
       </main>
     )
   }
 
   if (!session) {
+    if (isDark) {
+      return (
+        <main className="space-y-5 px-6 py-8 md:px-8">
+          <button
+            type="button"
+            onClick={() =>
+              navigate('/sessions')
+            }
+            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/45 hover:text-white/70"
+          >
+            ← Back to sessions
+          </button>
+
+          <p className="text-sm text-white/50">
+            {error ??
+              'This session could not be found.'}
+          </p>
+        </main>
+      )
+    }
+
     return (
       <main className="dashboard-page">
         <div className="dashboard-container">
           <button
             type="button"
-            onClick={() => navigate('/sessions')}
+            onClick={() =>
+              navigate('/sessions')
+            }
             className="record-workflow-link"
           >
             ← Back to sessions
           </button>
 
           <p className="muted-text">
-            {error ?? 'This session could not be found.'}
+            {error ??
+              'This session could not be found.'}
           </p>
         </div>
       </main>
@@ -534,19 +721,354 @@ export function SessionDetailPage() {
 
   const isManualReview =
     Boolean(backendRecording?.manual_mode) &&
-    (currentStatus === 'awaiting_manual_review' ||
+    (currentStatus ===
+      'awaiting_manual_review' ||
       currentStatus === 'sop_failed')
 
   const sopReady =
     currentStatus === 'ready_for_review' ||
     currentStatus === 'completed'
 
+  if (isDark) {
+    return (
+      <main className="space-y-6 px-6 py-8 md:px-8">
+        <button
+          type="button"
+          onClick={() =>
+            navigate('/sessions')
+          }
+          className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/45 hover:text-white/70"
+        >
+          ← Back to sessions
+        </button>
+
+        {error && (
+          <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {error}
+          </p>
+        )}
+
+        <section className="rounded-2xl border border-white/10 bg-[#0c0c0c] p-6 shadow-[0_18px_65px_rgba(0,0,0,0.42)]">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-white/35">
+                {formatDate(
+                  session.startedAt
+                )}{' '}
+                ·{' '}
+                {formatDuration(
+                  session.durationMs
+                )}
+              </p>
+
+              <h2 className="mt-2 flex items-center gap-3 text-3xl font-black tracking-[-0.035em]">
+                <span
+                  className={`size-3 shrink-0 rounded-full ${statusDot(
+                    session
+                  )}`}
+                />
+
+                <span className="truncate">
+                  {session.name}
+                </span>
+              </h2>
+            </div>
+
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {session.remoteSessionId &&
+                sopReady && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(
+                        `/sessions/${id}/sop`
+                      )
+                    }
+                    className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-emerald-300 transition hover:bg-emerald-500/18"
+                  >
+                    View SOP
+                  </button>
+                )}
+
+              {isManualReview && (
+                <button
+                  type="button"
+                  disabled={acting !== null}
+                  onClick={() =>
+                    void generateSop()
+                  }
+                  className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-emerald-300 transition hover:bg-emerald-500/18 disabled:cursor-wait disabled:opacity-40"
+                >
+                  {acting === 'sop'
+                    ? 'Starting'
+                    : 'Generate SOP'}
+                </button>
+              )}
+
+              {sopRetryable &&
+                !isManualReview && (
+                  <button
+                    type="button"
+                    disabled={acting !== null}
+                    onClick={() =>
+                      void retryServerSop()
+                    }
+                    className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-400/18 disabled:cursor-wait disabled:opacity-40"
+                  >
+                    {acting === 'sop'
+                      ? 'Retrying'
+                      : 'Retry SOP'}
+                  </button>
+                )}
+
+              {retryable && (
+                <button
+                  type="button"
+                  disabled={acting !== null}
+                  onClick={() =>
+                    void retry()
+                  }
+                  className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-400/18 disabled:cursor-wait disabled:opacity-40"
+                >
+                  {acting === 'upload'
+                    ? 'Retrying'
+                    : 'Retry'}
+                </button>
+              )}
+
+              <button
+                type="button"
+                disabled={
+                  !deletable ||
+                  acting !== null
+                }
+                onClick={() =>
+                  void remove()
+                }
+                className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-red-300 transition hover:bg-red-500/18 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {acting === 'delete'
+                  ? 'Deleting'
+                  : 'Delete'}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <StepProgress
+              status={statusForSession(
+                session
+              )}
+              failed={failed}
+              hasAudio={
+                session.audioChunkCount > 0
+              }
+              barClassName="h-2"
+            />
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-4">
+            <DarkMetric
+              label="Duration"
+              value={formatDuration(
+                session.durationMs
+              )}
+            />
+
+            <DarkMetric
+              label="Events"
+              value={session.eventCount}
+            />
+
+            <DarkMetric
+              label="Screenshots"
+              value={session.screenshotCount}
+            />
+
+            <DarkMetric
+              label="Audio chunks"
+              value={session.audioChunkCount}
+            />
+          </div>
+
+          {session.uploadError && (
+            <p className="mt-5 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              {session.uploadError}
+            </p>
+          )}
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">
+                Backend recording
+              </p>
+
+              <p className="mt-2 break-all font-mono text-xs text-white/65">
+                {session.remoteRecordingId ??
+                  'Not uploaded yet'}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">
+                SOP session
+              </p>
+
+              <p className="mt-2 break-all font-mono text-xs text-white/65">
+                {session.remoteSessionId ??
+                  'Pending'}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {isManualReview && (
+          <section className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.045] p-6 shadow-[0_18px_65px_rgba(0,0,0,0.35)]">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-300">
+                  Manual review
+                </p>
+
+                <h3 className="mt-2 text-2xl font-black tracking-[-0.035em]">
+                  Evidence is ready for human
+                  edits
+                </h3>
+
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-white/55">
+                  Adjust annotations, clean up the
+                  transcript, and add a short
+                  instruction for the SOP prompt.
+                  Saving writes the review state
+                  back to the backend.
+                </p>
+              </div>
+
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={
+                    acting !== null ||
+                    !reviewDirty
+                  }
+                  onClick={() =>
+                    void saveReview()
+                  }
+                  className="rounded-xl border border-white/12 bg-white/[0.04] px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-white/75 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {acting === 'review'
+                    ? 'Saving'
+                    : reviewDirty
+                      ? 'Save review'
+                      : 'Saved'}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={acting !== null}
+                  onClick={() =>
+                    void generateSop()
+                  }
+                  className="rounded-xl bg-emerald-400 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-black transition hover:bg-emerald-300 disabled:cursor-wait disabled:opacity-50"
+                >
+                  {acting === 'sop'
+                    ? 'Starting'
+                    : 'Generate SOP'}
+                </button>
+              </div>
+            </div>
+
+            <label className="mt-5 block">
+              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
+                Custom SOP instruction
+              </span>
+
+              <textarea
+                value={customInstruction}
+                onChange={(event) => {
+                  setCustomInstruction(
+                    event.target.value
+                  )
+
+                  setReviewDirty(true)
+                }}
+                placeholder="Example: make this SOP concise, mention checks before approval, use finance-team wording..."
+                className="mt-3 min-h-24 w-full resize-y rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/25 focus:border-emerald-300/50"
+              />
+            </label>
+          </section>
+        )}
+
+        <section className="rounded-2xl border border-white/10 bg-[#090909] p-6">
+          <div className="flex items-center justify-between gap-4">
+            <h3 className="text-lg font-black tracking-[-0.02em]">
+              Transcript
+            </h3>
+
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/60">
+              {statusLabel(session)}
+            </span>
+          </div>
+
+          <div className="mt-5">
+            <TranscriptPanel
+              session={backendSession}
+              editable={isManualReview}
+              value={transcriptDraft}
+              onChange={(value) => {
+                setTranscriptDraft(value)
+                setReviewDirty(true)
+              }}
+              isDark
+            />
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-white/10 bg-[#090909] p-6">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-black tracking-[-0.02em]">
+                Evidence
+              </h3>
+
+              <p className="mt-1 text-xs text-white/40">
+                Captured screenshots with click
+                &amp; scroll highlights.
+              </p>
+            </div>
+
+            {session.remoteSessionId && (
+              <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/60">
+                {session.screenshotCount}{' '}
+                frame
+                {session.screenshotCount === 1
+                  ? ''
+                  : 's'}
+              </span>
+            )}
+          </div>
+
+          <div className="mt-5">
+            <EvidenceGallery
+              remoteSessionId={
+                session.remoteSessionId
+              }
+              editable={isManualReview}
+            />
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="dashboard-page">
       <div className="dashboard-container">
         <button
           type="button"
-          onClick={() => navigate('/sessions')}
+          onClick={() =>
+            navigate('/sessions')
+          }
           className="record-workflow-link"
         >
           ← Back to sessions
@@ -575,29 +1097,41 @@ export function SessionDetailPage() {
                 </div>
 
                 <p className="selected-path">
-                  {formatDate(session.startedAt)} ·{' '}
-                  {formatDuration(session.durationMs)}
+                  {formatDate(
+                    session.startedAt
+                  )}{' '}
+                  ·{' '}
+                  {formatDuration(
+                    session.durationMs
+                  )}
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {session.remoteSessionId && sopReady && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      navigate(`/sessions/${id}/sop`)
-                    }
-                    className="gradient-button"
-                  >
-                    View SOP
-                  </button>
-                )}
+                {session.remoteSessionId &&
+                  sopReady && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(
+                          `/sessions/${id}/sop`
+                        )
+                      }
+                      className="gradient-button"
+                    >
+                      View SOP
+                    </button>
+                  )}
 
                 {isManualReview && (
                   <button
                     type="button"
-                    disabled={acting !== null}
-                    onClick={() => void generateSop()}
+                    disabled={
+                      acting !== null
+                    }
+                    onClick={() =>
+                      void generateSop()
+                    }
                     className="gradient-button"
                   >
                     {acting === 'sop'
@@ -606,24 +1140,31 @@ export function SessionDetailPage() {
                   </button>
                 )}
 
-                {sopRetryable && !isManualReview && (
-                  <button
-                    type="button"
-                    disabled={acting !== null}
-                    onClick={() => void retryServerSop()}
-                    className="action-button"
-                  >
-                    {acting === 'sop'
-                      ? 'Retrying'
-                      : 'Retry SOP'}
-                  </button>
-                )}
+                {sopRetryable &&
+                  !isManualReview && (
+                    <button
+                      type="button"
+                      disabled={
+                        acting !== null
+                      }
+                      onClick={() =>
+                        void retryServerSop()
+                      }
+                      className="action-button"
+                    >
+                      {acting === 'sop'
+                        ? 'Retrying'
+                        : 'Retry SOP'}
+                    </button>
+                  )}
 
                 {retryable && (
                   <button
                     type="button"
                     disabled={acting !== null}
-                    onClick={() => void retry()}
+                    onClick={() =>
+                      void retry()
+                    }
                     className="action-button"
                   >
                     {acting === 'upload'
@@ -634,9 +1175,14 @@ export function SessionDetailPage() {
 
                 <button
                   type="button"
-                  disabled={!deletable || acting !== null}
-                  onClick={() => void remove()}
-                  className="delete-button"
+                  disabled={
+                    !deletable ||
+                    acting !== null
+                  }
+                  onClick={() =>
+                    void remove()
+                  }
+                  className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {acting === 'delete'
                     ? 'Deleting'
@@ -644,11 +1190,16 @@ export function SessionDetailPage() {
                 </button>
               </div>
             </div>
+
             <div className="mt-5">
               <StepProgress
-                status={statusForSession(session)}
+                status={statusForSession(
+                  session
+                )}
                 failed={failed}
-                hasAudio={session.audioChunkCount > 0}
+                hasAudio={
+                  session.audioChunkCount > 0
+                }
                 barClassName="h-2"
               />
             </div>
@@ -656,7 +1207,9 @@ export function SessionDetailPage() {
             <div className="metric-grid">
               <EvidenceMetric
                 label="Duration"
-                value={formatDuration(session.durationMs)}
+                value={formatDuration(
+                  session.durationMs
+                )}
               />
 
               <EvidenceMetric
@@ -693,7 +1246,8 @@ export function SessionDetailPage() {
                 </p>
 
                 <p className="status-detail-text break-all">
-                  {session.remoteSessionId ?? 'Pending'}
+                  {session.remoteSessionId ??
+                    'Pending'}
                 </p>
               </div>
             </div>
@@ -705,7 +1259,9 @@ export function SessionDetailPage() {
             )}
           </section>
 
-          <ProcessingStatusCard session={session} />
+          <ProcessingStatusCard
+            session={session}
+          />
         </div>
 
         {isManualReview && (
@@ -720,20 +1276,28 @@ export function SessionDetailPage() {
                   </p>
 
                   <h3 className="selected-title">
-                    Evidence is ready for human edits
+                    Evidence is ready for human
+                    edits
                   </h3>
 
                   <p className="muted-text mt-2">
-                    Adjust annotations, clean up the transcript,
-                    and add a short instruction for the SOP prompt.
+                    Adjust annotations, clean up
+                    the transcript, and add a
+                    short instruction for the SOP
+                    prompt.
                   </p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    disabled={acting !== null || !reviewDirty}
-                    onClick={() => void saveReview()}
+                    disabled={
+                      acting !== null ||
+                      !reviewDirty
+                    }
+                    onClick={() =>
+                      void saveReview()
+                    }
                     className="action-button"
                   >
                     {acting === 'review'
@@ -745,8 +1309,12 @@ export function SessionDetailPage() {
 
                   <button
                     type="button"
-                    disabled={acting !== null}
-                    onClick={() => void generateSop()}
+                    disabled={
+                      acting !== null
+                    }
+                    onClick={() =>
+                      void generateSop()
+                    }
                     className="gradient-button"
                   >
                     {acting === 'sop'
@@ -757,12 +1325,17 @@ export function SessionDetailPage() {
               </div>
 
               <label className="save-field mt-5">
-                <span>Custom SOP instruction</span>
+                <span>
+                  Custom SOP instruction
+                </span>
 
                 <textarea
                   value={customInstruction}
                   onChange={(event) => {
-                    setCustomInstruction(event.target.value)
+                    setCustomInstruction(
+                      event.target.value
+                    )
+
                     setReviewDirty(true)
                   }}
                   placeholder="Example: make this SOP concise, mention checks before approval..."
@@ -788,12 +1361,16 @@ export function SessionDetailPage() {
                 </h3>
               </div>
 
-              <span className="selected-status-pill">
+              <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-4 py-2 text-xs font-bold text-purple-700">
                 {statusLabel(session)}
               </span>
             </div>
 
-            <div style={{ marginTop: '1.25rem' }}>
+            <div
+              style={{
+                marginTop: '1.25rem'
+              }}
+            >
               <TranscriptPanel
                 session={backendSession}
                 editable={isManualReview}
@@ -802,6 +1379,7 @@ export function SessionDetailPage() {
                   setTranscriptDraft(value)
                   setReviewDirty(true)
                 }}
+                isDark={false}
               />
             </div>
           </div>
@@ -822,22 +1400,31 @@ export function SessionDetailPage() {
                 </h3>
 
                 <p className="muted-text mt-1">
-                  Captured screenshots with click &amp; scroll highlights.
+                  Captured screenshots with click
+                  &amp; scroll highlights.
                 </p>
               </div>
 
               {session.remoteSessionId && (
-                <span className="selected-status-pill">
+                <span className="sinline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-4 py-2 text-xs font-bold text-purple-700">
                   {session.screenshotCount}{' '}
                   frame
-                  {session.screenshotCount === 1 ? '' : 's'}
+                  {session.screenshotCount === 1
+                    ? ''
+                    : 's'}
                 </span>
               )}
             </div>
 
-            <div style={{ marginTop: '1.25rem' }}>
+            <div
+              style={{
+                marginTop: '1.25rem'
+              }}
+            >
               <EvidenceGallery
-                remoteSessionId={session.remoteSessionId}
+                remoteSessionId={
+                  session.remoteSessionId
+                }
                 editable={isManualReview}
               />
             </div>
