@@ -322,6 +322,19 @@ class AnalyticsSummary(StrictModel):
     executive_summary: list[str] = Field(max_length=3)
 
 
+class DashboardSummary(StrictModel):
+    schema_version: Literal["1.0"] = SCHEMA_VERSION
+    tenant_id: UUID
+    workflows_recorded: int = Field(ge=0)
+    workflows_recorded_this_month: int = Field(ge=0)
+    workflows_recorded_change_percent: float | None = None
+    sops_generated: int = Field(ge=0)
+    approved_sops: int = Field(ge=0)
+    active_workflows: int = Field(ge=0)
+    average_completion_ms: int | None = Field(default=None, ge=0)
+    average_completion_delta_ms: int | None = None
+
+
 class ExternalAIPayloadPreview(StrictModel):
     provider: str
     approved: bool

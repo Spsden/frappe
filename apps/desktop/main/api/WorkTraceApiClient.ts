@@ -11,6 +11,7 @@ import type {
 } from '../../shared/connection'
 import type {
   AnnotationInput,
+  BackendDashboardSummary,
   BackendRecording,
   BackendRecordingStatusResponse,
   BackendScreenshotEvidence,
@@ -274,6 +275,11 @@ export class WorkTraceApiClient {
     // default; bump the limit when the library grows.
     const response = await this.request('/sops?limit=500')
     return (await response.json()) as BackendSOP[]
+  }
+
+  async getDashboardSummary(): Promise<BackendDashboardSummary> {
+    const response = await this.request('/dashboard/summary')
+    return (await response.json()) as BackendDashboardSummary
   }
 
   async getSopScreenshotImage(

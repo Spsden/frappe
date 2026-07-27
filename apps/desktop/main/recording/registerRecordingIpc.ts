@@ -54,6 +54,7 @@ export function registerRecordingIpc(
     library.getSessionSops(backendSessionId)
   )
   ipcMain.handle(recordingIpc.listSops, () => library.listSops())
+  ipcMain.handle(recordingIpc.getDashboardSummary, () => library.getDashboardSummary())
   ipcMain.handle(recordingIpc.exportSopPdf, (_event, html: string, title: string) =>
     exportSopPdf(html, title)
   )
@@ -132,6 +133,7 @@ export function registerRecordingIpc(
     ipcMain.removeHandler(recordingIpc.getScreenshotImage)
     ipcMain.removeHandler(recordingIpc.getSessionSops)
     ipcMain.removeHandler(recordingIpc.listSops)
+    ipcMain.removeHandler(recordingIpc.getDashboardSummary)
     ipcMain.removeHandler(recordingIpc.exportSopPdf)
     ipcMain.removeHandler(recordingIpc.getSopScreenshotImage)
     ipcMain.removeHandler(recordingIpc.saveScreenshotAnnotations)

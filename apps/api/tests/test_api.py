@@ -1,4 +1,8 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
+
+from worktrace_api.database import SessionLocal
+from worktrace_api.repository import Repository
+from worktrace_api.schemas import SOP, SOPStatus, SOPStep
 
 TEST_TENANT_ID = "00000000-0000-4000-8000-000000000099"
 
@@ -77,6 +81,49 @@ def test_end_to_end_api_flow(client):
     deletion = client.delete(f"/sessions/{session['id']}", headers=headers)
     assert deletion.status_code == 204
     assert client.get(f"/sessions/{session['id']}", headers=headers).status_code == 404
+
+
+def test_dashboard_summary_is_backed_by_tenant_data(client):
+    headers = auth_headers()
+
+    first = client.post("/sessions", headers=headers, json=session_payload(TEST_TENANT_ID))
+    assert first.status_code == 201
+    second_payload = session_payload(TEST_TENANT_ID)
+    second_payload["workflow_name"] = "Ship order"
+    second_payload["duration_ms"] = 2400
+    second = client.post("/sessions", headers=headers, json=second_payload)
+    assert second.status_code == 201
+
+    tenant_id = UUID(TEST_TENANT_ID)
+    with SessionLocal() as db:
+        repo = Repository(db, tenant_id)
+        repo.save_sop(
+            SOP(
+                tenant_id=tenant_id,
+                source_session_id=UUID(first.json()["id"]),
+                status=SOPStatus.APPROVED,
+                title="Approve invoice",
+                steps=[
+                    SOPStep(
+                        position=1,
+                        title="Open invoice",
+                        instruction="Open the invoice approval screen.",
+                    )
+                ],
+            )
+        )
+
+    response = client.get("/dashboard/summary", headers=headers)
+
+    assert response.status_code == 200
+    summary = response.json()
+    assert summary["workflows_recorded"] == 2
+    assert summary["workflows_recorded_this_month"] == 2
+    assert summary["workflows_recorded_change_percent"] == 100.0
+    assert summary["sops_generated"] == 1
+    assert summary["approved_sops"] == 1
+    assert summary["active_workflows"] == 2
+    assert summary["average_completion_ms"] == 1800
 
 
 def test_session_sop_fallback_route_is_removed(client):

@@ -239,6 +239,18 @@ export interface BackendSOP {
   created_at: string
 }
 
+export interface BackendDashboardSummary {
+  tenant_id: string
+  workflows_recorded: number
+  workflows_recorded_this_month: number
+  workflows_recorded_change_percent: number | null
+  sops_generated: number
+  approved_sops: number
+  active_workflows: number
+  average_completion_ms: number | null
+  average_completion_delta_ms: number | null
+}
+
 export interface RecordedSessionSummary {
   id: string
   name: string
@@ -334,6 +346,7 @@ export interface RecordingApi {
   ) => Promise<ArrayBuffer>
   getSessionSops: (backendSessionId: string) => Promise<BackendSOP[]>
   listSops: () => Promise<BackendSOP[]>
+  getDashboardSummary: () => Promise<BackendDashboardSummary>
   exportSopPdf: (html: string, title: string) => Promise<string | null>
   getSopScreenshotImage: (
     backendSessionId: string,
@@ -375,6 +388,7 @@ export const recordingIpc = {
   getSessionScreenshots: 'recording:get-session-screenshots',
   getSessionSops: 'recording:get-session-sops',
   listSops: 'recording:list-sops',
+  getDashboardSummary: 'recording:get-dashboard-summary',
   exportSopPdf: 'recording:export-sop-pdf',
   getScreenshotImage: 'recording:get-screenshot-image',
   getSopScreenshotImage: 'recording:get-sop-screenshot-image',

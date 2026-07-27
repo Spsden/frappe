@@ -2300,6 +2300,61 @@
         }
       }
     },
+    "/dashboard/summary": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Dashboard Summary",
+        "operationId": "dashboard_summary_dashboard_summary_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/analytics/{workflow_name}": {
       "get": {
         "tags": [
@@ -2660,6 +2715,91 @@
           "payload_size"
         ],
         "title": "ChunkReceipt"
+      },
+      "DashboardSummary": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1.0",
+            "title": "Schema Version",
+            "default": "1.0"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Tenant Id"
+          },
+          "workflows_recorded": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Workflows Recorded"
+          },
+          "workflows_recorded_this_month": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Workflows Recorded This Month"
+          },
+          "workflows_recorded_change_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflows Recorded Change Percent"
+          },
+          "sops_generated": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Sops Generated"
+          },
+          "approved_sops": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Approved Sops"
+          },
+          "active_workflows": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Active Workflows"
+          },
+          "average_completion_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Completion Ms"
+          },
+          "average_completion_delta_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Completion Delta Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "workflows_recorded",
+          "workflows_recorded_this_month",
+          "sops_generated",
+          "approved_sops",
+          "active_workflows"
+        ],
+        "title": "DashboardSummary"
       },
       "EventType": {
         "type": "string",
