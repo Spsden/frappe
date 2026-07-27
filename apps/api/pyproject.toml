@@ -21,7 +21,8 @@ dependencies = [
   "redis>=5.0,<6",
   "Pillow>=10.0,<12",
   "faster-whisper>=1.0,<2",
-  "openai>=1.10,<2"
+  "openai>=1.10,<2",
+  "pytesseract>=0.3,<1"
 ]
 
 [project.optional-dependencies]
