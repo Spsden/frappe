@@ -49,26 +49,43 @@ export function StepProgress({
   labelClassName,
   barClassName
 }: StepProgressProps) {
-  const steps = PIPELINE.filter((step) => step !== 'transcribing_audio' || hasAudio)
-  const currentIndex = status === 'local' ? -1 : steps.indexOf(status)
-  const finished = !failed && status !== 'local' && FINISHED.has(status)
+  const steps = PIPELINE.filter(
+    (step) => step !== 'transcribing_audio' || hasAudio
+  )
+
+  const currentIndex =
+    status === 'local' ? -1 : steps.indexOf(status)
+
+  const finished =
+    !failed &&
+    status !== 'local' &&
+    FINISHED.has(status)
 
   return (
     <div className="flex items-center gap-3">
       <div className={`flex flex-1 gap-1 ${barClassName ?? ''}`}>
         {steps.map((step, index) => {
           const reached = index <= currentIndex
-          const isActive = !failed && !finished && index === currentIndex
-          const isDone = finished || (!failed && index < currentIndex)
+
+          const isActive =
+            !failed &&
+            !finished &&
+            index === currentIndex
+
+          const isDone =
+            finished ||
+            (!failed && index < currentIndex)
+
           const barClass = failed
             ? reached
-              ? 'bg-red-500/80'
-              : 'bg-white/10'
+              ? 'bg-red-400'
+              : 'bg-slate-200'
             : isActive
               ? 'animate-pulse bg-amber-400'
               : isDone
-                ? 'bg-emerald-400/80'
-                : 'bg-white/10'
+                ? 'bg-emerald-400'
+                : 'bg-slate-200'
+
           return (
             <span
               key={step}
@@ -78,8 +95,17 @@ export function StepProgress({
           )
         })}
       </div>
-      <span className={`shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-white/45 ${labelClassName ?? ''}`}>
-        {failed ? 'Failed' : status === 'local' ? 'Local' : STEP_LABELS[status]}
+
+      <span
+        className={`shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] ${
+          failed ? 'text-red-500' : 'text-slate-400'
+        } ${labelClassName ?? ''}`}
+      >
+        {failed
+          ? 'Failed'
+          : status === 'local'
+            ? 'Local'
+            : STEP_LABELS[status]}
       </span>
     </div>
   )

@@ -40,9 +40,12 @@ export default function App() {
     <HashRouter>
       <Routes>
         <Route path="/recording-controls" element={<RecordingControlsPage />} />
+
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
+
           <Route path="/dashboard" element={<DashboardPage />} />
+
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/sessions/:id" element={<SessionDetailPage />} />
           <Route path="/sessions/:id/sop" element={<SOPDetailPage />} />
@@ -57,7 +60,9 @@ export default function App() {
               />
             }
           />
+
           <Route path="/settings" element={<SettingsPage />} />
+
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>
