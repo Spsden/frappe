@@ -494,22 +494,6 @@ export function SOPDetailPage() {
 
                 {activeStep && (
                   <>
-                    {/* Annotated screenshot */}
-                    {hasScreenshot && sessionId && (
-                      <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/30">
-                        {imagesLoading ? (
-                          <div className="flex h-48 items-center justify-center">
-                            <span className="size-2.5 animate-pulse rounded-full bg-white/30" />
-                          </div>
-                        ) : (
-                          <StepImage
-                            imageUrl={imageUrls[activeStep.screenshot_reference!] ?? null}
-                            stepNumber={activeStep.position}
-                          />
-                        )}
-                      </div>
-                    )}
-
                     {/* Step detail card */}
                     <div className="rounded-2xl border border-white/10 bg-[#0c0c0c] p-6">
                       <p className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-400/70">
@@ -555,6 +539,22 @@ export function SOPDetailPage() {
                         </p>
                       )}
                     </div>
+
+                    {/* Annotated screenshot */}
+                    {hasScreenshot && sessionId && (
+                      <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+                        {imagesLoading ? (
+                          <div className="flex h-48 items-center justify-center">
+                            <span className="size-2.5 animate-pulse rounded-full bg-white/30" />
+                          </div>
+                        ) : (
+                          <StepImage
+                            imageUrl={imageUrls[activeStep.screenshot_reference!] ?? null}
+                            stepNumber={activeStep.position}
+                          />
+                        )}
+                      </div>
+                    )}
 
                     {/* Navigation */}
                     <div className="flex gap-3">
