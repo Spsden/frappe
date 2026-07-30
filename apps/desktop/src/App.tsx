@@ -1,6 +1,12 @@
-import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
+import {
+  HashRouter,
+  Navigate,
+  Route,
+  Routes
+} from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { useConnection } from './features/connection/useConnection'
+import { ThemeProvider } from './features/theme/ThemeContext'
 import { DashboardPage } from './pages/DashboardPage'
 import { AuthPage } from './pages/AuthPage'
 import { AudioRecorderPage } from './pages/AudioRecorderPage'
@@ -13,18 +19,35 @@ import { SOPLibraryPage } from './pages/SOPLibraryPage'
 import { SettingsPage } from './pages/SettingsPage'
 
 export default function App() {
-  if (window.location.hash.startsWith('#/audio-recorder')) {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
+  )
+}
+
+function AppContent() {
+  if (
+    window.location.hash.startsWith(
+      '#/audio-recorder'
+    )
+  ) {
     return <AudioRecorderPage />
   }
 
+  return <ConnectedApp />
+}
+
+function ConnectedApp() {
   const { status } = useConnection()
 
   if (status.state === 'checking') {
     return (
-      <main className="grid min-h-screen place-items-center bg-[#070707] text-white">
+      <main className="app-loading-screen grid min-h-screen place-items-center">
         <div className="text-center">
-          <span className="mx-auto block size-2.5 animate-pulse rounded-full bg-emerald-400" />
-          <p className="mt-5 font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-white/45">
+          <span className="mx-auto block size-2.5 animate-pulse rounded-full bg-purple-400" />
+
+          <p className="app-loading-text mt-5 font-mono text-[10px] font-bold uppercase tracking-[0.24em]">
             Restoring secure session
           </p>
         </div>
@@ -39,14 +62,47 @@ export default function App() {
   return (
     <HashRouter>
       <Routes>
-        <Route path="/recording-controls" element={<RecordingControlsPage />} />
+        <Route
+          path="/recording-controls"
+          element={<RecordingControlsPage />}
+        />
+
         <Route element={<AppShell />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/sessions" element={<SessionsPage />} />
-          <Route path="/sessions/:id" element={<SessionDetailPage />} />
-          <Route path="/sessions/:id/sop" element={<SOPDetailPage />} />
-          <Route path="/sop-library" element={<SOPLibraryPage />} />
+          <Route
+            index
+            element={
+              <Navigate
+                to="/dashboard"
+                replace
+              />
+            }
+          />
+
+          <Route
+            path="/dashboard"
+            element={<DashboardPage />}
+          />
+
+          <Route
+            path="/sessions"
+            element={<SessionsPage />}
+          />
+
+          <Route
+            path="/sessions/:id"
+            element={<SessionDetailPage />}
+          />
+
+          <Route
+            path="/sessions/:id/sop"
+            element={<SOPDetailPage />}
+          />
+
+          <Route
+            path="/sop-library"
+            element={<SOPLibraryPage />}
+          />
+
           <Route
             path="/analytics"
             element={
@@ -57,8 +113,21 @@ export default function App() {
               />
             }
           />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+
+          <Route
+            path="/settings"
+            element={<SettingsPage />}
+          />
+
+          <Route
+            path="*"
+            element={
+              <Navigate
+                to="/dashboard"
+                replace
+              />
+            }
+          />
         </Route>
       </Routes>
     </HashRouter>
