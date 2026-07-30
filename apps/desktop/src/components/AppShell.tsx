@@ -497,50 +497,6 @@ export function AppShell() {
               />
             </div>
 
-            {/* Header connection status */}
-
-            <div
-              className={[
-                'hidden items-center gap-2 rounded-full border px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.12em] xl:flex',
-                isDark
-                  ? 'border-white/10 bg-white/[0.04] text-white/50'
-                  : status.state ===
-                      'connected'
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                    : status.state ===
-                        'error'
-                      ? 'border-red-200 bg-red-50 text-red-600'
-                      : 'border-slate-200 bg-slate-50 text-slate-500'
-              ].join(' ')}
-            >
-              <span
-                className={[
-                  'size-1.5 rounded-full',
-                  connectionDot(
-                    status.state,
-                    isDark
-                  )
-                ].join(' ')}
-              />
-
-              {connectionLabel(
-                status.state
-              )}
-            </div>
-
-            {/* Avatar — both themes */}
-
-            <div
-              className={[
-                'grid size-9 shrink-0 place-items-center rounded-full border text-xs font-black',
-                isDark
-                  ? 'border-white/15 bg-white/[0.06] text-white'
-                  : 'border-purple-200 bg-purple-50 text-purple-700 shadow-sm'
-              ].join(' ')}
-              title={email}
-            >
-              {avatarLetter}
-            </div>
           </div>
         </header>
 
