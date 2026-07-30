@@ -1,0 +1,77 @@
+# docker-compose.prod.yml
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+x-api-env: &api-env
+  WORKTRACE_ENV: production
+  WORKTRACE_REDIS_URL: ${WORKTRACE_REDIS_URL}
+  WORKTRACE_DATABASE_URL: ${WORKTRACE_DATABASE_URL}
+  WORKTRACE_RECORDING_STORAGE_PATH: /data/recordings
+  WORKTRACE_ALLOWED_ORIGINS: ${WORKTRACE_ALLOWED_ORIGINS}
+  WORKTRACE_ALLOWED_DOMAINS: ${WORKTRACE_ALLOWED_DOMAINS}
+  WORKTRACE_MEDIA_TOKEN_SECRET: ${WORKTRACE_MEDIA_TOKEN_SECRET}
+  WORKTRACE_WHISPER_MODEL_SIZE: tiny
+  WORKTRACE_AI_PROVIDER: external
+  WORKTRACE_EXTERNAL_AI_ENABLED: "true"
+  WORKTRACE_EXTERNAL_AI_APPROVAL_REQUIRED: "true"
+  WORKTRACE_OPENAI_BASE_URL: https://openrouter.ai/api/v1
+  WORKTRACE_OPENAI_MODEL: openai/gpt-4o
+
+services:
+  # Disable bundled postgres — using RDS
+  postgres:
+    profiles:
+      - local-db
+
+  # Disable bundled redis — using ElastiCache
+  redis:
+    profiles:
+      - local-redis
+
+  api:
+    restart: always
+    # Clear the base postgres/redis dependency — RDS/ElastiCache are external.
+    # migration_bootstrap.py retries the DB connection on startup.
+    depends_on: !reset
+      {}
+    environment:
+      <<: *api-env
+    env_file:
+      - /etc/worktrace/prod.env      # secrets file on host, NOT in repo
+    # !reset discards the dev bind-mounts (./apps/api/src, ./apps/api/data)
+    # from the base compose. Code is baked into the image at build time.
+    volumes: !reset
+      - /data/recordings:/data       # local path for MVP; swap for S3 later
+      - whisper-cache:/root/.cache
+    ports:
+      - "8000:8000"
+    # Remove --reload for production
+    command:
+      - sh
+      - -c
+      - >
+        python -m worktrace_api.migration_bootstrap &&
+        exec python -m uvicorn worktrace_api.main:app
+        --host 0.0.0.0 --port 8000
+
+  worker:
+    restart: always
+    # Clear the base postgres/redis dependency — same rationale as api.
+    depends_on: !reset
+      {}
+    environment:
+      <<: *api-env
+    env_file:
+      - /etc/worktrace/prod.env
+    volumes: !reset
+      - /data/recordings:/data
+      - whisper-cache:/root/.cache
+    command:
+      - celery
+      - -A
+      - worktrace_api.core.celery_app
+      - worker
+      - --loglevel=info
+      - -P
+      - solo
+      - -Q
+      - default,audio,vision,llm,celery
