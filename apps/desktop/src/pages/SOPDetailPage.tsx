@@ -13,7 +13,6 @@ import {
   isFailed,
   statusForSession
 } from '../features/recording/sessionStatus'
-import { StepProgress } from '../components/StepProgress'
 import { useTheme } from '../features/theme/ThemeContext'
 import { mapWithConcurrency } from '../utils/async'
 import { triggerSopPdfExport } from '../utils/sopPdf'
@@ -653,6 +652,28 @@ export function SOPDetailPage() {
 
   const activeBranches =
     activeStep?.decision_branches ?? []
+
+  useEffect(() => {
+    if (sops.length === 0) {
+      setActiveSopIndex(0)
+      return
+    }
+
+    if (activeSopIndex >= sops.length) {
+      setActiveSopIndex(0)
+    }
+  }, [activeSopIndex, sops.length])
+
+  useEffect(() => {
+    if (!displaySop || displaySop.steps.length === 0) {
+      setActiveStepIndex(0)
+      return
+    }
+
+    if (activeStepIndex >= displaySop.steps.length) {
+      setActiveStepIndex(0)
+    }
+  }, [activeStepIndex, displaySop])
 
   useEffect(() => {
     if (!sessionId || !displaySop) {
@@ -1310,22 +1331,6 @@ export function SOPDetailPage() {
                         </p>
                       )}
                     </div>
-
-                    {/* Annotated screenshot */}
-                    {hasScreenshot && sessionId && (
-                      <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/30">
-                        {imagesLoading ? (
-                          <div className="flex h-48 items-center justify-center">
-                            <span className="size-2.5 animate-pulse rounded-full bg-white/30" />
-                          </div>
-                        ) : (
-                          <StepImage
-                            imageUrl={imageUrls[activeStep.screenshot_reference!] ?? null}
-                            stepNumber={activeStep.position}
-                          />
-                        )}
-                      </div>
-                    )}
 
                     <div className="flex gap-3">
                       <button
