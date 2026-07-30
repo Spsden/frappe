@@ -437,17 +437,33 @@ function normalizeMouseButton(button: unknown): string {
 }
 
 function getPointerMetadata(x: number, y: number) {
-  const display = screen.getDisplayNearestPoint({ x, y })
+  const isWindows = process.platform === 'win32'
+  
+  // On Windows, uiohook returns physical pixels but Electron expects logical points.
+  // look up the display based on a roughly converted coordinate.
+  const searchPoint = isWindows 
+    ? { 
+        x: Math.round(x / screen.getPrimaryDisplay().scaleFactor), 
+        y: Math.round(y / screen.getPrimaryDisplay().scaleFactor) 
+      }
+    : { x, y }
+
+  const display = screen.getDisplayNearestPoint(searchPoint)
+  const scale = display.scaleFactor
+
+  // Properly convert physical -> logical using the specific display's scale factor
+  const logicalX = isWindows ? x / scale : x
+  const logicalY = isWindows ? y / scale : y
 
   return {
     coordinateSpace: 'global-screen',
-    x,
+    x, // Raw physical (Windows) or logical (macOS) coordinate preserved for reference
     y,
     displayId: display.id.toString(),
-    displayScaleFactor: display.scaleFactor,
+    displayScaleFactor: scale,
     pointOnDisplay: {
-      x: x - display.bounds.x,
-      y: y - display.bounds.y
+      x: logicalX - display.bounds.x,
+      y: logicalY - display.bounds.y
     }
   }
 }
