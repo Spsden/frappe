@@ -9,7 +9,7 @@ export interface RecentItem {
   kind: SearchHitKind
   title: string
   subtitle: string | null
-  sourceSessionId: string | null
+  routeId: string
   openedAt: number
 }
 
@@ -60,7 +60,7 @@ export const useRecentItems = create<RecentItemsState>((set, get) => ({
         kind: hit.kind,
         title: hit.title,
         subtitle: hit.subtitle,
-        sourceSessionId: hit.sourceSessionId,
+        routeId: hit.routeId,
         openedAt: Date.now()
       },
       ...without

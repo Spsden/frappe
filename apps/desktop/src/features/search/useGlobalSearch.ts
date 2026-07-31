@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Fuse from 'fuse.js'
 import type {
-  BackendSearchResult,
   BackendSOP,
   RecordedSessionSummary
 } from '../../../shared/recording'
@@ -10,10 +9,12 @@ import { useSearchIndex } from './useSearchIndex'
 
 interface Indexable {
   kind: 'sop' | 'session'
+  /** Identity for de-duplication: SOP id, or backend session id for sessions. */
   id: string
   title: string
   body: string
-  sourceSessionId: string | null
+  /** Backend WorkflowSessionRecord.id — used to resolve the route id. */
+  backendSessionId: string | null
   status: string | null
   createdAt: string | null
 }
@@ -33,7 +34,7 @@ function buildFuse(sops: BackendSOP[], sessions: RecordedSessionSummary[]): Fuse
           [step.title, step.instruction, step.warning ?? ''].join(' ')
         )
       ].join('\n'),
-      sourceSessionId: sop.source_session_id,
+      backendSessionId: sop.source_session_id,
       status: sop.status,
       createdAt: sop.created_at
     })),
@@ -44,7 +45,7 @@ function buildFuse(sops: BackendSOP[], sessions: RecordedSessionSummary[]): Fuse
         id: session.remoteSessionId as string,
         title: session.name,
         body: '',
-        sourceSessionId: null,
+        backendSessionId: session.remoteSessionId,
         status: session.remoteStatus ?? session.localStatus,
         createdAt: session.startedAt
       }))
@@ -62,17 +63,25 @@ function buildFuse(sops: BackendSOP[], sessions: RecordedSessionSummary[]): Fuse
   })
 }
 
-function backendToSearchHit(result: BackendSearchResult): SearchHit {
-  return {
-    id: result.id,
-    kind: result.kind,
-    title: result.title,
-    subtitle: result.subtitle,
-    status: result.status,
-    sourceSessionId: result.source_session_id,
-    matchedField: result.matched_field,
-    createdAt: result.created_at
+/**
+ * Build a lookup from the backend session id (WorkflowSessionRecord.id, which is
+ * what /search returns and what listSops carries as source_session_id) to the
+ * local manifest id (RecordedSessionSummary.id). The detail pages resolve their
+ * route param against the manifest id, so every hit must be translated to it
+ * before it can be routed to. Hits whose session has no local manifest (e.g.
+ * recorded on another device) have no entry and are dropped — the detail pages
+ * can't open them anyway.
+ */
+function buildRouteResolver(
+  sessions: RecordedSessionSummary[]
+): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const session of sessions) {
+    if (session.remoteSessionId) {
+      map.set(session.remoteSessionId, session.id)
+    }
   }
+  return map
 }
 
 function hitKey(hit: SearchHit): string {
@@ -104,7 +113,8 @@ export interface GlobalSearchResult {
  * Hybrid global search: an instant client-side fuzzy pass over cached titles,
  * merged with a debounced backend /search call that covers SOP documents, step
  * text, and workflow names. Results are de-duplicated by entity and grouped by
- * kind for the palette.
+ * kind for the palette. Every surfaced hit is resolvable to a route id the
+ * detail pages can actually open.
  */
 export function useGlobalSearch(query: string): GlobalSearchResult {
   const { sops, sessions, loaded, loading, load } = useSearchIndex()
@@ -113,10 +123,24 @@ export function useGlobalSearch(query: string): GlobalSearchResult {
   const [isSearching, setIsSearching] = useState(false)
 
   const fuse = useMemo(() => buildFuse(sops, sessions), [sops, sessions])
+  const routeResolver = useMemo(() => buildRouteResolver(sessions), [sessions])
+
+  // The backend pass reads the latest resolver when its response arrives
+  // (which may be after the index finishes loading), without re-triggering the
+  // debounced call on every index update.
+  const routeResolverRef = useRef(routeResolver)
+  useEffect(() => {
+    routeResolverRef.current = routeResolver
+  }, [routeResolver])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  function resolveRouteId(backendSessionId: string | null): string | null {
+    if (!backendSessionId) return null
+    return routeResolver.get(backendSessionId) ?? null
+  }
 
   // Instant client-side pass.
   useEffect(() => {
@@ -127,14 +151,17 @@ export function useGlobalSearch(query: string): GlobalSearchResult {
     }
     const lowered = trimmed.toLowerCase()
     const results = fuse.search(trimmed, { limit: CLIENT_LIMIT })
-    setClientHits(
-      results.map(({ item }) => ({
+    const hits: SearchHit[] = []
+    for (const { item } of results) {
+      const routeId = resolveRouteId(item.backendSessionId)
+      if (!routeId) continue
+      hits.push({
         id: item.id,
         kind: item.kind,
         title: item.title,
         subtitle: item.status,
         status: item.status,
-        sourceSessionId: item.sourceSessionId,
+        routeId,
         matchedField:
           item.kind === 'session'
             ? 'workflow_name'
@@ -142,9 +169,10 @@ export function useGlobalSearch(query: string): GlobalSearchResult {
               ? 'title'
               : 'content',
         createdAt: item.createdAt
-      }))
-    )
-  }, [query, fuse, loaded])
+      })
+    }
+    setClientHits(hits)
+  }, [query, fuse, loaded, routeResolver])
 
   // Debounced backend "deep" pass.
   useEffect(() => {
@@ -161,7 +189,25 @@ export function useGlobalSearch(query: string): GlobalSearchResult {
         .search(trimmed)
         .then((response) => {
           if (cancelled) return
-          setBackendHits(response.results.map(backendToSearchHit))
+          const resolver = routeResolverRef.current
+          const hits: SearchHit[] = []
+          for (const result of response.results) {
+            const backendSessionId =
+              result.kind === 'session' ? result.id : result.source_session_id
+            const routeId = backendSessionId ? resolver.get(backendSessionId) : null
+            if (!routeId) continue
+            hits.push({
+              id: result.id,
+              kind: result.kind,
+              title: result.title,
+              subtitle: result.subtitle,
+              status: result.status,
+              routeId,
+              matchedField: result.matched_field,
+              createdAt: result.created_at
+            })
+          }
+          setBackendHits(hits)
         })
         .catch(() => {
           if (!cancelled) setBackendHits([])

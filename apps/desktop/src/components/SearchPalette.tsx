@@ -31,7 +31,7 @@ function recentToHit(item: RecentItem): SearchHit {
     title: item.title,
     subtitle: item.subtitle,
     status: null,
-    sourceSessionId: item.sourceSessionId,
+    routeId: item.routeId,
     matchedField: 'recent',
     createdAt: null
   }

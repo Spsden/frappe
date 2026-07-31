@@ -6,22 +6,26 @@ export interface SearchHit {
   title: string
   subtitle: string | null
   status: string | null
-  /** For SOP hits, the session the SOP was generated from — the detail page is
-   * keyed by session, so routing needs it. Null for sessions. */
-  sourceSessionId: string | null
+  /**
+   * The id the detail-page routes expect in the URL — the local manifest /
+   * recording id (RecordedSessionSummary.id), NOT the backend
+   * WorkflowSessionRecord.id. The detail pages resolve the route param against
+   * the local session list first, so routing on the backend session id would
+   * always miss. This is resolved from the backend session id via the local
+   * sessions list before a hit is surfaced.
+   */
+  routeId: string
   matchedField: string
   createdAt: string | null
 }
 
 export interface SearchRouteTarget {
   kind: SearchHitKind
-  id: string
-  sourceSessionId: string | null
+  routeId: string
 }
 
 export function hitRoute(target: SearchRouteTarget): string {
-  if (target.kind === 'sop') {
-    return target.sourceSessionId ? `/sessions/${target.sourceSessionId}/sop` : '/sop-library'
-  }
-  return `/sessions/${target.id}`
+  return target.kind === 'sop'
+    ? `/sessions/${target.routeId}/sop`
+    : `/sessions/${target.routeId}`
 }
