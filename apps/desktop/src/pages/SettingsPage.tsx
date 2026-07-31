@@ -1062,8 +1062,8 @@ function ExperimentalSection({
 
         <div className="mt-4 space-y-4">
           <FlagToggle
-            title="Manual mode"
-            description="Pause after annotation and transcription so you can adjust evidence before creating the SOP."
+            title="Pause SOP generation"
+            description="Wait until you review the transcript and annotations before generating the first SOP. Evidence editing and regeneration stay available afterwards either way."
             checked={flags?.manualMode ?? false}
             disabled={busy || flags === null}
             onChange={(value) =>

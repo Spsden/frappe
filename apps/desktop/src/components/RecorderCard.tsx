@@ -294,7 +294,7 @@ export function RecorderCard() {
       : isAwaitingSave
         ? 'Capture is stopped. Give this workflow a useful name, then save it for backend processing or discard the local evidence.'
         : manualMode
-          ? 'Click below to capture evidence for manual review. SOP generation will wait until you approve the transcript and annotations.'
+          ? 'Click below to capture evidence. SOP generation will pause until you review the transcript and annotations.'
           : 'Click below to start recording your desktop activity. Audio narration can be enabled or disabled before capture starts.'
 
   const mainButtonText =
@@ -694,7 +694,7 @@ export function RecorderCard() {
               />
 
               <span>
-                Manual Review On
+                Generation Paused
               </span>
             </>
           )}
