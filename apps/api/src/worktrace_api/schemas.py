@@ -138,7 +138,7 @@ class ScreenshotAnnotation(StrictModel):
     event_id: UUID | None = None
     event_type: EventType | None = None
     type: Literal[
-        "click_rectangle", "scroll_focus", "pointer_focus", "manual_box", "text_box"
+        "click_rectangle", "scroll_focus", "pointer_focus", "manual_box", "text_box", "redact"
     ]
     coordinate_space: Literal["screenshot_pixels", "global_screen"] = "screenshot_pixels"
     bounds: TargetBounds
@@ -169,7 +169,7 @@ class ScreenshotAnnotationInput(StrictModel):
     confidence) is normalized by the endpoint."""
 
     type: Literal[
-        "click_rectangle", "scroll_focus", "pointer_focus", "manual_box", "text_box"
+        "click_rectangle", "scroll_focus", "pointer_focus", "manual_box", "text_box", "redact"
     ]
     bounds: TargetBounds
     label: str | None = Field(default=None, max_length=500)
