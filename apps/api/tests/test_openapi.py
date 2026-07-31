@@ -20,6 +20,7 @@ def test_openapi_exposes_expected_endpoint_groups():
         "exports",
         "feedback",
         "recordings",
+        "search",
         "sessions",
         "settings",
         "sops",

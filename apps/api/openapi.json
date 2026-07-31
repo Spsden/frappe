@@ -2095,6 +2095,86 @@
         }
       }
     },
+    "/search": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Search",
+        "description": "Cross-entity substring search across SOPs and workflow sessions.\n\nReturns grouped-ready hits (each carries a ``kind`` of ``sop`` or\n``session`` plus a ``matched_field``). The desktop client uses this for the\n\"deep\" pass of the global search palette (document body, step text, workflow\nnames) while titles are fuzzied client-side for instant feedback.",
+        "operationId": "search_search_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 200,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/sops/{sop_id}/approval": {
       "post": {
         "tags": [
@@ -3838,7 +3918,8 @@
               "scroll_focus",
               "pointer_focus",
               "manual_box",
-              "text_box"
+              "text_box",
+              "redact"
             ],
             "title": "Type"
           },
@@ -3983,6 +4064,115 @@
         ],
         "title": "ScreenshotEvidence",
         "description": "A screenshot plus every annotation that references it (N per frame)."
+      },
+      "SearchResponse": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SearchResult"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Results"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "SearchResponse"
+      },
+      "SearchResult": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/SearchResultKind"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Title"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtitle"
+          },
+          "matched_field": {
+            "type": "string",
+            "enum": [
+              "title",
+              "document",
+              "step",
+              "workflow_name"
+            ],
+            "title": "Matched Field"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 30
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "source_session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Session Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "title",
+          "matched_field",
+          "created_at"
+        ],
+        "title": "SearchResult",
+        "description": "A single cross-entity hit for the global search endpoint.\n\n``source_session_id`` lets the desktop client route to the SOP detail page\n(which is keyed by session). ``matched_field`` tells the UI why the row is a\nhit (title vs document vs step text vs workflow name) so deep hits can be\nsurfaced with context rather than looking like title matches."
+      },
+      "SearchResultKind": {
+        "type": "string",
+        "enum": [
+          "sop",
+          "session"
+        ],
+        "title": "SearchResultKind"
       },
       "SessionEvent": {
         "properties": {
@@ -4804,6 +4994,10 @@
     {
       "name": "walkthroughs",
       "description": "Approved onboarding walkthroughs."
+    },
+    {
+      "name": "search",
+      "description": "Cross-entity fuzzy/substring search."
     },
     {
       "name": "feedback",

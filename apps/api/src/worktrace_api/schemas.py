@@ -522,6 +522,35 @@ class Screenshot(StrictModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class SearchResultKind(StrEnum):
+    SOP = "sop"
+    SESSION = "session"
+
+
+class SearchResult(StrictModel):
+    """A single cross-entity hit for the global search endpoint.
+
+    ``source_session_id`` lets the desktop client route to the SOP detail page
+    (which is keyed by session). ``matched_field`` tells the UI why the row is a
+    hit (title vs document vs step text vs workflow name) so deep hits can be
+    surfaced with context rather than looking like title matches.
+    """
+
+    kind: SearchResultKind
+    id: UUID
+    title: str = Field(max_length=200)
+    subtitle: str | None = Field(default=None, max_length=300)
+    matched_field: Literal["title", "document", "step", "workflow_name"]
+    status: str | None = Field(default=None, max_length=30)
+    source_session_id: UUID | None = None
+    created_at: datetime
+
+
+class SearchResponse(StrictModel):
+    query: str
+    results: list[SearchResult] = Field(default_factory=list, max_length=100)
+
+
 def _normalized_email(value: str) -> str:
     email = value.strip().lower()
     if (

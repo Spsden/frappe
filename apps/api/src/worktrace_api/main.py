@@ -74,6 +74,7 @@ from worktrace_api.schemas import (
     ScreenshotAnnotation,
     ScreenshotAnnotationSet,
     ScreenshotEvidence,
+    SearchResponse,
     SignUpRequest,
     SOPApproval,
     SopLimitsSettings,
@@ -114,6 +115,7 @@ app = FastAPI(
         {"name": "recordings", "description": "Resumable raw recording ingestion."},
         {"name": "sops", "description": "SOP generation, review, and approval."},
         {"name": "walkthroughs", "description": "Approved onboarding walkthroughs."},
+        {"name": "search", "description": "Cross-entity fuzzy/substring search."},
         {"name": "feedback", "description": "Employee feedback capture and classification."},
         {"name": "analytics", "description": "Conservative workflow-path and friction evidence."},
         {"name": "exports", "description": "Sanitized session export bundles."},
@@ -991,6 +993,22 @@ def get_walkthrough(sop_id: UUID, repo: Repository = Depends(repository)) -> SOP
             detail="Only approved SOPs can be published as walkthroughs",
         )
     return sop
+
+
+@app.get("/search", response_model=SearchResponse, tags=["search"])
+def search(
+    q: str = Query(default="", min_length=0, max_length=200, alias="q"),
+    limit: int = Query(default=20, ge=1, le=50),
+    repo: Repository = Depends(repository),
+) -> SearchResponse:
+    """Cross-entity substring search across SOPs and workflow sessions.
+
+    Returns grouped-ready hits (each carries a ``kind`` of ``sop`` or
+    ``session`` plus a ``matched_field``). The desktop client uses this for the
+    "deep" pass of the global search palette (document body, step text, workflow
+    names) while titles are fuzzied client-side for instant feedback.
+    """
+    return repo.search(q, limit=limit)
 
 
 @app.post("/sops/{sop_id}/approval", response_model=SOP, tags=["sops"])

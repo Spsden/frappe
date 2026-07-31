@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, delete, distinct, func, select
+from sqlalchemy import Select, delete, distinct, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,9 @@ from worktrace_api.schemas import (
     RecordingStatus,
     RecordingTranscript,
     Screenshot,
+    SearchResponse,
+    SearchResult,
+    SearchResultKind,
     SopLimitsSettings,
     SopLimitsSettingsUpdate,
     SOPStatus,
@@ -758,6 +761,122 @@ class Repository:
             query = query.limit(limit)
         records = self.db.scalars(query).all()
         return [self._sop_from_record(record) for record in records]
+
+    def search(self, query: str, limit: int = 20) -> SearchResponse:
+        """Tenant-scoped substring search across SOPs and workflow sessions.
+
+        Title and document hits on SOPs and ``workflow_name`` hits on sessions
+        use SQL ``ILIKE`` (case-insensitive). SOP step text lives in a JSON
+        column, so steps are scanned in Python over a bounded slice of the
+        tenant's SOPs — enough to surface deep "which SOP mentions X" hits
+        without a full-table scan on every keystroke. Results are de-duplicated
+        by entity id (a SOP that matches on both title and a step is returned
+        once, preferring the stronger title hit).
+        """
+        normalized = query.strip()
+        if not normalized:
+            return SearchResponse(query=query, results=[])
+
+        pattern = f"%{normalized}%"
+        needle = normalized.lower()
+        results: list[SearchResult] = []
+        seen_sop_ids: set[str] = set()
+
+        # SOPs matching on title or supporting document.
+        sop_title_records = self.db.scalars(
+            tenant_query(SOPRecord, self.tenant_id)
+            .where(or_(SOPRecord.title.ilike(pattern), SOPRecord.document.ilike(pattern)))
+            .order_by(SOPRecord.created_at.desc())
+            .limit(limit)
+        ).all()
+        for record in sop_title_records:
+            matched_on_title = needle in (record.title or "").lower()
+            results.append(
+                SearchResult(
+                    kind=SearchResultKind.SOP,
+                    id=UUID(record.id),
+                    title=record.title,
+                    subtitle=self._sop_subtitle(record),
+                    matched_field="title" if matched_on_title else "document",
+                    status=record.status,
+                    source_session_id=UUID(record.source_session_id),
+                    created_at=record.created_at,
+                )
+            )
+            seen_sop_ids.add(record.id)
+
+        # SOPs whose step text matches (JSON column -> Python scan).
+        step_query = tenant_query(SOPRecord, self.tenant_id).order_by(
+            SOPRecord.created_at.desc()
+        )
+        if seen_sop_ids:
+            step_query = step_query.where(SOPRecord.id.notin_(seen_sop_ids))
+        step_candidate_records = self.db.scalars(step_query.limit(max(limit, 50))).all()
+        for record in step_candidate_records:
+            if len(results) >= limit:
+                break
+            for step in record.steps or []:
+                haystacks = [
+                    (step.get("title") or ""),
+                    (step.get("instruction") or ""),
+                    (step.get("warning") or ""),
+                ]
+                if any(needle in (text.lower()) for text in haystacks):
+                    results.append(
+                        SearchResult(
+                            kind=SearchResultKind.SOP,
+                            id=UUID(record.id),
+                            title=record.title,
+                            subtitle=f"step \u00b7 {step.get('title') or 'untitled'}",
+                            matched_field="step",
+                            status=record.status,
+                            source_session_id=UUID(record.source_session_id),
+                            created_at=record.created_at,
+                        )
+                    )
+                    seen_sop_ids.add(record.id)
+                    break
+
+        # Sessions matching on workflow name.
+        session_records = self.db.scalars(
+            tenant_query(WorkflowSessionRecord, self.tenant_id)
+            .where(WorkflowSessionRecord.workflow_name.ilike(pattern))
+            .order_by(WorkflowSessionRecord.created_at.desc())
+            .limit(limit)
+        ).all()
+        for record in session_records:
+            if len(results) >= limit:
+                break
+            results.append(
+                SearchResult(
+                    kind=SearchResultKind.SESSION,
+                    id=UUID(record.id),
+                    title=record.workflow_name,
+                    subtitle=self._session_subtitle(record),
+                    matched_field="workflow_name",
+                    status=record.status,
+                    source_session_id=None,
+                    created_at=record.created_at,
+                )
+            )
+
+        return SearchResponse(query=query, results=results[:limit])
+
+    @staticmethod
+    def _sop_subtitle(record: SOPRecord) -> str:
+        step_count = len(record.steps or [])
+        return f"{record.status} \u00b7 {step_count} step{'s' if step_count != 1 else ''}"
+
+    @staticmethod
+    def _session_subtitle(record: WorkflowSessionRecord) -> str:
+        duration_ms = record.duration_ms or 0
+        if duration_ms >= 1000:
+            seconds = duration_ms / 1000
+            if seconds >= 60:
+                minutes = int(seconds // 60)
+                return f"{record.status} \u00b7 {minutes}m"
+            return f"{record.status} \u00b7 {int(seconds)}s"
+        return record.status or "session"
 
     def set_sop_status(self, sop_id: UUID, status: str) -> SOP | None:
         record = self.db.scalar(
