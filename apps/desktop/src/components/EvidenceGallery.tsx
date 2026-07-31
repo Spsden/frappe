@@ -8,6 +8,12 @@ import type {
 import { useEvidenceStore } from '../features/evidence/useEvidenceStore'
 import { useTheme } from '../features/theme/ThemeContext'
 import pointerUrl from '../assets/pointer.png'
+import boxIcon from '../assets/add box.svg?raw'
+import eraseIcon from '../assets/Eraser Icon 3715.svg?raw'
+import moveIcon from '../assets/Pointer Move Icon.svg?raw'
+import pointerAddIcon from '../assets/Add Pointer Icon.svg?raw'
+import redactIcon from '../assets/redact.svg?raw'
+import textIcon from '../assets/Add Text Icon.svg?raw'
 
 interface EvidenceGalleryProps {
   remoteSessionId: string | null
@@ -794,18 +800,20 @@ function ToolButton({
   active,
   children,
   onClick,
-  isDark
+  isDark,
+  icon
 }: {
   active?: boolean
   children: ReactNode
   onClick: () => void
   isDark: boolean
+  icon?: string
 }) {
   return (
     <button
       type="button"
       className={[
-        'rounded-xl px-3 py-2 text-left text-xs font-black uppercase tracking-[0.12em] transition',
+        'flex items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-black uppercase tracking-[0.12em] transition',
         active
           ? isDark
             ? 'bg-white text-black'
@@ -816,6 +824,13 @@ function ToolButton({
       ].join(' ')}
       onClick={onClick}
     >
+      {icon && (
+        <span
+          aria-hidden
+          className="inline-flex size-4 shrink-0 [&>svg]:block [&>svg]:size-full [&_path]:fill-current [&_rect]:fill-current [&_circle]:fill-current [&_polygon]:fill-current"
+          dangerouslySetInnerHTML={{ __html: icon }}
+        />
+      )}
       {children}
     </button>
   )
@@ -1204,6 +1219,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
               active={toolMode === 'move'}
               onClick={() => setToolMode('move')}
               isDark={isDark}
+              icon={moveIcon}
             >
               Move pointer
             </ToolButton>
@@ -1211,6 +1227,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
               active={toolMode === 'pointer'}
               onClick={() => setToolMode('pointer')}
               isDark={isDark}
+              icon={pointerAddIcon}
             >
               Add pointer
             </ToolButton>
@@ -1218,6 +1235,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
               active={toolMode === 'box'}
               onClick={() => setToolMode('box')}
               isDark={isDark}
+              icon={boxIcon}
             >
               Draw box
             </ToolButton>
@@ -1225,6 +1243,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
               active={toolMode === 'redact'}
               onClick={() => setToolMode('redact')}
               isDark={isDark}
+              icon={redactIcon}
             >
               Redact
             </ToolButton>
@@ -1232,6 +1251,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
               active={toolMode === 'text'}
               onClick={() => setToolMode('text')}
               isDark={isDark}
+              icon={textIcon}
             >
               Add text
             </ToolButton>
@@ -1239,6 +1259,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
               active={toolMode === 'erase'}
               onClick={() => setToolMode('erase')}
               isDark={isDark}
+              icon={eraseIcon}
             >
               Erase mark
             </ToolButton>

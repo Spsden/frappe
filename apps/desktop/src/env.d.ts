@@ -9,6 +9,11 @@ declare module '*.png' {
   export default src
 }
 
+declare module '*.svg?raw' {
+  const src: string
+  export default src
+}
+
 declare global {
   interface Window {
     api: {
