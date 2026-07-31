@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type {
   BackendTranscript,
@@ -16,6 +16,7 @@ import {
   formatDate,
   formatDuration,
   isFailed,
+  isActiveSession,
   statusDot,
   statusForSession,
   statusLabel
@@ -331,6 +332,25 @@ function TranscriptPanel({
   )
 }
 
+const POLLING_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
+  'ready_for_review',
+  'completed',
+  'failed',
+  'sop_failed',
+  'awaiting_manual_review'
+])
+
+function isTerminalForPolling(
+  session: RecordedSessionSummary
+): boolean {
+  if (isActiveSession(session)) return false
+  const status = statusForSession(session)
+  if (status === 'local') {
+    return !session.remoteRecordingId
+  }
+  return POLLING_TERMINAL_STATUSES.has(status)
+}
+
 export function SessionDetailPage() {
   const { id = '' } =
     useParams<{ id: string }>()
@@ -341,6 +361,12 @@ export function SessionDetailPage() {
 
   const { state: recordingState } =
     useRecording()
+
+  const recordingStateRef = useRef(recordingState)
+  recordingStateRef.current = recordingState
+
+  const [reloadNonce, setReloadNonce] =
+    useState(0)
 
   const [session, setSession] =
     useState<RecordedSessionSummary | null>(
@@ -376,9 +402,41 @@ export function SessionDetailPage() {
   useEffect(() => {
     let cancelled = false
     let timer: number | undefined
+    let lastSessionSignature: string | null = null
+    let lastBackendSignature: string | null = null
+
+    const sessionSignature = (
+      value: RecordedSessionSummary | null
+    ): string | null =>
+      value
+        ? JSON.stringify([
+            value.id,
+            value.localStatus,
+            value.remoteStatus,
+            value.remoteRecordingId,
+            value.remoteSessionId,
+            value.eventCount,
+            value.screenshotCount,
+            value.audioChunkCount,
+            value.uploadError,
+            value.backend?.recording.status ?? null
+          ])
+        : null
+
+    const backendSignature = (
+      value: BackendWorkflowSession | null
+    ): string | null =>
+      value
+        ? JSON.stringify([
+            value.status,
+            value.transcript?.status ?? null,
+            value.transcript?.text ?? null,
+            value.transcript?.segments.length ?? 0
+          ])
+        : null
 
     const load = async () => {
-      setError(null)
+      let reschedule = true
 
       try {
         const sessions =
@@ -386,8 +444,11 @@ export function SessionDetailPage() {
 
         if (cancelled) return
 
-        const active =
-          activeRecordingSummary(recordingState)
+        setError(null)
+
+        const active = activeRecordingSummary(
+          recordingStateRef.current
+        )
 
         const merged =
           active &&
@@ -406,8 +467,16 @@ export function SessionDetailPage() {
             (item) => item.id === id
           ) ?? null
 
-        setSession(found)
-        setBackendSession(null)
+        const nextSessionSignature =
+          sessionSignature(found)
+
+        if (
+          nextSessionSignature !==
+          lastSessionSignature
+        ) {
+          lastSessionSignature = nextSessionSignature
+          if (!cancelled) setSession(found)
+        }
 
         if (found?.remoteSessionId) {
           try {
@@ -417,11 +486,34 @@ export function SessionDetailPage() {
               )
 
             if (!cancelled) {
-              setBackendSession(backend)
+              const nextBackendSignature =
+                backendSignature(backend)
+
+              if (
+                nextBackendSignature !==
+                lastBackendSignature
+              ) {
+                lastBackendSignature =
+                  nextBackendSignature
+                setBackendSession(backend)
+              }
             }
           } catch {
             // Local session summary can still render.
           }
+        } else if (
+          !cancelled &&
+          lastBackendSignature !== null
+        ) {
+          lastBackendSignature = null
+          setBackendSession(null)
+        }
+
+        // Only keep polling while the session is still actively processing.
+        // Terminal states (finished, failed, awaiting review, idle local) won't
+        // change without user action, so we stop to avoid needless requests.
+        if (!found || isTerminalForPolling(found)) {
+          reschedule = false
         }
       } catch (caught) {
         if (!cancelled) {
@@ -435,10 +527,12 @@ export function SessionDetailPage() {
         if (!cancelled) {
           setIsLoading(false)
 
-          timer = window.setTimeout(
-            () => void load(),
-            3000
-          )
+          if (reschedule) {
+            timer = window.setTimeout(
+              () => void load(),
+              3000
+            )
+          }
         }
       }
     }
@@ -452,7 +546,7 @@ export function SessionDetailPage() {
         window.clearTimeout(timer)
       }
     }
-  }, [id, recordingState])
+  }, [id, reloadNonce])
 
   useEffect(() => {
     if (reviewDirty) return
@@ -489,6 +583,7 @@ export function SessionDetailPage() {
         id,
         'upload'
       )
+      setReloadNonce((n) => n + 1)
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -509,6 +604,7 @@ export function SessionDetailPage() {
         id,
         'sop'
       )
+      setReloadNonce((n) => n + 1)
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -588,6 +684,8 @@ export function SessionDetailPage() {
           session.remoteRecordingId,
           customInstruction
         )
+
+      setReloadNonce((n) => n + 1)
 
       setSession((current) =>
         current
