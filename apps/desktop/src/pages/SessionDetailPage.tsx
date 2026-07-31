@@ -13,6 +13,7 @@ import {
   canDeleteSession,
   canRetrySop,
   canRetrySession,
+  canReviewEvidence,
   formatDate,
   formatDuration,
   isFailed,
@@ -811,17 +812,15 @@ export function SessionDetailPage() {
   const sopRetryable = canRetrySop(session)
   const deletable = canDeleteSession(session)
 
-  const backendRecording =
-    session.backend?.recording
-
   const currentStatus =
     statusForSession(session)
 
-  const isManualReview =
-    Boolean(backendRecording?.manual_mode) &&
-    (currentStatus ===
-      'awaiting_manual_review' ||
-      currentStatus === 'sop_failed')
+  const canEditEvidence = canReviewEvidence(session)
+
+  const reviewCtaLabel =
+    currentStatus === 'ready_for_review'
+      ? 'Regenerate SOP'
+      : 'Generate SOP'
 
   const sopReady =
     currentStatus === 'ready_for_review' ||
@@ -888,7 +887,8 @@ export function SessionDetailPage() {
                   </button>
                 )}
 
-              {isManualReview && (
+              {(currentStatus === 'awaiting_manual_review' ||
+                currentStatus === 'ready_for_review') && (
                 <button
                   type="button"
                   disabled={acting !== null}
@@ -899,25 +899,24 @@ export function SessionDetailPage() {
                 >
                   {acting === 'sop'
                     ? 'Starting'
-                    : 'Generate SOP'}
+                    : reviewCtaLabel}
                 </button>
               )}
 
-              {sopRetryable &&
-                !isManualReview && (
-                  <button
-                    type="button"
-                    disabled={acting !== null}
-                    onClick={() =>
-                      void retryServerSop()
-                    }
-                    className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-400/18 disabled:cursor-wait disabled:opacity-40"
-                  >
-                    {acting === 'sop'
-                      ? 'Retrying'
-                      : 'Retry SOP'}
-                  </button>
-                )}
+              {sopRetryable && (
+                <button
+                  type="button"
+                  disabled={acting !== null}
+                  onClick={() =>
+                    void retryServerSop()
+                  }
+                  className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-400/18 disabled:cursor-wait disabled:opacity-40"
+                >
+                  {acting === 'sop'
+                    ? 'Retrying'
+                    : 'Retry SOP'}
+                </button>
+              )}
 
               {retryable && (
                 <button
@@ -1020,12 +1019,12 @@ export function SessionDetailPage() {
           </div>
         </section>
 
-        {isManualReview && (
+        {canEditEvidence && (
           <section className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.045] p-6 shadow-[0_18px_65px_rgba(0,0,0,0.35)]">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-300">
-                  Manual review
+                  Review evidence
                 </p>
 
                 <h3 className="mt-2 text-2xl font-black tracking-[-0.035em]">
@@ -1071,7 +1070,7 @@ export function SessionDetailPage() {
                 >
                   {acting === 'sop'
                     ? 'Starting'
-                    : 'Generate SOP'}
+                    : reviewCtaLabel}
                 </button>
               </div>
             </div>
@@ -1111,7 +1110,7 @@ export function SessionDetailPage() {
           <div className="mt-5">
             <TranscriptPanel
               session={backendSession}
-              editable={isManualReview}
+              editable={canEditEvidence}
               value={transcriptDraft}
               onChange={(value) => {
                 setTranscriptDraft(value)
@@ -1151,7 +1150,7 @@ export function SessionDetailPage() {
               remoteSessionId={
                 session.remoteSessionId
               }
-              editable={isManualReview}
+              editable={canEditEvidence}
             />
           </div>
         </section>
@@ -1221,7 +1220,8 @@ export function SessionDetailPage() {
                     </button>
                   )}
 
-                {isManualReview && (
+                {(currentStatus === 'awaiting_manual_review' ||
+                  currentStatus === 'ready_for_review') && (
                   <button
                     type="button"
                     disabled={
@@ -1234,27 +1234,26 @@ export function SessionDetailPage() {
                   >
                     {acting === 'sop'
                       ? 'Starting'
-                      : 'Generate SOP'}
+                      : reviewCtaLabel}
                   </button>
                 )}
 
-                {sopRetryable &&
-                  !isManualReview && (
-                    <button
-                      type="button"
-                      disabled={
-                        acting !== null
-                      }
-                      onClick={() =>
-                        void retryServerSop()
-                      }
-                      className="action-button"
-                    >
-                      {acting === 'sop'
-                        ? 'Retrying'
-                        : 'Retry SOP'}
-                    </button>
-                  )}
+                {sopRetryable && (
+                  <button
+                    type="button"
+                    disabled={
+                      acting !== null
+                    }
+                    onClick={() =>
+                      void retryServerSop()
+                    }
+                    className="action-button"
+                  >
+                    {acting === 'sop'
+                      ? 'Retrying'
+                      : 'Retry SOP'}
+                  </button>
+                )}
 
                 {retryable && (
                   <button
@@ -1362,7 +1361,7 @@ export function SessionDetailPage() {
           />
         </div>
 
-        {isManualReview && (
+        {canEditEvidence && (
           <section className="table-card recordings-card mt-6">
             <div className="table-card-topline" />
 
@@ -1370,7 +1369,7 @@ export function SessionDetailPage() {
               <div className="selected-card-header">
                 <div>
                   <p className="section-label">
-                    Manual review
+                    Review evidence
                   </p>
 
                   <h3 className="selected-title">
@@ -1417,7 +1416,7 @@ export function SessionDetailPage() {
                   >
                     {acting === 'sop'
                       ? 'Starting'
-                      : 'Generate SOP'}
+                      : reviewCtaLabel}
                   </button>
                 </div>
               </div>
@@ -1471,7 +1470,7 @@ export function SessionDetailPage() {
             >
               <TranscriptPanel
                 session={backendSession}
-                editable={isManualReview}
+                editable={canEditEvidence}
                 value={transcriptDraft}
                 onChange={(value) => {
                   setTranscriptDraft(value)
@@ -1523,7 +1522,7 @@ export function SessionDetailPage() {
                 remoteSessionId={
                   session.remoteSessionId
                 }
-                editable={isManualReview}
+                editable={canEditEvidence}
               />
             </div>
           </div>
