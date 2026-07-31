@@ -135,6 +135,16 @@ export function canRetrySop(session: RecordedSessionSummary) {
   return statusForSession(session) === 'sop_failed' && !isActiveSession(session)
 }
 
+export function canReviewEvidence(session: RecordedSessionSummary) {
+  if (!session.remoteSessionId) return false
+  const status = statusForSession(session)
+  return (
+    status === 'awaiting_manual_review' ||
+    status === 'ready_for_review' ||
+    status === 'sop_failed'
+  )
+}
+
 export function activeRecordingSummary(state: RecordingState): RecordedSessionSummary | null {
   if (
     !state.sessionId ||
