@@ -56,7 +56,6 @@ const TYPE_STYLES: Record<AnnotationType, { rgb: string; tag: string; label: str
 
 const MIN_SIZE = 8
 const MAX_HISTORY = 500
-const SIDEBAR_WIDTH = 256
 const POINTER_ORIGINAL_EDGE = 2048
 const POINTER_CROPPED_MAX_EDGE = 1601
 const POINTER_HOTSPOT_X = 926 / POINTER_ORIGINAL_EDGE
@@ -785,7 +784,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
   const [offsetX, setOffsetX] = useState('')
   const [offsetY, setOffsetY] = useState('')
   const [palettePosition, setPalettePosition] = useState(() => ({
-    x: typeof window === 'undefined' ? 24 : Math.max(SIDEBAR_WIDTH + 8, window.innerWidth - 288),
+    x: typeof window === 'undefined' ? 24 : Math.max(8, window.innerWidth - 288),
     y: 96
   }))
   const paletteDragRef = useRef<PaletteDragState | null>(null)
@@ -877,7 +876,7 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
       const width = 240
       const height = 360
       setPalettePosition({
-        x: clamp(drag.originX + moveEvent.clientX - drag.startX, SIDEBAR_WIDTH + 8, window.innerWidth - width - 8),
+        x: clamp(drag.originX + moveEvent.clientX - drag.startX, 8, window.innerWidth - width - 8),
         y: clamp(drag.originY + moveEvent.clientY - drag.startY, 8, window.innerHeight - height)
       })
     }
