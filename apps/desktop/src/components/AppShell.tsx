@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react'
 import {
   NavLink,
   Outlet,
   useLocation
 } from 'react-router-dom'
+import { SearchPalette } from './SearchPalette'
 import { useConnection } from '../features/connection/useConnection'
 import { useTheme } from '../features/theme/ThemeContext'
 
@@ -204,6 +206,19 @@ export function AppShell() {
   const { status } = useConnection()
   const { theme } = useTheme()
   const location = useLocation()
+
+  const [searchOpen, setSearchOpen] = useState(false)
+
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setSearchOpen((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [])
 
   const isDark = theme === 'dark'
   const account = status.account
@@ -460,12 +475,15 @@ export function AppShell() {
           {/* Search — both themes */}
 
           <div className="ml-auto flex items-center gap-3">
-            <div
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              aria-label="Search SOPs and workflows"
               className={[
-                'flex h-9 w-64 items-center gap-2 rounded-lg border px-3 transition focus-within:ring-2',
+                'flex h-9 w-64 items-center gap-2 rounded-lg border px-3 transition',
                 isDark
-                  ? 'border-white/10 bg-white/[0.04] text-white/45 focus-within:border-white/25 focus-within:ring-white/5'
-                  : 'border-slate-200 bg-white text-slate-400 shadow-sm focus-within:border-purple-300 focus-within:ring-purple-100'
+                  ? 'border-white/10 bg-white/[0.04] text-white/45 hover:border-white/25 hover:text-white/70'
+                  : 'border-slate-200 bg-white text-slate-400 shadow-sm hover:border-purple-300 hover:text-slate-600'
               ].join(' ')}
             >
               <svg
@@ -485,17 +503,21 @@ export function AppShell() {
                 <path d="m20 20-3.5-3.5" />
               </svg>
 
-              <input
-                type="text"
-                placeholder="Search..."
+              <span className="min-w-0 flex-1 text-left text-xs">
+                Search…
+              </span>
+
+              <kbd
                 className={[
-                  'min-w-0 flex-1 bg-transparent text-xs outline-none',
+                  'shrink-0 rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold',
                   isDark
-                    ? 'text-white placeholder:text-white/30'
-                    : 'text-slate-700 placeholder:text-slate-400'
+                    ? 'border-white/15 text-white/40'
+                    : 'border-slate-200 text-slate-400'
                 ].join(' ')}
-              />
-            </div>
+              >
+                ⌘K
+              </kbd>
+            </button>
 
           </div>
         </header>
@@ -527,6 +549,11 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+
+      <SearchPalette
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+      />
     </div>
   )
 }
