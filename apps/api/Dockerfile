@@ -32,14 +32,15 @@ COPY pyproject.toml ./
 COPY src ./src
 COPY alembic.ini ./
 COPY migrations ./migrations
+COPY docker-entrypoint.sh ./
 # --system installs into system site-packages (no venv). Cache mount lets
 # the resolved-wheel cache survive across `docker compose build` runs.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system -e . && \
-    uv pip install --system "debugpy>=1.8,<2"
+    uv pip install --system "debugpy>=1.8,<2" && \
+    chmod +x ./docker-entrypoint.sh
 
 EXPOSE 8000
 
 # Default = API server. Worker service overrides `command:`.
-CMD ["sh", "-c", \
-     "python -m worktrace_api.migration_bootstrap && exec python -m uvicorn worktrace_api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/src"]
+CMD ["./docker-entrypoint.sh"]
