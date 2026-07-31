@@ -16,6 +16,7 @@ import {
   type AudioRecorderApi,
   type BackendDashboardSummary,
   type BackendScreenshotEvidence,
+  type BackendSearchResponse,
   type BackendSOP,
   type RecordingOptions,
   type RecordingRetryTarget,
@@ -116,6 +117,8 @@ contextBridge.exposeInMainWorld('api', {
     listSops: () => ipcRenderer.invoke(recordingIpc.listSops) as Promise<BackendSOP[]>,
     getDashboardSummary: () =>
       ipcRenderer.invoke(recordingIpc.getDashboardSummary) as Promise<BackendDashboardSummary>,
+    search: (query: string) =>
+      ipcRenderer.invoke(recordingIpc.search, query) as Promise<BackendSearchResponse>,
     exportSopPdf: (html: string, title: string) =>
       ipcRenderer.invoke(recordingIpc.exportSopPdf, html, title) as Promise<string | null>,
     getSopScreenshotImage: (

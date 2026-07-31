@@ -15,6 +15,7 @@ import type {
   BackendRecording,
   BackendRecordingStatusResponse,
   BackendScreenshotEvidence,
+  BackendSearchResponse,
   BackendSOP,
   BackendWorkflowSession,
   RecordingRetryTarget
@@ -280,6 +281,12 @@ export class WorkTraceApiClient {
   async getDashboardSummary(): Promise<BackendDashboardSummary> {
     const response = await this.request('/dashboard/summary')
     return (await response.json()) as BackendDashboardSummary
+  }
+
+  async search(query: string): Promise<BackendSearchResponse> {
+    const encoded = encodeURIComponent(query)
+    const response = await this.request(`/search?q=${encoded}&limit=20`)
+    return (await response.json()) as BackendSearchResponse
   }
 
   async getSopScreenshotImage(

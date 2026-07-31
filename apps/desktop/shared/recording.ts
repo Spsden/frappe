@@ -251,6 +251,27 @@ export interface BackendDashboardSummary {
   average_completion_delta_ms: number | null
 }
 
+export type BackendSearchResultKind = 'sop' | 'session'
+export type BackendSearchMatchedField = 'title' | 'document' | 'step' | 'workflow_name'
+
+export interface BackendSearchResult {
+  kind: BackendSearchResultKind
+  id: string
+  title: string
+  subtitle: string | null
+  matched_field: BackendSearchMatchedField
+  status: string | null
+  /** For SOP hits, the session the SOP was generated from — lets the client
+   * route to the SOP detail page (which is keyed by session). */
+  source_session_id: string | null
+  created_at: string
+}
+
+export interface BackendSearchResponse {
+  query: string
+  results: BackendSearchResult[]
+}
+
 export interface RecordedSessionSummary {
   id: string
   name: string
@@ -347,6 +368,7 @@ export interface RecordingApi {
   getSessionSops: (backendSessionId: string) => Promise<BackendSOP[]>
   listSops: () => Promise<BackendSOP[]>
   getDashboardSummary: () => Promise<BackendDashboardSummary>
+  search: (query: string) => Promise<BackendSearchResponse>
   exportSopPdf: (html: string, title: string) => Promise<string | null>
   getSopScreenshotImage: (
     backendSessionId: string,
@@ -389,6 +411,7 @@ export const recordingIpc = {
   getSessionSops: 'recording:get-session-sops',
   listSops: 'recording:list-sops',
   getDashboardSummary: 'recording:get-dashboard-summary',
+  search: 'recording:search',
   exportSopPdf: 'recording:export-sop-pdf',
   getScreenshotImage: 'recording:get-screenshot-image',
   getSopScreenshotImage: 'recording:get-sop-screenshot-image',

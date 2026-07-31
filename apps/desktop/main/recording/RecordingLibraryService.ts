@@ -5,6 +5,7 @@ import type {
   BackendDashboardSummary,
   BackendScreenshotEvidence,
   BackendRecordingStatusResponse,
+  BackendSearchResponse,
   BackendSOP,
   BackendWorkflowSession,
   RecordedSessionSummary,
@@ -121,6 +122,10 @@ export class RecordingLibraryService {
 
   async getDashboardSummary(): Promise<BackendDashboardSummary> {
     return this.apiClient.getDashboardSummary()
+  }
+
+  async search(query: string): Promise<BackendSearchResponse> {
+    return this.apiClient.search(query)
   }
 
   async getSopScreenshotImage(
