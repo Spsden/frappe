@@ -181,7 +181,7 @@ export interface BackendWorkflowSession {
 export interface BackendAnnotation {
   event_id: string | null
   event_type: string | null
-  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus' | 'manual_box' | 'text_box'
+  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus' | 'manual_box' | 'text_box' | 'redact'
   coordinate_space: 'screenshot_pixels' | 'global_screen'
   bounds: { x: number; y: number; width: number; height: number }
   confidence: number
@@ -192,7 +192,7 @@ export interface BackendAnnotation {
 
 /** Author-supplied annotation payload for the evidence editor save flow. */
 export interface AnnotationInput {
-  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus' | 'manual_box' | 'text_box'
+  type: 'click_rectangle' | 'scroll_focus' | 'pointer_focus' | 'manual_box' | 'text_box' | 'redact'
   bounds: { x: number; y: number; width: number; height: number }
   label?: string | null
   role?: string | null

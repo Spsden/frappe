@@ -15,7 +15,7 @@ interface EvidenceGalleryProps {
 }
 
 type AnnotationType = AnnotationInput['type']
-type ToolMode = 'move' | 'pointer' | 'box' | 'text' | 'erase'
+type ToolMode = 'move' | 'pointer' | 'box' | 'text' | 'erase' | 'redact'
 type Bounds = { x: number; y: number; width: number; height: number }
 type SelectedAnnotation = { screenshotId: string; index: number } | null
 type VisualAnno = {
@@ -51,6 +51,11 @@ const TYPE_STYLES: Record<AnnotationType, { rgb: string; tag: string; label: str
     rgb: '168, 85, 247',
     tag: 'bg-violet-500/25 text-violet-200',
     label: 'Text'
+  },
+  redact: {
+    rgb: '148, 163, 184',
+    tag: 'bg-slate-400/25 text-slate-100',
+    label: 'Redact'
   }
 }
 
@@ -151,6 +156,30 @@ function roundedRect(
   context.lineTo(x, y + r)
   context.quadraticCurveTo(x, y, x + r, y)
   context.closePath()
+}
+
+function drawCanvasRedact(
+  context: CanvasRenderingContext2D,
+  image: CanvasImageSource,
+  bounds: Bounds,
+  canvasWidth: number,
+  canvasHeight: number
+) {
+  const radius = Math.max(8, Math.min(bounds.width, bounds.height) / 6)
+  context.save()
+  context.beginPath()
+  context.rect(bounds.x, bounds.y, bounds.width, bounds.height)
+  context.clip()
+  context.filter = `blur(${radius}px)`
+  context.drawImage(image, 0, 0, canvasWidth, canvasHeight)
+  context.restore()
+
+  context.save()
+  context.strokeStyle = 'rgba(148, 163, 184, 0.9)'
+  context.lineWidth = 1.5
+  context.setLineDash([6, 4])
+  context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height)
+  context.restore()
 }
 
 function drawCanvasBox(
@@ -295,6 +324,8 @@ async function renderAnnotatedPng(
       )
     } else if (annotation.type === 'text_box') {
       drawCanvasTextBox(context, bounds, style.rgb, annotation.label)
+    } else if (annotation.type === 'redact') {
+      drawCanvasRedact(context, baseImage, bounds, evidence.width, evidence.height)
     } else {
       drawCanvasBox(context, bounds, style.rgb, annotation.type !== 'manual_box')
     }
@@ -351,6 +382,30 @@ function AnnotationVisual({ anno, width, height }: { anno: VisualAnno; width: nu
         <p className="text-[11px] font-bold leading-4 text-white/90">
           {anno.label || 'Note'}
         </p>
+      </div>
+    )
+  }
+
+  if (anno.type === 'redact') {
+    return (
+      <div
+        className="pointer-events-none absolute"
+        style={{
+          left: pct(anno.bounds.x, width),
+          top: pct(anno.bounds.y, height),
+          width: pct(anno.bounds.width, width),
+          height: pct(anno.bounds.height, height),
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          backgroundColor: `rgba(${style.rgb}, 0.12)`,
+          boxShadow: `inset 0 0 0 1.5px rgba(${style.rgb}, 0.9)`
+        }}
+      >
+        <span
+          className={`absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide ${style.tag}`}
+        >
+          {labelText}
+        </span>
       </div>
     )
   }
@@ -531,11 +586,12 @@ function ScreenshotFrame({
   }
 
   const beginDraw = (event: React.PointerEvent) => {
-    if (toolMode !== 'box' && toolMode !== 'text') return
+    if (toolMode !== 'box' && toolMode !== 'text' && toolMode !== 'redact') return
     const { x, y } = toCoords(event.clientX, event.clientY)
     const start = { x, y, width: 0, height: 0 }
     const index = annotations.length
-    const annotationType: AnnotationType = toolMode === 'text' ? 'text_box' : 'manual_box'
+    const annotationType: AnnotationType =
+      toolMode === 'text' ? 'text_box' : toolMode === 'redact' ? 'redact' : 'manual_box'
     onChange([
       ...annotations,
       {
@@ -599,11 +655,17 @@ function ScreenshotFrame({
             title="Click to add a pointer"
           />
         )}
-        {editMode && (toolMode === 'box' || toolMode === 'text') && (
+        {editMode && (toolMode === 'box' || toolMode === 'text' || toolMode === 'redact') && (
           <div
             className="absolute inset-0 cursor-crosshair"
             onPointerDown={beginDraw}
-            title={toolMode === 'text' ? 'Drag to add a text callout' : 'Drag to draw a highlight box'}
+            title={
+              toolMode === 'text'
+                ? 'Drag to add a text callout'
+                : toolMode === 'redact'
+                  ? 'Drag to redact an area'
+                  : 'Drag to draw a highlight box'
+            }
           />
         )}
         {/* edit handles (move/resize) */}
@@ -1158,6 +1220,13 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
               isDark={isDark}
             >
               Draw box
+            </ToolButton>
+            <ToolButton
+              active={toolMode === 'redact'}
+              onClick={() => setToolMode('redact')}
+              isDark={isDark}
+            >
+              Redact
             </ToolButton>
             <ToolButton
               active={toolMode === 'text'}
