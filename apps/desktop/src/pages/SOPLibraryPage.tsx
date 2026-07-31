@@ -60,9 +60,8 @@ function statusTone(
   return 'border-amber-200 bg-amber-50 text-amber-700'
 }
 
-function sopMatches(
+function sopMatchesFilter(
   sop: BackendSOP,
-  query: string,
   filter: SopFilter
 ) {
   if (
@@ -72,22 +71,7 @@ function sopMatches(
     return false
   }
 
-  const haystack = [
-    sop.title,
-    sop.document ?? '',
-    sop.status,
-    ...sop.steps.flatMap((step) => [
-      step.title,
-      step.instruction,
-      step.warning ?? ''
-    ])
-  ]
-    .join(' ')
-    .toLowerCase()
-
-  return haystack.includes(
-    query.trim().toLowerCase()
-  )
+  return true
 }
 
 export function SOPLibraryPage() {
@@ -100,7 +84,6 @@ export function SOPLibraryPage() {
   const [selectedId, setSelectedId] =
     useState<string | null>(null)
 
-  const [query, setQuery] = useState('')
   const [filter, setFilter] =
     useState<SopFilter>('all')
 
@@ -126,9 +109,9 @@ export function SOPLibraryPage() {
   const visibleSops = useMemo(
     () =>
       sops.filter((sop) =>
-        sopMatches(sop, query, filter)
+        sopMatchesFilter(sop, filter)
       ),
-    [filter, query, sops]
+    [filter, sops]
   )
 
   const selectedSop =
@@ -401,44 +384,7 @@ export function SOPLibraryPage() {
                 : 'shrink-0 border-b border-slate-200 p-4'
             }
           >
-            <div className="relative">
-              {!isDark && (
-                <svg
-                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                  width="17"
-                  height="17"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <circle
-                    cx="11"
-                    cy="11"
-                    r="8"
-                  />
-
-                  <path d="m21 21-4.35-4.35" />
-                </svg>
-              )}
-
-              <input
-                value={query}
-                onChange={(event) =>
-                  setQuery(
-                    event.target.value
-                  )
-                }
-                placeholder="Search SOPs..."
-                className={
-                  isDark
-                    ? 'w-full rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-emerald-300/50'
-                    : 'w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-purple-400 focus:ring-2 focus:ring-purple-100'
-                }
-              />
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2">
               {filterOptions.map(
                 (option) => (
                   <button
