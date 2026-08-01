@@ -360,7 +360,38 @@ export function SOPLibraryPage() {
       ].join(' ')}
     >
       <div className="shrink-0">
-        <div className="flex justify-end">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            {filterOptions.map(
+              (option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() =>
+                    setFilter(
+                      option.value
+                    )
+                  }
+                  className={[
+                    isDark
+                      ? 'rounded-xl px-3 py-2 text-xs font-black uppercase tracking-[0.12em] transition'
+                      : 'rounded-xl px-3 py-2 text-xs font-bold transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2',
+                    filter ===
+                    option.value
+                      ? isDark
+                        ? 'bg-white text-black'
+                        : 'bg-gradient-to-r from-[#a66ad8] to-[#d783b6] text-white shadow-[0_5px_14px_rgba(166,106,216,0.2)]'
+                      : isDark
+                        ? 'border border-white/10 bg-white/[0.03] text-white/50 hover:text-white'
+                        : 'border border-slate-200 bg-white text-slate-600 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700'
+                  ].join(' ')}
+                >
+                  {option.label}
+                </button>
+              )
+            )}
+          </div>
+
           <button
             type="button"
             onClick={() =>
@@ -425,45 +456,6 @@ export function SOPLibraryPage() {
           {!isDark && (
             <div className="h-1 shrink-0 bg-gradient-to-r from-[#a66ad8] via-[#c778d7] to-[#d783b6]" />
           )}
-
-          <div
-            className={
-              isDark
-                ? 'shrink-0 border-b border-white/10 p-4'
-                : 'shrink-0 border-b border-slate-200 p-4'
-            }
-          >
-            <div className="flex flex-wrap gap-2">
-              {filterOptions.map(
-                (option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() =>
-                      setFilter(
-                        option.value
-                      )
-                    }
-                    className={[
-                      isDark
-                        ? 'rounded-lg px-3 py-2 text-xs font-black uppercase tracking-[0.1em] transition'
-                        : 'rounded-lg px-3 py-2 text-xs font-bold transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2',
-                      filter ===
-                      option.value
-                        ? isDark
-                          ? 'bg-white text-black'
-                          : 'bg-gradient-to-r from-[#a66ad8] to-[#d783b6] text-white shadow-[0_5px_14px_rgba(166,106,216,0.2)]'
-                        : isDark
-                          ? 'border border-white/10 bg-white/[0.03] text-white/50 hover:text-white'
-                          : 'border border-slate-200 bg-white text-slate-600 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700'
-                    ].join(' ')}
-                  >
-                    {option.label}
-                  </button>
-                )
-              )}
-            </div>
-          </div>
 
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
             {isLoading &&
