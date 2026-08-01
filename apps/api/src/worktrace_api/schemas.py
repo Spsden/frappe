@@ -391,13 +391,14 @@ class AnalyticsTimelineStep(StrictModel):
     start_ms: int = Field(ge=0)
     duration_ms: int = Field(ge=0)
     classification: Literal["shared", "optional", "path_specific"]
-    timing_source: Literal["observed", "estimated"]
+    timing_source: Literal["observed", "estimated", "unavailable"]
 
 
 class AnalyticsPathTimeline(StrictModel):
     recording_id: UUID
     label: str
     total_duration_ms: int = Field(ge=0)
+    unallocated_duration_ms: int = Field(ge=0)
     steps: list[AnalyticsTimelineStep]
 
 
@@ -419,6 +420,7 @@ class AnalyticsComparisonOverview(StrictModel):
     potential_time_saved_ms: int = Field(ge=0)
     shared_step_count: int = Field(ge=0)
     optional_step_count: int = Field(ge=0)
+    path_specific_step_count: int = Field(ge=0)
     timing_coverage: float = Field(ge=0, le=1)
 
 
