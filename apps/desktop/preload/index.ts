@@ -29,6 +29,12 @@ import {
   type ExperimentalFlag,
   type ExperimentalFlags
 } from '../shared/settings'
+import {
+  walkthroughIpc,
+  type WalkthroughDockSide,
+  type WalkthroughPayload,
+  type WalkthroughWindowState
+} from '../shared/walkthrough'
 
 // Expose a safe, minimal API to the renderer via contextBridge.
 // The renderer can call window.api.getAppVersion() but cannot access
@@ -166,6 +172,29 @@ contextBridge.exposeInMainWorld('api', {
       const handler = (_event: Electron.IpcRendererEvent, state: RecordingState) => listener(state)
       ipcRenderer.on(recordingIpc.stateChanged, handler)
       return () => ipcRenderer.off(recordingIpc.stateChanged, handler)
+    }
+  },
+  walkthrough: {
+    open: (payload: WalkthroughPayload) =>
+      ipcRenderer.invoke(walkthroughIpc.open, payload) as Promise<WalkthroughWindowState>,
+    getState: () =>
+      ipcRenderer.invoke(walkthroughIpc.getState) as Promise<WalkthroughWindowState>,
+    setDockSide: (dockSide: WalkthroughDockSide) =>
+      ipcRenderer.invoke(
+        walkthroughIpc.setDockSide,
+        dockSide
+      ) as Promise<WalkthroughWindowState>,
+    setCollapsed: (collapsed: boolean) =>
+      ipcRenderer.invoke(
+        walkthroughIpc.setCollapsed,
+        collapsed
+      ) as Promise<WalkthroughWindowState>,
+    close: () => ipcRenderer.invoke(walkthroughIpc.close) as Promise<WalkthroughWindowState>,
+    onStateChanged: (listener: (state: WalkthroughWindowState) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: WalkthroughWindowState) =>
+        listener(state)
+      ipcRenderer.on(walkthroughIpc.stateChanged, handler)
+      return () => ipcRenderer.off(walkthroughIpc.stateChanged, handler)
     }
   }
 })

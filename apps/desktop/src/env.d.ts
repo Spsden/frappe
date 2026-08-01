@@ -1,6 +1,7 @@
 import type { ConnectionApi } from '../shared/connection'
 import type { AudioRecorderApi, RecordingApi } from '../shared/recording'
 import type { SettingsApi } from '../shared/settings'
+import type { WalkthroughApi } from '../shared/walkthrough'
 
 export {}
 
@@ -24,6 +25,7 @@ declare global {
       connection: ConnectionApi
       recording: RecordingApi
       settings: SettingsApi
+      walkthrough: WalkthroughApi
     }
     audioRecorder: AudioRecorderApi
   }

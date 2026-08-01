@@ -21,10 +21,13 @@ import { RecordingUploader } from './recording/RecordingUploader'
 import { AudioCaptureService } from './recording/AudioCaptureService'
 import { RecordingLibraryService } from './recording/RecordingLibraryService'
 import { registerRecordingIpc } from './recording/registerRecordingIpc'
+import { WalkthroughWindow } from './walkthrough/WalkthroughWindow'
+import { registerWalkthroughIpc } from './walkthrough/registerWalkthroughIpc'
 
 let recordingManager: RecordingManager | null = null
 let recordingControlsWindow: RecordingControlsWindow | null = null
 let audioCapture: AudioCaptureService | null = null
+let walkthroughWindow: WalkthroughWindow | null = null
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -84,6 +87,8 @@ app.whenReady().then(async () => {
   const sessionWriter = new SessionWriter(recordingsPath)
   const screenCapture = new ScreenCaptureService(sessionWriter)
   recordingControlsWindow = new RecordingControlsWindow(process.env['ELECTRON_RENDERER_URL'])
+  walkthroughWindow = new WalkthroughWindow(process.env['ELECTRON_RENDERER_URL'])
+  registerWalkthroughIpc(walkthroughWindow)
   const inputEvents = new InputEventService(sessionWriter, accessibilityBundle)
   audioCapture = new AudioCaptureService(sessionWriter, process.env['ELECTRON_RENDERER_URL'])
   const recordingUploader = new RecordingUploader(apiClient)
@@ -116,5 +121,6 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   recordingControlsWindow?.destroy()
+  walkthroughWindow?.destroy()
   audioCapture?.destroy()
 })
