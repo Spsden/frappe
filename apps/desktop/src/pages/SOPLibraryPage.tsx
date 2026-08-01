@@ -108,6 +108,11 @@ export function SOPLibraryPage() {
     setIsStartingWalkthrough
   ] = useState(false)
 
+  const [
+    isApprovingSop,
+    setIsApprovingSop
+  ] = useState(false)
+
   const [error, setError] =
     useState<string | null>(null)
 
@@ -307,6 +312,41 @@ export function SOPLibraryPage() {
       )
     } finally {
       setIsStartingWalkthrough(false)
+    }
+  }
+
+  const setSopApproval = async (
+    approved: boolean
+  ) => {
+    if (!selectedSop) return
+
+    setIsApprovingSop(true)
+    setError(null)
+
+    try {
+      const updated =
+        await window.api.recording.approveSop(
+          selectedSop.id,
+          approved
+        )
+
+      setSops((current) =>
+        current.map((sop) =>
+          sop.id === updated.id
+            ? updated
+            : sop
+        )
+      )
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : approved
+            ? 'Could not approve SOP.'
+            : 'Could not move SOP back to draft.'
+      )
+    } finally {
+      setIsApprovingSop(false)
     }
   }
 
@@ -671,6 +711,46 @@ export function SOPLibraryPage() {
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2">
+                  {selectedSop.status !==
+                    'archived' && (
+                    <button
+                      type="button"
+                      disabled={
+                        isApprovingSop
+                      }
+                      onClick={() =>
+                        void setSopApproval(
+                          selectedSop.status !==
+                            'approved'
+                        )
+                      }
+                      className={
+                        selectedSop.status ===
+                        'approved'
+                          ? isDark
+                            ? 'flex items-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-xs font-black uppercase tracking-[0.1em] text-white/60 transition hover:border-amber-300/30 hover:bg-amber-300/10 hover:text-amber-100 disabled:cursor-wait disabled:opacity-50'
+                            : 'flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-5 py-2.5 text-sm font-bold text-amber-700 transition hover:bg-amber-100 disabled:cursor-wait disabled:opacity-50'
+                          : isDark
+                            ? 'flex items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-2.5 text-xs font-black uppercase tracking-[0.1em] text-emerald-100 transition hover:bg-emerald-300/16 disabled:cursor-wait disabled:opacity-50'
+                            : 'flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700 shadow-[0_8px_20px_rgba(16,185,129,0.12)] transition duration-200 hover:-translate-y-0.5 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-50'
+                      }
+                    >
+                      <span>
+                        {selectedSop.status ===
+                        'approved'
+                          ? '↩'
+                          : '✓'}
+                      </span>
+
+                      {isApprovingSop
+                        ? 'Saving'
+                        : selectedSop.status ===
+                            'approved'
+                          ? 'Move to draft'
+                          : 'Approve SOP'}
+                    </button>
+                  )}
+
                   {selectedSop.status ===
                     'approved' &&
                     selectedSop.steps.length >

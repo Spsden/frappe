@@ -121,6 +121,8 @@ contextBridge.exposeInMainWorld('api', {
         backendSessionId
       ) as Promise<BackendSOP[]>,
     listSops: () => ipcRenderer.invoke(recordingIpc.listSops) as Promise<BackendSOP[]>,
+    approveSop: (sopId: string, approved: boolean) =>
+      ipcRenderer.invoke(recordingIpc.approveSop, sopId, approved) as Promise<BackendSOP>,
     getDashboardSummary: () =>
       ipcRenderer.invoke(recordingIpc.getDashboardSummary) as Promise<BackendDashboardSummary>,
     search: (query: string) =>

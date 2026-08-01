@@ -367,6 +367,7 @@ export interface RecordingApi {
   ) => Promise<ArrayBuffer>
   getSessionSops: (backendSessionId: string) => Promise<BackendSOP[]>
   listSops: () => Promise<BackendSOP[]>
+  approveSop: (sopId: string, approved: boolean) => Promise<BackendSOP>
   getDashboardSummary: () => Promise<BackendDashboardSummary>
   search: (query: string) => Promise<BackendSearchResponse>
   exportSopPdf: (html: string, title: string) => Promise<string | null>
@@ -410,6 +411,7 @@ export const recordingIpc = {
   getSessionScreenshots: 'recording:get-session-screenshots',
   getSessionSops: 'recording:get-session-sops',
   listSops: 'recording:list-sops',
+  approveSop: 'recording:approve-sop',
   getDashboardSummary: 'recording:get-dashboard-summary',
   search: 'recording:search',
   exportSopPdf: 'recording:export-sop-pdf',

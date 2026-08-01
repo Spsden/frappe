@@ -278,6 +278,15 @@ export class WorkTraceApiClient {
     return (await response.json()) as BackendSOP[]
   }
 
+  async approveSop(sopId: string, approved: boolean): Promise<BackendSOP> {
+    const response = await this.request(`/sops/${sopId}/approval`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved })
+    })
+    return (await response.json()) as BackendSOP
+  }
+
   async getDashboardSummary(): Promise<BackendDashboardSummary> {
     const response = await this.request('/dashboard/summary')
     return (await response.json()) as BackendDashboardSummary
