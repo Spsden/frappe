@@ -266,6 +266,7 @@ export interface BackendSOPStep {
   warning: string | null
   screenshot_reference: string | null
   estimated_time_ms: number | null
+  observed_duration_ms: number | null
   decision_branches: SopDecisionBranch[]
 }
 

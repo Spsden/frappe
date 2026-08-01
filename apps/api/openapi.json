@@ -4252,6 +4252,18 @@
             ],
             "title": "Estimated Time Ms"
           },
+          "observed_duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Duration Ms"
+          },
           "decision_branches": {
             "items": {
               "$ref": "#/components/schemas/SOPDecisionBranch"

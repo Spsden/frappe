@@ -58,6 +58,7 @@ def generate_sop(session: WorkflowSession, version: int = 1) -> SOP:
                 screenshot_reference=event.after_screenshot_id or event.screenshot_reference,
                 evidence_annotations=evidence_annotations,
                 estimated_time_ms=event.duration_ms,
+                observed_duration_ms=event.duration_ms,
                 warning="Confirm the displayed data before continuing."
                 if event.event_type in {EventType.INPUT, EventType.KEY_BURST}
                 else None,

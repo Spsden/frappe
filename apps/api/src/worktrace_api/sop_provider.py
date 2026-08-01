@@ -548,6 +548,7 @@ def generated_to_sop(
                 warning=generated_step.warning,
                 screenshot_reference=screenshot_reference,
                 estimated_time_ms=estimated_time,
+                observed_duration_ms=evidence.duration_ms,
                 decision_branches=[
                     SOPDecisionBranch(condition=branch.condition, action=branch.action)
                     for branch in generated_step.decision_branches

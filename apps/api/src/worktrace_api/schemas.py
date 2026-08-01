@@ -263,6 +263,7 @@ class SOPStep(StrictModel):
     screenshot_reference: UUID | None = None
     evidence_annotations: list[EvidenceAnnotation] = Field(default_factory=list, max_length=20)
     estimated_time_ms: int | None = Field(default=None, ge=0)
+    observed_duration_ms: int | None = Field(default=None, ge=0)
     decision_branches: list[SOPDecisionBranch] = Field(default_factory=list, max_length=20)
 
 
