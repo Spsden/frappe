@@ -197,8 +197,8 @@ class Repository:
         return self._workflow_from_record(record)
 
     def get_workflow(self, workflow_id: UUID) -> Workflow | None:
-        row = self._workflow_summary_query(
-            WorkflowRecord.id == str(workflow_id)
+        row = self.db.execute(
+            self._workflow_summary_query(WorkflowRecord.id == str(workflow_id))
         ).first()
         if not row:
             return None
@@ -209,8 +209,8 @@ class Repository:
         return workflow
 
     def get_workflow_by_name(self, name: str) -> Workflow | None:
-        row = self._workflow_summary_query(
-            WorkflowRecord.name == name
+        row = self.db.execute(
+            self._workflow_summary_query(WorkflowRecord.name == name)
         ).first()
         return self._workflow_from_row(row) if row else None
 
@@ -233,7 +233,7 @@ class Repository:
         )
         if query:
             stmt = stmt.where(WorkflowRecord.name.ilike(f"%{query}%"))
-        return [self._workflow_from_row(row) for row in stmt.all()]
+        return [self._workflow_from_row(row) for row in self.db.execute(stmt).all()]
 
     def list_recordings_for_workflow(self, workflow_id: UUID) -> list[WorkflowRecording]:
         rows = self.db.execute(
