@@ -19,6 +19,7 @@ import { SOPDetailPage } from './pages/SOPDetailPage'
 import { SOPLibraryPage } from './pages/SOPLibraryPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { WalkthroughPage } from './pages/WalkthroughPage'
+import { WorkflowDetailPage } from './pages/WorkflowDetailPage'
 
 export default function App() {
   return (
@@ -103,6 +104,11 @@ function ConnectedApp() {
           <Route
             path="/sessions/:id"
             element={<SessionDetailPage />}
+          />
+
+          <Route
+            path="/workflows/:workflowId"
+            element={<WorkflowDetailPage />}
           />
 
           <Route

@@ -99,6 +99,11 @@ contextBridge.exposeInMainWorld('api', {
     getState: () => ipcRenderer.invoke(recordingIpc.getState),
     listSessions: () =>
       ipcRenderer.invoke(recordingIpc.listSessions) as Promise<RecordedSessionSummary[]>,
+    getRecordingSummary: (recordingId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.getRecordingSummary,
+        recordingId
+      ) as Promise<RecordedSessionSummary>,
     listWorkflows: (query?: string) =>
       ipcRenderer.invoke(recordingIpc.listWorkflows, query) as Promise<BackendWorkflow[]>,
     getWorkflow: (workflowId: string) =>

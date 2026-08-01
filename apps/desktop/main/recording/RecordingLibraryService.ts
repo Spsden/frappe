@@ -58,6 +58,74 @@ export class RecordingLibraryService {
     }
   }
 
+  async getRecordingSummary(recordingId: string): Promise<RecordedSessionSummary> {
+    const sessionPath = join(this.recordingsPath, recordingId)
+
+    try {
+      const manifest = await this.readManifest(sessionPath)
+      const remoteId = manifest.remoteRecordingId ?? null
+      let backend: BackendRecordingStatusResponse | null = null
+      let backendError: string | null = null
+
+      if (remoteId) {
+        try {
+          backend = await this.apiClient.getRecordingStatus(remoteId)
+        } catch (error) {
+          backendError = error instanceof Error ? error.message : 'Could not sync backend status.'
+        }
+      }
+
+      const summary = await this.readSession(
+        sessionPath,
+        backend ? new Map([[backend.recording.id, backend]]) : new Map(),
+        backendError
+      )
+      if (summary) return summary
+    } catch (error) {
+      if (!isMissingFileError(error)) throw error
+    }
+
+    const backend = await this.apiClient.getRecordingStatus(recordingId)
+    let durationMs: number | null = null
+    let audioChunkCount = backend.recording.has_audio ? 1 : 0
+
+    if (backend.recording.session_id) {
+      try {
+        const remoteSession = await this.getSession(backend.recording.session_id)
+        durationMs = remoteSession.duration_ms
+        audioChunkCount = remoteSession.transcript?.audio_chunk_count ?? audioChunkCount
+      } catch {
+        // The recording status is enough to render while session evidence catches up.
+      }
+    }
+
+    return {
+      id: backend.recording.id,
+      name: backend.recording.reference || backend.recording.workflow_name,
+      platform:
+        process.platform === 'win32'
+          ? 'win32'
+          : process.platform === 'darwin'
+            ? 'darwin'
+            : 'linux',
+      startedAt: backend.recording.created_at,
+      endedAt: backend.recording.completed_at,
+      durationMs,
+      localStatus: 'completed',
+      eventCount: 0,
+      screenshotCount: 0,
+      audioChunkCount,
+      outputPath: '',
+      remoteRecordingId: backend.recording.id,
+      remoteSessionId: backend.recording.session_id,
+      remoteStatus: backend.recording.status,
+      uploadedAt: backend.recording.completed_at,
+      uploadError: null,
+      backend,
+      backendError: null
+    }
+  }
+
   async getWorkflow(workflowId: string): Promise<BackendWorkflow> {
     return this.apiClient.getWorkflow(workflowId)
   }
@@ -100,7 +168,18 @@ export class RecordingLibraryService {
 
   async deleteSession(sessionId: string): Promise<void> {
     const sessionPath = join(this.recordingsPath, sessionId)
-    const manifest = await this.readManifest(sessionPath)
+    let manifest: Partial<RecordingSessionManifest> | null = null
+    try {
+      manifest = await this.readManifest(sessionPath)
+    } catch (error) {
+      if (!isMissingFileError(error)) throw error
+    }
+
+    if (!manifest) {
+      await this.apiClient.deleteRecording(sessionId)
+      return
+    }
+
     if (manifest?.remoteRecordingId) {
       try {
         await this.apiClient.deleteRecording(manifest.remoteRecordingId)

@@ -146,6 +146,10 @@ function getPageTitle(pathname: string) {
     return 'Session Detail'
   }
 
+  if (pathname.startsWith('/workflows/')) {
+    return 'Workflow Detail'
+  }
+
   if (pathname.startsWith('/sessions')) {
     return 'Recorded Workflows'
   }
@@ -327,13 +331,17 @@ export function AppShell() {
               key={item.to}
               to={item.to}
               end={item.end}
-              className={({ isActive }) =>
-                [
+              className={({ isActive }) => {
+                const active =
+                  isActive ||
+                  (item.to === '/sessions' && location.pathname.startsWith('/workflows/'))
+
+                return [
                   'group relative flex min-h-11 items-center gap-3 px-3 py-2.5 text-sm font-bold transition',
                   isDark
                     ? 'rounded-md'
                     : 'rounded-xl',
-                  isActive
+                  active
                     ? isDark
                       ? 'border-l-2 border-white bg-white/12 text-white'
                       : 'bg-gradient-to-r from-purple-100 to-pink-50 text-purple-800 shadow-[0_8px_20px_rgba(166,106,216,0.08)]'
@@ -341,7 +349,7 @@ export function AppShell() {
                       ? 'border-l-2 border-transparent text-white/50 hover:bg-white/[0.06] hover:text-white'
                       : 'text-slate-500 hover:bg-purple-50 hover:text-purple-700'
                 ].join(' ')
-              }
+              }}
             >
               <span className="size-[18px] shrink-0">
                 {item.icon}

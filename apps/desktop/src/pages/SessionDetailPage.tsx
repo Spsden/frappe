@@ -441,33 +441,16 @@ export function SessionDetailPage() {
       let reschedule = true
 
       try {
-        const sessions =
-          await window.api.recording.listSessions()
+        const active = activeRecordingSummary(
+          recordingStateRef.current
+        )
+        const found = active?.id === id
+          ? active
+          : await window.api.recording.getRecordingSummary(id)
 
         if (cancelled) return
 
         setError(null)
-
-        const active = activeRecordingSummary(
-          recordingStateRef.current
-        )
-
-        const merged =
-          active &&
-          !sessions.some(
-            (item) => item.id === active.id
-          )
-            ? [active, ...sessions]
-            : sessions.map((item) =>
-                item.id === active?.id
-                  ? active
-                  : item
-              )
-
-        const found =
-          merged.find(
-            (item) => item.id === id
-          ) ?? null
 
         const nextSessionSignature =
           sessionSignature(found)
@@ -715,6 +698,11 @@ export function SessionDetailPage() {
     }
   }
 
+  const workflowId = session?.backend?.recording.workflow_id
+  const recordingBackPath = workflowId
+    ? `/workflows/${workflowId}?tab=recordings`
+    : '/sessions'
+
   const remove = async () => {
     if (!session) return
 
@@ -732,7 +720,7 @@ export function SessionDetailPage() {
         id
       )
 
-      navigate('/sessions')
+      navigate(recordingBackPath)
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -834,11 +822,11 @@ export function SessionDetailPage() {
         <button
           type="button"
           onClick={() =>
-            navigate('/sessions')
+            navigate(recordingBackPath)
           }
           className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/45 hover:text-white/70"
         >
-          ← Back to sessions
+          ← Back to {workflowId ? 'workflow' : 'recorded workflows'}
         </button>
 
         {error && (
@@ -1166,11 +1154,11 @@ export function SessionDetailPage() {
         <button
           type="button"
           onClick={() =>
-            navigate('/sessions')
+            navigate(recordingBackPath)
           }
           className="record-workflow-link"
         >
-          ← Back to sessions
+          ← Back to {workflowId ? 'workflow' : 'recorded workflows'}
         </button>
 
         {error && (

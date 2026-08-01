@@ -400,6 +400,7 @@ export interface RecordingApi {
   discard: () => Promise<RecordingState>
   getState: () => Promise<RecordingState>
   listSessions: () => Promise<RecordedSessionSummary[]>
+  getRecordingSummary: (recordingId: string) => Promise<RecordedSessionSummary>
   listWorkflows: (query?: string) => Promise<BackendWorkflow[]>
   getWorkflow: (workflowId: string) => Promise<BackendWorkflow>
   listWorkflowRecordings: (workflowId: string) => Promise<BackendWorkflowRecording[]>
@@ -452,6 +453,7 @@ export const recordingIpc = {
   discard: 'recording:discard',
   getState: 'recording:get-state',
   listSessions: 'recording:list-sessions',
+  getRecordingSummary: 'recording:get-summary',
   listWorkflows: 'recording:list-workflows',
   getWorkflow: 'recording:get-workflow',
   listWorkflowRecordings: 'recording:list-workflow-recordings',
