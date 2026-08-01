@@ -107,6 +107,34 @@ class SopLimitsSettingsRecord(Base):
     )
 
 
+class WorkflowRecord(TenantRecord, Base):
+    """A shared, reusable procedure such as "Expense Reimbursement".
+
+    Many recordings (one execution by an employee) can belong to the same
+    workflow. ``name`` is unique per tenant so duplicate procedures cannot be
+    created accidentally — the save flow is expected to reuse an existing
+    workflow by name rather than create a near-duplicate.
+    """
+
+    __tablename__ = "workflows"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_workflow_tenant_name"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 class WorkflowSessionRecord(TenantRecord, Base):
     __tablename__ = "workflow_sessions"
 
@@ -201,8 +229,21 @@ class RecordingRecord(TenantRecord, Base):
         nullable=True,
         index=True,
     )
+    workflow_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workflows.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     source_type: Mapped[str] = mapped_column(String(20), index=True)
+    # Denormalised copy of the workflow name at capture time. The authoritative
+    # link is ``workflow_id``; the name is kept on the row so list/status
+    # queries and the processing pipeline can render a label without an extra
+    # join, and so the processed WorkflowSession inherits a stable name.
     workflow_name: Mapped[str] = mapped_column(String(200), index=True)
+    reference: Mapped[str | None] = mapped_column(String(300), nullable=True, index=True)
+    recorded_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     status: Mapped[str] = mapped_column(String(50), index=True)
     expected_chunk_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     uploaded_chunk_count: Mapped[int] = mapped_column(Integer, default=0)
