@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
   type CSSProperties
 } from 'react'
@@ -16,7 +17,20 @@ const noDragStyle = {
   WebkitAppRegion: 'no-drag'
 } as CSSProperties
 
+const MIN_ZOOM = 0.25
+const MAX_ZOOM = 4
+const ZOOM_STEP = 1.12
+
+function clampZoom(value: number) {
+  return Math.min(
+    MAX_ZOOM,
+    Math.max(MIN_ZOOM, value)
+  )
+}
+
 export function ImageViewerPage() {
+  const viewerRef =
+    useRef<HTMLElement | null>(null)
   const [state, setState] =
     useState<ImageViewerWindowState | null>(null)
   const [imageUrl, setImageUrl] =
@@ -30,6 +44,7 @@ export function ImageViewerPage() {
     useState(false)
   const [error, setError] =
     useState<string | null>(null)
+  const [zoom, setZoom] = useState(1)
 
   const payload: ImageViewerPayload | null =
     state?.payload ?? null
@@ -52,6 +67,7 @@ export function ImageViewerPage() {
       setImageUrl(null)
       setDimensions(null)
       setIsLoading(false)
+      setZoom(1)
       return
     }
 
@@ -62,6 +78,7 @@ export function ImageViewerPage() {
       setIsLoading(true)
       setError(null)
       setDimensions(null)
+      setZoom(1)
 
       try {
         const buffer =
@@ -112,11 +129,83 @@ export function ImageViewerPage() {
       if (event.key === 'Escape') {
         void window.api.walkthrough.closeImageViewer()
       }
+
+      if (
+        event.key === '0' &&
+        (event.metaKey || event.ctrlKey)
+      ) {
+        setZoom(1)
+      }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
+
+  const setZoomAroundPoint = (
+    nextZoom: number,
+    clientX?: number,
+    clientY?: number
+  ) => {
+    const viewer = viewerRef.current
+    const previousZoom = zoom
+    const next = clampZoom(nextZoom)
+
+    if (!viewer) {
+      setZoom(next)
+      return
+    }
+
+    const rect = viewer.getBoundingClientRect()
+    const focalX =
+      clientX == null
+        ? viewer.clientWidth / 2
+        : clientX - rect.left
+    const focalY =
+      clientY == null
+        ? viewer.clientHeight / 2
+        : clientY - rect.top
+    const contentX =
+      (viewer.scrollLeft + focalX) /
+      previousZoom
+    const contentY =
+      (viewer.scrollTop + focalY) /
+      previousZoom
+
+    setZoom(next)
+
+    window.requestAnimationFrame(() => {
+      viewer.scrollLeft =
+        contentX * next - focalX
+      viewer.scrollTop =
+        contentY * next - focalY
+    })
+  }
+
+  const handleWheel = (
+    event: React.WheelEvent<HTMLElement>
+  ) => {
+    if (!imageUrl || isLoading || error) {
+      return
+    }
+
+    event.preventDefault()
+
+    const direction =
+      event.deltaY < 0 ? 1 : -1
+    const factor =
+      direction > 0
+        ? ZOOM_STEP
+        : 1 / ZOOM_STEP
+
+    setZoomAroundPoint(
+      zoom * factor,
+      event.clientX,
+      event.clientY
+    )
+  }
+
+  const zoomPercent = Math.round(zoom * 100)
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-[#050505] text-white">
@@ -145,6 +234,40 @@ export function ImageViewerPage() {
             </span>
           )}
 
+          <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-white/[0.04] p-1">
+            <button
+              type="button"
+              onClick={() =>
+                setZoomAroundPoint(
+                  zoom / ZOOM_STEP
+                )
+              }
+              className="grid size-8 place-items-center rounded-lg text-sm font-black text-white/55 transition hover:bg-white/10 hover:text-white"
+            >
+              −
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setZoom(1)}
+              className="min-w-16 rounded-lg px-2 py-2 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-white/55 transition hover:bg-white/10 hover:text-white"
+            >
+              {zoomPercent}%
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setZoomAroundPoint(
+                  zoom * ZOOM_STEP
+                )
+              }
+              className="grid size-8 place-items-center rounded-lg text-sm font-black text-white/55 transition hover:bg-white/10 hover:text-white"
+            >
+              +
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={() =>
@@ -157,7 +280,11 @@ export function ImageViewerPage() {
         </div>
       </header>
 
-      <section className="min-h-0 flex-1 overflow-auto bg-black">
+      <section
+        ref={viewerRef}
+        onWheel={handleWheel}
+        className="min-h-0 flex-1 overflow-auto bg-black"
+      >
         {!payload && (
           <div className="grid h-full place-items-center p-8 text-center">
             <div>
@@ -195,6 +322,15 @@ export function ImageViewerPage() {
               alt={`${payload?.title ?? 'Screenshot'} full size`}
               className="block max-w-none select-none"
               draggable={false}
+              style={
+                dimensions
+                  ? {
+                      width:
+                        dimensions.width *
+                        zoom
+                    }
+                  : undefined
+              }
               onLoad={(event) => {
                 const image = event.currentTarget
                 setDimensions({
@@ -209,7 +345,7 @@ export function ImageViewerPage() {
 
       <footer className="shrink-0 border-t border-white/10 bg-[#0b0b0b] px-5 py-2 text-center">
         <p className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-white/35">
-          Actual size · scroll to inspect · Escape to close
+          Mouse wheel to zoom · scrollbars to pan · Escape to close
         </p>
       </footer>
     </main>
