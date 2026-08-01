@@ -21,12 +21,25 @@ access_tokens
 - revoked_at
 - created_at
 
+workflows
+- id PK
+- tenant_id FK -> tenants.id
+- name
+- description nullable
+- created_by nullable FK -> users.id
+- created_at
+- updated_at
+- unique: tenant_id + name
+
 recordings
 - id PK
 - tenant_id
 - session_id nullable
+- workflow_id nullable FK -> workflows.id
 - source_type
-- workflow_name
+- workflow_name                  -- denormalized display name
+- reference nullable             -- optional human-entered label
+- recorded_by nullable FK -> users.id
 - status
 - expected_chunk_count
 - uploaded_chunk_count

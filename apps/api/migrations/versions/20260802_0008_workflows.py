@@ -81,11 +81,17 @@ def upgrade() -> None:
         column["name"] for column in sa.inspect(bind).get_columns("recordings")
     }
     existing_indexes = {index["name"] for index in sa.inspect(bind).get_indexes("recordings")}
-    if "workflow_id" in final_recording_columns and "ix_recordings_workflow_id" not in existing_indexes:
+    if (
+        "workflow_id" in final_recording_columns
+        and "ix_recordings_workflow_id" not in existing_indexes
+    ):
         op.create_index("ix_recordings_workflow_id", "recordings", ["workflow_id"])
     if "reference" in final_recording_columns and "ix_recordings_reference" not in existing_indexes:
         op.create_index("ix_recordings_reference", "recordings", ["reference"])
-    if "recorded_by" in final_recording_columns and "ix_recordings_recorded_by" not in existing_indexes:
+    if (
+        "recorded_by" in final_recording_columns
+        and "ix_recordings_recorded_by" not in existing_indexes
+    ):
         op.create_index("ix_recordings_recorded_by", "recordings", ["recorded_by"])
 
 
