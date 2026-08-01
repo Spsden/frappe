@@ -14,5 +14,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install desktop dependencies
+        working-directory: ./desktop
+        run: npm ci
+
+      - name: Build desktop
+        working-directory: ./desktop
+        run: npm run build
+
       - name: Build API Docker image
         run: docker build ./apps/api --file ./apps/api/Dockerfile --tag worktrace-api:ci
