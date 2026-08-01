@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # changes. Defaults keep the existing OpenRouter + GPT-4o behavior.
     openai_base_url: str = "https://openrouter.ai/api/v1"
     openai_model: str = "openai/gpt-4o"
+    analytics_embedding_model: str = "text-embedding-3-small"
     sop_max_evidence_steps: int = Field(default=120, ge=1, le=500)
     sop_max_vision_frames: int = Field(default=24, ge=0, le=100)
     sop_image_max_dimension_px: int = Field(default=1280, ge=320, le=4096)

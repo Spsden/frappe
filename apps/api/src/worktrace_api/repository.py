@@ -538,12 +538,37 @@ class Repository:
         self.db.commit()
         return True
 
+    def prepare_analytics_retry(self, run_id: UUID, *, preserve_result: bool) -> AnalyticsRun:
+        record = self.db.scalar(
+            tenant_query(AnalyticsRunRecord, self.tenant_id).where(
+                AnalyticsRunRecord.id == str(run_id)
+            )
+        )
+        if not record:
+            raise LookupError("Analytics run not found")
+        record.status = AnalyticsRunStatus.QUEUED.value
+        record.failure_stage = None
+        record.error_message = None
+        record.executive_summary = None
+        record.completed_at = None
+        record.updated_at = datetime.now(UTC)
+        if not preserve_result:
+            record.result_json = None
+            record.started_at = None
+        self.db.commit()
+        run = self.get_analytics_run(run_id)
+        if not run:
+            raise RuntimeError("Analytics retry was saved but could not be reloaded")
+        return run
+
     def save_analytics_result(
         self,
         run_id: UUID,
         result: AnalyticsResult,
         executive_summary: list[str] | None,
         status: AnalyticsRunStatus,
+        *,
+        error_message: str | None = None,
     ) -> AnalyticsRun:
         record = self.db.scalar(
             tenant_query(AnalyticsRunRecord, self.tenant_id).where(
@@ -557,8 +582,17 @@ class Repository:
         record.executive_summary = executive_summary
         record.status = status.value
         record.failure_stage = "summary" if status == AnalyticsRunStatus.SUMMARY_FAILED else None
-        record.error_message = None
-        record.completed_at = now
+        record.error_message = error_message
+        record.completed_at = (
+            now
+            if status
+            in {
+                AnalyticsRunStatus.COMPLETED,
+                AnalyticsRunStatus.SUMMARY_FAILED,
+                AnalyticsRunStatus.FAILED,
+            }
+            else None
+        )
         record.updated_at = now
         self.db.commit()
         saved = self.get_analytics_run(run_id)
@@ -580,31 +614,41 @@ class Repository:
         ).all()
         return {record.content_hash: list(record.embedding) for record in records}
 
-    def save_step_embedding(
+    def save_step_embeddings(
         self,
-        *,
-        sop_id: UUID,
-        sop_step_id: UUID,
-        model: str,
-        content_hash: str,
-        embedding: list[float],
+        entries: Sequence[tuple[UUID, UUID, str, str, list[float]]],
     ) -> None:
-        self.db.add(
-            SOPStepEmbeddingRecord(
-                id=str(uuid4()),
-                tenant_id=str(self.tenant_id),
-                sop_id=str(sop_id),
-                sop_step_id=str(sop_step_id),
-                model=model,
-                dimensions=len(embedding),
-                content_hash=content_hash,
-                embedding=embedding,
+        """Cache a batch while tolerating a concurrent worker caching the same step."""
+        for sop_id, sop_step_id, model, content_hash, embedding in entries:
+            try:
+                with self.db.begin_nested():
+                    self.db.add(
+                        SOPStepEmbeddingRecord(
+                            id=str(uuid4()),
+                            tenant_id=str(self.tenant_id),
+                            sop_id=str(sop_id),
+                            sop_step_id=str(sop_step_id),
+                            model=model,
+                            dimensions=len(embedding),
+                            content_hash=content_hash,
+                            embedding=embedding,
+                        )
+                    )
+                    self.db.flush()
+            except IntegrityError:
+                # The unique content key makes this an idempotent cache write.
+                continue
+        self.db.commit()
+
+    def get_analytics_result(self, run_id: UUID) -> AnalyticsResult | None:
+        record = self.db.scalar(
+            tenant_query(AnalyticsRunRecord, self.tenant_id).where(
+                AnalyticsRunRecord.id == str(run_id)
             )
         )
-        try:
-            self.db.commit()
-        except IntegrityError:
-            self.db.rollback()
+        if not record or not record.result_json:
+            return None
+        return AnalyticsResult.model_validate(record.result_json)
 
     @staticmethod
     def _analytics_run_from_records(
