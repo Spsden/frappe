@@ -96,15 +96,6 @@ function EmptyState({
   return (
     <section className="dashboard-page">
       <div className="dashboard-container">
-        <div className="page-header">
-          <h1>Recorded Workflows</h1>
-
-          <p>
-            Live processing status at a glance. Click a session for
-            evidence, transcript and SOP.
-          </p>
-        </div>
-
         <div className="list-controls">
           <input
             className="search-input"
@@ -384,24 +375,9 @@ export function SessionsPage() {
 
   if (isDark) {
     return (
-      <section className="flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-8 md:px-8">
+      <section className="flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-5 md:px-8">
         <div className="shrink-0">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="font-mono text-xs font-bold uppercase tracking-[0.24em] text-emerald-400">
-                Session archive
-              </p>
-
-              <h2 className="mt-3 text-4xl font-black tracking-[-0.045em]">
-                Recorded Workflows
-              </h2>
-
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-white/50">
-                Live processing status at a glance. Click a session for
-                evidence, transcript and SOP.
-              </p>
-            </div>
-
+          <div className="flex justify-end">
             <button
               type="button"
               onClick={() => void refresh()}
@@ -421,7 +397,7 @@ export function SessionsPage() {
           )}
         </div>
 
-        <div className="mt-8 min-h-0 flex-1 space-y-3 overflow-y-auto pr-2 [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
+        <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-2 [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
           {displaySessions.map((session) => {
             const failed = isFailed(session)
             const retryable =
@@ -567,15 +543,6 @@ export function SessionsPage() {
   return (
     <section className="dashboard-page">
       <div className="dashboard-container">
-        <div className="page-header">
-          <h1>Recorded Workflows</h1>
-
-          <p>
-            Live processing status at a glance. Click a session for
-            evidence, transcript and SOP.
-          </p>
-        </div>
-
         <div className="list-controls recordings-list-controls">
           <input
             className="search-input"

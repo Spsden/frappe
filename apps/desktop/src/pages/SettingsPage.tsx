@@ -52,7 +52,7 @@ export function SettingsPage() {
     <section
       className={
         isDark
-          ? 'px-5 py-8 md:px-8'
+          ? 'px-5 py-5 md:px-8'
           : 'dashboard-page'
       }
     >
@@ -63,36 +63,6 @@ export function SettingsPage() {
             : 'dashboard-container settings-container'
         }
       >
-        {isDark ? (
-          <div>
-            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">
-              Workspace
-            </p>
-
-            <h2 className="mt-3 text-3xl font-black tracking-[-0.04em]">
-              Account settings
-            </h2>
-
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/55">
-              Your encrypted session connects this recorder to the correct
-              tenant automatically.
-            </p>
-          </div>
-        ) : (
-          <div className="page-header">
-            <span className="eyebrow">
-              WORKSPACE
-            </span>
-
-            <h1>Account settings</h1>
-
-            <p>
-              Your encrypted session connects this recorder to the correct
-              tenant automatically.
-            </p>
-          </div>
-        )}
-
         <AppearanceSection
           theme={theme}
           onChange={setTheme}
@@ -296,8 +266,8 @@ function AppearanceSection({
     <div
       className={
         isDark
-          ? 'mt-5 flex items-center justify-between gap-5 rounded-xl border border-white/10 bg-white/[0.025] p-5'
-          : 'mt-8 flex items-center justify-between gap-5 rounded-3xl border border-slate-200 bg-white px-7 py-6 shadow-[0_16px_45px_rgba(95,60,150,0.08)]'
+          ? 'flex items-center justify-between gap-5 rounded-xl border border-white/10 bg-white/[0.025] p-5'
+          : 'flex items-center justify-between gap-5 rounded-3xl border border-slate-200 bg-white px-7 py-6 shadow-[0_16px_45px_rgba(95,60,150,0.08)]'
       }
     >
       <div>

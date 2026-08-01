@@ -119,8 +119,6 @@ function ConnectedApp() {
             path="/analytics"
             element={
               <PlaceholderPage
-                eyebrow="Intelligence"
-                title="Analytics"
                 description="Compare workflow paths and identify process friction."
               />
             }

@@ -353,50 +353,14 @@ export function SOPLibraryPage() {
   return (
     <section
       className={[
-        'flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-8 md:px-8',
+        'flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-5 md:px-8',
         isDark
           ? 'text-white'
           : 'bg-[#fafafb] text-slate-900'
       ].join(' ')}
     >
-      {/* Page header */}
-
       <div className="shrink-0">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p
-              className={
-                isDark
-                  ? 'font-mono text-xs font-bold uppercase tracking-[0.24em] text-emerald-400'
-                  : 'text-xs font-bold uppercase tracking-[0.24em] text-purple-500'
-              }
-            >
-              Documentation
-            </p>
-
-            <h2
-              className={[
-                'mt-3 text-4xl font-black tracking-[-0.045em]',
-                isDark
-                  ? 'text-white'
-                  : 'text-slate-900'
-              ].join(' ')}
-            >
-              SOP Library
-            </h2>
-
-            <p
-              className={
-                isDark
-                  ? 'mt-3 max-w-2xl text-sm leading-6 text-white/50'
-                  : 'mt-3 max-w-2xl text-sm leading-6 text-slate-500'
-              }
-            >
-              Review generated procedures
-              across recorded workflows.
-            </p>
-          </div>
-
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={() =>
@@ -430,7 +394,7 @@ export function SOPLibraryPage() {
 
       {/* Main two-column layout */}
 
-      <div className="mt-8 grid min-h-0 flex-1 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="mt-4 grid min-h-0 flex-1 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
         {/* Left SOP list */}
 
         <aside
