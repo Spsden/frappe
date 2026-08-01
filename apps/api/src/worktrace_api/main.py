@@ -47,6 +47,7 @@ from worktrace_api.schemas import (
     SOP,
     SOP_LIMIT_FIELDS,
     Account,
+    AnalyticsEligibleRecording,
     AuthSession,
     ChunkContentType,
     ChunkReceipt,
@@ -459,6 +460,20 @@ def list_workflow_recordings(
     if not workflow:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
     return repo.list_recordings_for_workflow(workflow_id)
+
+
+@app.get(
+    "/workflows/{workflow_id}/analytics/eligible-recordings",
+    response_model=list[AnalyticsEligibleRecording],
+    tags=["analytics"],
+)
+def list_analytics_eligible_recordings(
+    workflow_id: UUID,
+    repo: Repository = Depends(repository),
+) -> list[AnalyticsEligibleRecording]:
+    if not repo.get_workflow(workflow_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+    return repo.list_analytics_eligible_recordings(workflow_id)
 
 
 @app.put(
@@ -1141,4 +1156,3 @@ def export_session(session_id: UUID, repo: Repository = Depends(repository)) -> 
 @app.get("/dashboard/summary", response_model=DashboardSummary, tags=["analytics"])
 def dashboard_summary(repo: Repository = Depends(repository)) -> DashboardSummary:
     return repo.dashboard_summary()
-

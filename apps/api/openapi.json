@@ -875,6 +875,75 @@
         }
       }
     },
+    "/workflows/{workflow_id}/analytics/eligible-recordings": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "List Analytics Eligible Recordings",
+        "operationId": "list_analytics_eligible_recordings_workflows__workflow_id__analytics_eligible_recordings_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AnalyticsEligibleRecording"
+                  },
+                  "title": "Response List Analytics Eligible Recordings Workflows  Workflow Id  Analytics Eligible Recordings Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recordings/{recording_id}/chunks/{chunk_index}": {
       "put": {
         "tags": [
@@ -2801,6 +2870,96 @@
           "member"
         ],
         "title": "AccountRole"
+      },
+      "AnalyticsEligibleRecording": {
+        "properties": {
+          "recording_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Recording Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "recorded_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By"
+          },
+          "recorded_by_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By Email"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duration Ms"
+          },
+          "sop_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Sop Id"
+          },
+          "sop_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sop Version"
+          },
+          "sop_title": {
+            "type": "string",
+            "title": "Sop Title"
+          },
+          "step_count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Step Count"
+          },
+          "approved_sop_created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Approved Sop Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recording_id",
+          "session_id",
+          "duration_ms",
+          "sop_id",
+          "sop_version",
+          "sop_title",
+          "step_count",
+          "approved_sop_created_at"
+        ],
+        "title": "AnalyticsEligibleRecording"
       },
       "AuthSession": {
         "properties": {
