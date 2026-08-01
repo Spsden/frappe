@@ -17,6 +17,7 @@ import { SessionDetailPage } from './pages/SessionDetailPage'
 import { SOPDetailPage } from './pages/SOPDetailPage'
 import { SOPLibraryPage } from './pages/SOPLibraryPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { WalkthroughPage } from './pages/WalkthroughPage'
 
 export default function App() {
   return (
@@ -65,6 +66,11 @@ function ConnectedApp() {
         <Route
           path="/recording-controls"
           element={<RecordingControlsPage />}
+        />
+
+        <Route
+          path="/walkthrough"
+          element={<WalkthroughPage />}
         />
 
         <Route element={<AppShell />}>
