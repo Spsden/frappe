@@ -284,10 +284,8 @@ export function SessionsPage() {
           </div>
         ) : (
           visibleWorkflows.map((workflow) => (
-            <button
-              type="button"
+            <article
               key={workflow.id}
-              onClick={() => navigate(`/workflows/${workflow.id}`)}
               className={[
                 'group flex w-full items-center gap-4 rounded-2xl border p-5 text-left transition',
                 isDark
@@ -295,43 +293,57 @@ export function SessionsPage() {
                   : 'border-slate-200 bg-white shadow-sm hover:-translate-y-0.5 hover:border-purple-200 hover:shadow-lg'
               ].join(' ')}
             >
-              <FolderIcon dark={isDark} />
-
-              <span className="min-w-0 flex-1">
-                <span className={isDark ? 'block truncate text-lg font-black tracking-[-0.03em] text-white' : 'block truncate text-lg font-bold text-slate-800'}>
-                  {workflow.name}
-                </span>
-                <span className={isDark ? 'mt-1.5 block font-mono text-[10px] uppercase tracking-[0.15em] text-white/35' : 'mt-1.5 block text-sm text-slate-500'}>
-                  {plural(workflow.recording_count, 'recording')} ·{' '}
-                  {plural(workflow.user_count, 'employee')} ·{' '}
-                  {relativeDate(workflow.last_recording_at)}
-                </span>
-              </span>
-
-              <span className="hidden shrink-0 items-center gap-2 sm:flex">
-                {workflow.processing_count > 0 && (
-                  <span className={isDark ? 'rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-amber-200' : 'rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700'}>
-                    {workflow.processing_count} processing
-                  </span>
-                )}
-                {workflow.ready_count > 0 && (
-                  <span className={isDark ? 'rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-200' : 'rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700'}>
-                    {workflow.ready_count} ready
-                  </span>
-                )}
-              </span>
-
-              <svg
-                viewBox="0 0 20 20"
-                aria-hidden="true"
-                className={isDark ? 'size-5 shrink-0 text-white/25 transition group-hover:translate-x-0.5 group-hover:text-white/60' : 'size-5 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-purple-500'}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
+              <button
+                type="button"
+                onClick={() => navigate(`/workflows/${workflow.id}`)}
+                className="flex min-w-0 flex-1 items-center gap-4 text-left"
               >
-                <path d="m7 4 6 6-6 6" />
-              </svg>
-            </button>
+                <FolderIcon dark={isDark} />
+
+                <span className="min-w-0 flex-1">
+                  <span className={isDark ? 'block truncate text-lg font-black tracking-[-0.03em] text-white' : 'block truncate text-lg font-bold text-slate-800'}>
+                    {workflow.name}
+                  </span>
+                  <span className={isDark ? 'mt-1.5 block font-mono text-[10px] uppercase tracking-[0.15em] text-white/35' : 'mt-1.5 block text-sm text-slate-500'}>
+                    {plural(workflow.recording_count, 'recording')} ·{' '}
+                    {plural(workflow.user_count, 'employee')} ·{' '}
+                    {relativeDate(workflow.last_recording_at)}
+                  </span>
+                </span>
+
+                <span className="hidden shrink-0 items-center gap-2 lg:flex">
+                  {workflow.processing_count > 0 && (
+                    <span className={isDark ? 'rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-amber-200' : 'rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700'}>
+                      {workflow.processing_count} processing
+                    </span>
+                  )}
+                  {workflow.ready_count > 0 && (
+                    <span className={isDark ? 'rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-200' : 'rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700'}>
+                      {workflow.ready_count} ready
+                    </span>
+                  )}
+                </span>
+
+                <svg
+                  viewBox="0 0 20 20"
+                  aria-hidden="true"
+                  className={isDark ? 'size-5 shrink-0 text-white/25 transition group-hover:translate-x-0.5 group-hover:text-white/60' : 'size-5 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-purple-500'}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path d="m7 4 6 6-6 6" />
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate(`/workflows/${workflow.id}?tab=analytics`)}
+                className={isDark ? 'hidden shrink-0 rounded-xl border border-white/12 bg-white/[0.04] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-white/50 transition hover:border-emerald-400/30 hover:text-emerald-200 sm:block' : 'hidden shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500 transition hover:border-purple-200 hover:text-purple-600 sm:block'}
+              >
+                Analytics
+              </button>
+            </article>
           ))
         )}
       </div>
