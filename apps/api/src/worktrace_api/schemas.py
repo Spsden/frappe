@@ -312,15 +312,147 @@ class ReferenceSelection(StrictModel):
     session_id: UUID | None = None
 
 
-class AnalyticsSummary(StrictModel):
+class AnalyticsRunMode(StrEnum):
+    RECORDING_COMPARISON = "recording_comparison"
+
+
+class AnalyticsRunStatus(StrEnum):
+    QUEUED = "queued"
+    EMBEDDING = "embedding"
+    ALIGNING = "aligning"
+    CALCULATING = "calculating"
+    SUMMARIZING = "summarizing"
+    COMPLETED = "completed"
+    SUMMARY_FAILED = "summary_failed"
+    FAILED = "failed"
+
+
+class AnalyticsRetryTarget(StrEnum):
+    SUMMARY = "summary"
+    FULL_RUN = "full_run"
+
+
+class AnalyticsRunCreate(StrictModel):
+    recording_ids: list[UUID] = Field(min_length=2, max_length=5)
+    mode: AnalyticsRunMode = AnalyticsRunMode.RECORDING_COMPARISON
+
+    @field_validator("recording_ids")
+    @classmethod
+    def unique_recordings(cls, value: list[UUID]) -> list[UUID]:
+        if len(set(value)) != len(value):
+            raise ValueError("Each recording can only be selected once")
+        return value
+
+
+class AnalyticsRetryRequest(StrictModel):
+    target: AnalyticsRetryTarget
+
+
+class AnalyticsEligibleRecording(StrictModel):
+    recording_id: UUID
+    session_id: UUID
+    reference: str | None = None
+    recorded_by: UUID | None = None
+    recorded_by_email: str | None = None
+    duration_ms: int = Field(ge=0)
+    sop_id: UUID
+    sop_version: int = Field(ge=1)
+    sop_title: str
+    step_count: int = Field(ge=1)
+    approved_sop_created_at: datetime
+
+
+class AnalyticsRunInput(StrictModel):
+    position: int = Field(ge=1)
+    recording_id: UUID
+    session_id: UUID
+    sop_id: UUID
+    sop_version: int = Field(ge=1)
+    sop_content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    recording_reference: str | None = None
+    recorded_by: UUID | None = None
+    recorded_by_email: str | None = None
+    duration_ms: int = Field(ge=0)
+
+
+class AnalyticsRecordingMetric(StrictModel):
+    recording_id: UUID
+    label: str
+    rank: int = Field(ge=1)
+    total_duration_ms: int = Field(ge=0)
+    step_count: int = Field(ge=1)
+    path_signature: str
+
+
+class AnalyticsTimelineStep(StrictModel):
+    group_id: str
+    sop_step_id: UUID
+    label: str
+    start_ms: int = Field(ge=0)
+    duration_ms: int = Field(ge=0)
+    classification: Literal["shared", "optional", "path_specific"]
+    timing_source: Literal["observed", "estimated"]
+
+
+class AnalyticsPathTimeline(StrictModel):
+    recording_id: UUID
+    label: str
+    total_duration_ms: int = Field(ge=0)
+    steps: list[AnalyticsTimelineStep]
+
+
+class AnalyticsStepComparison(StrictModel):
+    group_id: str
+    label: str
+    sample_count: int = Field(ge=1)
+    fastest_duration_ms: int | None = Field(default=None, ge=0)
+    average_duration_ms: int = Field(ge=0)
+    fastest_path_has_step: bool
+
+
+class AnalyticsComparisonOverview(StrictModel):
+    recording_count: int = Field(ge=2, le=5)
+    distinct_path_count: int = Field(ge=1)
+    fastest_recording_id: UUID
+    fastest_duration_ms: int = Field(ge=0)
+    average_duration_ms: int = Field(ge=0)
+    potential_time_saved_ms: int = Field(ge=0)
+    shared_step_count: int = Field(ge=0)
+    optional_step_count: int = Field(ge=0)
+    timing_coverage: float = Field(ge=0, le=1)
+
+
+class AnalyticsResult(StrictModel):
+    overview: AnalyticsComparisonOverview
+    completion_ranking: list[AnalyticsRecordingMetric] = Field(min_length=2, max_length=5)
+    path_timelines: list[AnalyticsPathTimeline] = Field(min_length=2, max_length=5)
+    fastest_vs_average: list[AnalyticsStepComparison]
+    alignment_notes: list[str] = Field(default_factory=list, max_length=20)
+
+
+class AnalyticsRun(StrictModel):
     schema_version: Literal["1.0"] = SCHEMA_VERSION
     tenant_id: UUID
+    id: UUID
+    workflow_id: UUID
     workflow_name: str
-    reference_session_id: UUID | None = None
-    clustering_status: Literal["disabled_insufficient_sessions", "not_implemented", "available"]
-    path_summaries: list[dict[str, Any]]
-    friction_points: list[dict[str, Any]]
-    executive_summary: list[str] = Field(max_length=3)
+    version: int = Field(ge=1)
+    mode: AnalyticsRunMode
+    status: AnalyticsRunStatus
+    input_count: int = Field(ge=2, le=5)
+    embedding_model: str
+    algorithm_version: str
+    inputs: list[AnalyticsRunInput] = Field(min_length=2, max_length=5)
+    result: AnalyticsResult | None = None
+    executive_summary: list[str] | None = Field(default=None, min_length=3, max_length=3)
+    failure_stage: str | None = None
+    error_message: str | None = None
+    created_by: UUID | None = None
+    supersedes_run_id: UUID | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    updated_at: datetime
 
 
 class DashboardSummary(StrictModel):

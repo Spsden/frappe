@@ -47,7 +47,6 @@ from worktrace_api.schemas import (
     SOP,
     SOP_LIMIT_FIELDS,
     Account,
-    AnalyticsSummary,
     AuthSession,
     ChunkContentType,
     ChunkReceipt,
@@ -87,11 +86,7 @@ from worktrace_api.schemas import (
     WorkflowSession,
     WorkflowSessionCreate,
 )
-from worktrace_api.services import (
-    analyze_workflow,
-    classify_feedback,
-    external_ai_preview,
-)
+from worktrace_api.services import classify_feedback, external_ai_preview
 from worktrace_api.settings import get_settings
 
 
@@ -1147,14 +1142,3 @@ def export_session(session_id: UUID, repo: Repository = Depends(repository)) -> 
 def dashboard_summary(repo: Repository = Depends(repository)) -> DashboardSummary:
     return repo.dashboard_summary()
 
-
-@app.get("/analytics/{workflow_name}", response_model=AnalyticsSummary, tags=["analytics"])
-def workflow_analytics(
-    workflow_name: str,
-    reference_session_id: UUID | None = None,
-    repo: Repository = Depends(repository),
-) -> AnalyticsSummary:
-    sessions = repo.list_sessions(workflow_name, limit=500)
-    if not sessions:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
-    return analyze_workflow(repo.tenant_id, workflow_name, sessions, reference_session_id)

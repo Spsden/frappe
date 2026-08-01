@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from worktrace_api.schemas import EventType, SessionEvent, WorkflowSession
-from worktrace_api.services import analyze_workflow, generate_sop
+from worktrace_api.services import generate_sop
 
 
 def make_session(tenant_id, workflow_name="Invoice review"):
@@ -37,22 +37,6 @@ def test_generates_reviewable_sop():
     assert sop.status == "draft"
     assert [step.position for step in sop.steps] == [1, 2]
     assert sop.steps[1].title == "Select Review"
-
-
-def test_disables_clustering_below_eight_sessions():
-    tenant_id = uuid4()
-    sessions = [make_session(tenant_id) for _ in range(3)]
-    result = analyze_workflow(tenant_id, "Invoice review", sessions, None)
-    assert result.clustering_status == "disabled_insufficient_sessions"
-    assert result.reference_session_id is None
-    assert "best performer" not in " ".join(result.executive_summary).lower()
-
-
-def test_does_not_claim_statistical_clustering_before_implementation():
-    tenant_id = uuid4()
-    sessions = [make_session(tenant_id) for _ in range(8)]
-    result = analyze_workflow(tenant_id, "Invoice review", sessions, None)
-    assert result.clustering_status == "not_implemented"
 
 
 def test_sop_generation_preserves_opaque_screenshot_id():
