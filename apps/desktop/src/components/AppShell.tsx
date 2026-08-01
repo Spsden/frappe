@@ -8,6 +8,13 @@ import { SearchPalette } from './SearchPalette'
 import { useConnection } from '../features/connection/useConnection'
 import { useTheme } from '../features/theme/ThemeContext'
 
+const lastWorkflowRouteKey = 'worktrace:last-workflow-route'
+
+function rememberedWorkflowRoute() {
+  const route = localStorage.getItem(lastWorkflowRouteKey)
+  return route?.startsWith('/workflows/') ? route : '/sessions'
+}
+
 interface NavigationItem {
   label: string
   to: string
@@ -212,6 +219,23 @@ export function AppShell() {
   const location = useLocation()
 
   const [searchOpen, setSearchOpen] = useState(false)
+  const [recordedWorkflowsPath, setRecordedWorkflowsPath] = useState(
+    rememberedWorkflowRoute
+  )
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/workflows/')) {
+      const route = `${location.pathname}${location.search}`
+      localStorage.setItem(lastWorkflowRouteKey, route)
+      setRecordedWorkflowsPath(route)
+      return
+    }
+
+    if (location.pathname === '/sessions') {
+      localStorage.removeItem(lastWorkflowRouteKey)
+      setRecordedWorkflowsPath('/sessions')
+    }
+  }, [location.pathname, location.search])
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -329,7 +353,11 @@ export function AppShell() {
           {navigation.map((item) => (
             <NavLink
               key={item.to}
-              to={item.to}
+              to={
+                item.to === '/sessions'
+                  ? recordedWorkflowsPath
+                  : item.to
+              }
               end={item.end}
               className={({ isActive }) => {
                 const active =
