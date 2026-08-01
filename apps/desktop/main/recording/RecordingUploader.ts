@@ -5,7 +5,8 @@ import type {
   AudioChunkRecord,
   RecordedEvent,
   RecordingSessionManifest,
-  ScreenshotRecord
+  ScreenshotRecord,
+  SaveRecordingPayload
 } from '../../shared/recording'
 import { WorkTraceApiClient } from '../api/WorkTraceApiClient'
 
@@ -18,7 +19,10 @@ export interface UploadedRecording {
 export class RecordingUploader {
   constructor(private readonly apiClient: WorkTraceApiClient) {}
 
-  async uploadCompletedSession(sessionPath: string): Promise<UploadedRecording> {
+  async uploadCompletedSession(
+    sessionPath: string,
+    selection?: SaveRecordingPayload
+  ): Promise<UploadedRecording> {
     const manifest = await readJson<RecordingSessionManifest>(
       join(sessionPath, 'manifest.json')
     )
@@ -32,9 +36,14 @@ export class RecordingUploader {
     const eventsPayload = await readFile(eventsPath)
     const events = decodeEventLines(eventsPayload)
     const durationMs = calculateDurationMs(manifest, events, screenshots)
+    const workflowId = selection?.workflowId ?? manifest.workflowId ?? undefined
+    const workflowName = selection?.workflowName ?? manifest.name
+    const reference = selection?.reference ?? manifest.reference ?? undefined
     const remoteRecording = await this.apiClient.createRecording({
       id: manifest.id,
-      workflowName: manifest.name,
+      workflowId,
+      workflowName: workflowId ? undefined : workflowName,
+      reference,
       hasAudio: audioChunks.length > 0,
       manualMode: Boolean(manifest.options.manualMode)
     })

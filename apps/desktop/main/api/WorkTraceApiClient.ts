@@ -17,6 +17,8 @@ import type {
   BackendScreenshotEvidence,
   BackendSearchResponse,
   BackendSOP,
+  BackendWorkflow,
+  BackendWorkflowRecording,
   BackendWorkflowSession,
   RecordingRetryTarget
 } from '../../shared/recording'
@@ -150,7 +152,9 @@ export class WorkTraceApiClient {
 
   async createRecording(payload: {
     id?: string
-    workflowName: string
+    workflowId?: string
+    workflowName?: string
+    reference?: string
     hasAudio: boolean
     manualMode: boolean
   }): Promise<BackendRecording> {
@@ -159,13 +163,31 @@ export class WorkTraceApiClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         id: payload.id,
+        workflow_id: payload.workflowId,
         workflow_name: payload.workflowName,
+        reference: payload.reference,
         source_type: 'desktop',
         has_audio: payload.hasAudio,
         manual_mode: payload.manualMode
       })
     })
     return (await response.json()) as BackendRecording
+  }
+
+  async listWorkflows(query?: string): Promise<BackendWorkflow[]> {
+    const qs = query ? `?q=${encodeURIComponent(query)}` : ''
+    const response = await this.request(`/workflows${qs}`)
+    return (await response.json()) as BackendWorkflow[]
+  }
+
+  async getWorkflow(workflowId: string): Promise<BackendWorkflow> {
+    const response = await this.request(`/workflows/${workflowId}`)
+    return (await response.json()) as BackendWorkflow
+  }
+
+  async listWorkflowRecordings(workflowId: string): Promise<BackendWorkflowRecording[]> {
+    const response = await this.request(`/workflows/${workflowId}/recordings`)
+    return (await response.json()) as BackendWorkflowRecording[]
   }
 
   async uploadRecordingChunk(

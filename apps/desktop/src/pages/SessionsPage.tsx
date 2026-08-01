@@ -1,335 +1,105 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { RecordedSessionSummary } from '../../shared/recording'
-import { StepProgress } from '../components/StepProgress'
+import type { BackendWorkflow } from '../../shared/recording'
 import { useRecording } from '../features/recording/useRecording'
-import {
-  activeRecordingSummary,
-  canDeleteSession,
-  canRetrySop,
-  canRetrySession,
-  failureReason,
-  formatDate,
-  formatDuration,
-  isFailed,
-  statusDot,
-  statusForSession,
-  statusLabel
-} from '../features/recording/sessionStatus'
 import { useTheme } from '../features/theme/ThemeContext'
 
-function statusClassName(
-  session: RecordedSessionSummary
-) {
-  const label = statusLabel(session).toLowerCase()
-
-  if (
-    label.includes('fail') ||
-    label.includes('error')
-  ) {
-    return 'status status-failed'
-  }
-
-  if (
-    label.includes('ready') ||
-    label.includes('complete') ||
-    label.includes('approved') ||
-    label.includes('published')
-  ) {
-    return 'status status-ready'
-  }
-
-  if (
-    label.includes('process') ||
-    label.includes('upload') ||
-    label.includes('record') ||
-    label.includes('waiting') ||
-    label.includes('paused')
-  ) {
-    return 'status status-processing'
-  }
-
-  return 'status status-local'
+function plural(count: number, singular: string) {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`
 }
 
-function EmptyState({
-  onRefresh,
-  isDark
-}: {
-  onRefresh: () => void
-  isDark: boolean
-}) {
-  const navigate = useNavigate()
-
-  if (isDark) {
-    return (
-      <section className="grid h-[calc(100vh-4rem)] place-items-center overflow-hidden px-6 py-16">
-        <div className="max-w-lg rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center shadow-[0_18px_65px_rgba(0,0,0,0.45)]">
-          <span className="mx-auto block size-2.5 rounded-full bg-red-500 shadow-[0_0_16px_rgba(239,68,68,0.6)]" />
-
-          <p className="mt-5 font-mono text-xs font-semibold uppercase tracking-[0.25em] text-white/45">
-            No traces yet
-          </p>
-
-          <h2 className="mt-4 text-4xl font-black tracking-[-0.04em]">
-            Record a workflow
-          </h2>
-
-          <p className="mt-3 text-sm leading-6 text-white/50">
-            Finished recordings will appear here with live processing
-            status. Click one for the full evidence breakdown and
-            transcript.
-          </p>
-
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="mt-8 rounded-full bg-white px-5 py-3 text-sm font-black text-black transition hover:bg-white/85"
-          >
-            Refresh Sessions
-          </button>
-        </div>
-      </section>
-    )
+function relativeDate(value: string | null) {
+  if (!value) {
+    return 'No recordings yet'
   }
 
+  const date = new Date(value)
+  const elapsedMs = Date.now() - date.getTime()
+  const elapsedMinutes = Math.max(0, Math.floor(elapsedMs / 60_000))
+
+  if (elapsedMinutes < 1) return 'Updated just now'
+  if (elapsedMinutes < 60) return `Updated ${elapsedMinutes}m ago`
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60)
+  if (elapsedHours < 24) return `Updated ${elapsedHours}h ago`
+
+  const elapsedDays = Math.floor(elapsedHours / 24)
+  if (elapsedDays < 7) return `Updated ${elapsedDays}d ago`
+
+  return `Updated ${new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === new Date().getFullYear() ? undefined : 'numeric'
+  }).format(date)}`
+}
+
+function FolderIcon({ dark }: { dark: boolean }) {
   return (
-    <section className="dashboard-page">
-      <div className="dashboard-container">
-        <div className="list-controls">
-          <input
-            className="search-input"
-            type="text"
-            placeholder="Search recordings..."
-            disabled
-          />
-        </div>
-
-        <div className="table-card recordings-card">
-          <div className="table-card-topline" />
-
-          <div className="empty-table-message">
-            <button
-              type="button"
-              onClick={() => navigate('/dashboard')}
-              className="record-workflow-link"
-            >
-              <span>Record a workflow</span>
-              <span className="record-workflow-plus">+</span>
-            </button>
-
-            <p>
-              No recordings yet. Finished recordings will appear here
-              with backend processing stages, evidence counts, audio
-              transcript status and SOP readiness.
-            </p>
-
-            <div style={{ marginTop: '1.75rem' }}>
-              <button
-                type="button"
-                onClick={onRefresh}
-                className="gradient-button"
-              >
-                Refresh
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+    <span
+      className={[
+        'grid size-11 shrink-0 place-items-center rounded-xl border',
+        dark
+          ? 'border-white/10 bg-white/[0.05] text-emerald-300'
+          : 'border-purple-100 bg-purple-50 text-purple-600'
+      ].join(' ')}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        className="size-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5Z" />
+      </svg>
+    </span>
   )
 }
 
 export function SessionsPage() {
   const navigate = useNavigate()
   const { theme } = useTheme()
+  const { state: recordingState } = useRecording()
   const isDark = theme === 'dark'
 
-  const { state: recordingState } = useRecording()
+  const [workflows, setWorkflows] = useState<BackendWorkflow[]>([])
+  const [searchTerm, setSearchTerm] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const [sessions, setSessions] =
-    useState<RecordedSessionSummary[]>([])
+  const visibleWorkflows = useMemo(() => {
+    const query = searchTerm.trim().toLocaleLowerCase()
+    if (!query) return workflows
 
-  const [isLoading, setIsLoading] =
-    useState(true)
-
-  const [busyId, setBusyId] =
-    useState<string | null>(null)
-
-  const [busyAction, setBusyAction] = useState<
-    'upload' | 'sop' | 'delete' | null
-  >(null)
-
-  const [error, setError] =
-    useState<string | null>(null)
-
-  const [searchTerm, setSearchTerm] =
-    useState('')
-
-  const displaySessions = useMemo(() => {
-    const active =
-      activeRecordingSummary(recordingState)
-
-    if (!active) {
-      return sessions
-    }
-
-    if (
-      !sessions.some(
-        (session) => session.id === active.id
-      )
-    ) {
-      return [active, ...sessions]
-    }
-
-    return sessions.map((session) =>
-      session.id === active.id
-        ? active
-        : session
+    return workflows.filter((workflow) =>
+      [workflow.name, workflow.description, workflow.created_by_email]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(query)
     )
-  }, [recordingState, sessions])
+  }, [searchTerm, workflows])
 
-  const filteredSessions = useMemo(() => {
-    const keyword =
-      searchTerm.trim().toLowerCase()
-
-    return displaySessions
-      .filter((session) => {
-        const searchableText = [
-          session.name,
-          session.outputPath,
-          session.localStatus,
-          session.remoteStatus,
-          session.backend?.recording.status,
-          statusLabel(session)
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-
-        return searchableText.includes(keyword)
-      })
-      .sort((a, b) => {
-        const dateA =
-          new Date(a.startedAt).getTime()
-
-        const dateB =
-          new Date(b.startedAt).getTime()
-
-        return dateB - dateA
-      })
-  }, [displaySessions, searchTerm])
-
-  const refresh = async (
-    showLoading = false
-  ) => {
-    if (showLoading) {
-      setIsLoading(true)
-    }
-
+  const refresh = async (initial = false) => {
+    if (initial) setIsLoading(true)
+    else setIsRefreshing(true)
     setError(null)
 
     try {
-      setSessions(
-        await window.api.recording.listSessions()
-      )
+      setWorkflows(await window.api.recording.listWorkflows())
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
-          : 'Could not load recorded sessions.'
+          : 'Could not load recorded workflows.'
       )
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const retrySession = async (
-    session: RecordedSessionSummary
-  ) => {
-    setBusyId(session.id)
-    setBusyAction('upload')
-    setError(null)
-
-    try {
-      await window.api.recording.retry(
-        session.id,
-        'upload'
-      )
-
-      void refresh()
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : 'Retry failed.'
-      )
-    } finally {
-      setBusyId(null)
-      setBusyAction(null)
-    }
-  }
-
-  const retryServerSop = async (
-    session: RecordedSessionSummary
-  ) => {
-    setBusyId(session.id)
-    setBusyAction('sop')
-    setError(null)
-
-    try {
-      await window.api.recording.retry(
-        session.id,
-        'sop'
-      )
-
-      void refresh()
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : 'SOP retry failed.'
-      )
-    } finally {
-      setBusyId(null)
-      setBusyAction(null)
-    }
-  }
-
-  const deleteSession = async (
-    session: RecordedSessionSummary
-  ) => {
-    const confirmed = window.confirm(
-      `Delete "${session.name}"? This removes the local recording and attempts to remove the backend recording too.`
-    )
-
-    if (!confirmed) {
-      return
-    }
-
-    setBusyId(session.id)
-    setBusyAction('delete')
-    setError(null)
-
-    try {
-      await window.api.recording.deleteSession(
-        session.id
-      )
-
-      setSessions((current) =>
-        current.filter(
-          (item) => item.id !== session.id
-        )
-      )
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : 'Could not delete recorded session.'
-      )
-    } finally {
-      setBusyId(null)
-      setBusyAction(null)
+      setIsRefreshing(false)
     }
   }
 
@@ -337,426 +107,233 @@ export function SessionsPage() {
     let active = true
     let timer: number | undefined
 
-    const poll = async (
-      showLoading: boolean
-    ) => {
-      await refresh(showLoading)
-
+    const poll = async (initial: boolean) => {
+      await refresh(initial)
       if (active) {
-        timer = window.setTimeout(
-          () => void poll(false),
-          3000
-        )
+        timer = window.setTimeout(() => void poll(false), 5_000)
       }
     }
 
     void poll(true)
-
     return () => {
       active = false
-
-      if (timer) {
-        window.clearTimeout(timer)
-      }
+      if (timer) window.clearTimeout(timer)
     }
   }, [])
 
-  if (
-    !isLoading &&
-    displaySessions.length === 0
-  ) {
-    return (
-      <EmptyState
-        onRefresh={() => void refresh()}
-        isDark={isDark}
-      />
-    )
-  }
-
-  if (isDark) {
-    return (
-      <section className="flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-3 md:px-8">
-        <div className="shrink-0">
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => void refresh()}
-              disabled={isLoading}
-              title={isLoading ? 'Refreshing' : 'Refresh'}
-              aria-label={isLoading ? 'Refreshing sessions' : 'Refresh sessions'}
-              className="grid size-9 place-items-center rounded-xl border border-white/15 bg-white/[0.04] text-white/65 transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-50"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-                className={[
-                  'size-4',
-                  isLoading ? 'animate-spin' : ''
-                ].join(' ')}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 12a9 9 0 0 1-15.4 6.4L3 16" />
-                <path d="M3 16v5h5" />
-                <path d="M3 12A9 9 0 0 1 18.4 5.6L21 8" />
-                <path d="M21 8V3h-5" />
-              </svg>
-            </button>
-          </div>
-
-          {error && (
-            <p className="mt-6 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-              {error}
-            </p>
-          )}
-        </div>
-
-        <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-2 [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
-          {displaySessions.map((session) => {
-            const failed = isFailed(session)
-            const retryable =
-              canRetrySession(session)
-
-            const sopRetryable =
-              canRetrySop(session)
-
-            const deletable =
-              canDeleteSession(session)
-
-            const isBusy =
-              busyId === session.id
-
-            const failureMessage =
-              failureReason(session)
-
-            return (
-              <article
-                key={session.id}
-                className="w-full rounded-2xl border border-white/10 bg-[#0b0b0b] p-5 text-left transition hover:border-white/20 hover:bg-white/[0.05]"
-              >
-                <div className="flex items-center gap-4">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      navigate(
-                        `/sessions/${session.id}`
-                      )
-                    }
-                    className="min-w-0 flex-1 text-left"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-3">
-                          <span
-                            className={`size-2.5 shrink-0 rounded-full ${statusDot(
-                              session
-                            )}`}
-                          />
-
-                          <p className="truncate text-lg font-black tracking-[-0.03em]">
-                            {session.name}
-                          </p>
-                        </div>
-
-                        <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.18em] text-white/35">
-                          {formatDate(
-                            session.startedAt
-                          )}{' '}
-                          ·{' '}
-                          {formatDuration(
-                            session.durationMs
-                          )}
-                        </p>
-                      </div>
-
-                      <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/60">
-                        {statusLabel(session)}
-                      </span>
-                    </div>
-
-                    <div className="mt-4">
-                      <StepProgress
-                        status={statusForSession(
-                          session
-                        )}
-                        failed={failed}
-                        hasAudio={
-                          session.audioChunkCount >
-                          0
-                        }
-                      />
-                    </div>
-
-                    {failureMessage && (
-                      <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[11px] leading-relaxed text-red-300">
-                        {failureMessage}
-                      </p>
-                    )}
-                  </button>
-
-                  <div className="flex shrink-0 flex-col gap-2">
-                    {sopRetryable && (
-                      <button
-                        type="button"
-                        disabled={isBusy}
-                        onClick={() =>
-                          void retryServerSop(
-                            session
-                          )
-                        }
-                        className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-400/18 disabled:cursor-wait disabled:opacity-40"
-                      >
-                        {isBusy &&
-                        busyAction === 'sop'
-                          ? 'Retrying'
-                          : 'Retry SOP'}
-                      </button>
-                    )}
-
-                    {retryable && (
-                      <button
-                        type="button"
-                        disabled={isBusy}
-                        onClick={() =>
-                          void retrySession(session)
-                        }
-                        className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-amber-200 transition hover:bg-amber-400/18 disabled:cursor-wait disabled:opacity-40"
-                      >
-                        {isBusy &&
-                        busyAction === 'upload'
-                          ? 'Retrying'
-                          : 'Retry'}
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      disabled={
-                        !deletable || isBusy
-                      }
-                      onClick={() =>
-                        void deleteSession(session)
-                      }
-                      className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-red-300 transition hover:bg-red-500/18 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {isBusy &&
-                      busyAction === 'delete'
-                        ? 'Deleting'
-                        : 'Delete'}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            )
-          })}
-        </div>
-      </section>
-    )
-  }
+  const recordingInProgress = [
+    'requesting-permissions',
+    'starting',
+    'recording',
+    'paused',
+    'stopping',
+    'awaiting-save',
+    'uploading'
+  ].includes(recordingState.status)
 
   return (
-    <section className="dashboard-page">
-      <div className="dashboard-container">
-        <div className="list-controls recordings-list-controls">
-          <input
-            className="search-input"
-            type="text"
-            placeholder="Search recordings..."
-            value={searchTerm}
-            onChange={(event) =>
-              setSearchTerm(event.target.value)
-            }
-          />
+    <section
+      className={
+        isDark
+          ? 'flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-4 md:px-8'
+          : 'dashboard-page flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden'
+      }
+    >
+      <div className={isDark ? 'shrink-0' : 'dashboard-container w-full shrink-0 pb-0'}>
+        <div className="flex items-center gap-3">
+          <div className="relative min-w-0 flex-1">
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className={[
+                'pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2',
+                isDark ? 'text-white/35' : 'text-slate-400'
+              ].join(' ')}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search workflows..."
+              className={
+                isDark
+                  ? 'h-11 w-full rounded-xl border border-white/10 bg-white/[0.035] pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-white/25'
+                  : 'h-11 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-purple-300'
+              }
+            />
+          </div>
 
           <button
             type="button"
-            onClick={() => void refresh(true)}
-            disabled={isLoading}
-            className="gradient-button"
+            onClick={() => void refresh(false)}
+            disabled={isRefreshing}
+            title={isRefreshing ? 'Refreshing' : 'Refresh workflows'}
+            aria-label={isRefreshing ? 'Refreshing workflows' : 'Refresh workflows'}
+            className={[
+              'grid size-11 shrink-0 place-items-center rounded-xl border transition disabled:cursor-wait disabled:opacity-50',
+              isDark
+                ? 'border-white/15 bg-white/[0.04] text-white/65 hover:bg-white/10 hover:text-white'
+                : 'border-slate-200 bg-white text-slate-500 shadow-sm hover:border-purple-200 hover:text-purple-600'
+            ].join(' ')}
           >
-            {isLoading
-              ? 'Refreshing...'
-              : 'Refresh'}
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className={['size-4', isRefreshing ? 'animate-spin' : ''].join(' ')}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 12a9 9 0 0 1-15.4 6.4L3 16" />
+              <path d="M3 16v5h5" />
+              <path d="M3 12A9 9 0 0 1 18.4 5.6L21 8" />
+              <path d="M21 8V3h-5" />
+            </svg>
           </button>
         </div>
 
+        {recordingInProgress && (
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard')}
+            className={[
+              'mt-3 flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition',
+              isDark
+                ? 'border-emerald-400/20 bg-emerald-400/[0.06] text-emerald-200 hover:bg-emerald-400/10'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+            ].join(' ')}
+          >
+            <span className="flex items-center gap-3 font-bold">
+              <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
+              Recording is {recordingState.status.replaceAll('-', ' ')}
+            </span>
+            <span className="text-xs font-bold uppercase tracking-[0.12em]">Open capture</span>
+          </button>
+        )}
+
         {error && (
-          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+          <p
+            className={
+              isDark
+                ? 'mt-3 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300'
+                : 'mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600'
+            }
+          >
             {error}
           </p>
         )}
+      </div>
 
-        <div className="mt-6 space-y-4">
-          {filteredSessions.length === 0 ? (
-            <div className="table-card recordings-card">
-              <div className="table-card-topline" />
-
-              <div className="empty-table-message">
-                <strong>
-                  No recordings found
-                </strong>
-
-                <p>
-                  Try searching by workflow name or
-                  status.
-                </p>
-              </div>
+      <div
+        className={[
+          'min-h-0 flex-1 overflow-y-auto pb-8',
+          isDark
+            ? 'mt-4 space-y-3 pr-2 [scrollbar-color:rgba(255,255,255,0.2)_transparent]'
+            : 'dashboard-container mt-4 w-full space-y-4 pt-0'
+        ].join(' ')}
+      >
+        {isLoading && workflows.length === 0 ? (
+          <div className="grid min-h-64 place-items-center">
+            <div className="text-center">
+              <span className={isDark ? 'mx-auto block size-2.5 animate-pulse rounded-full bg-emerald-400' : 'mx-auto block size-2.5 animate-pulse rounded-full bg-purple-500'} />
+              <p className={isDark ? 'mt-4 font-mono text-[10px] uppercase tracking-[0.2em] text-white/35' : 'mt-4 text-sm font-medium text-slate-400'}>
+                Loading workflows
+              </p>
             </div>
-          ) : (
-            filteredSessions.map((session) => {
-              const failed = isFailed(session)
-
-              const retryable =
-                canRetrySession(session)
-
-              const sopRetryable =
-                canRetrySop(session)
-
-              const deletable =
-                canDeleteSession(session)
-
-              const isBusy =
-                busyId === session.id
-
-              const failureMessage =
-                failureReason(session)
-
-              return (
-                <article
-                  key={session.id}
-                  className="overflow-hidden rounded-2xl border border-white/70 bg-white/80 shadow-[0_16px_45px_rgba(95,60,150,0.10)] backdrop-blur transition hover:-translate-y-0.5 hover:shadow-[0_20px_55px_rgba(95,60,150,0.16)]"
+          </div>
+        ) : visibleWorkflows.length === 0 ? (
+          <div
+            className={[
+              'grid min-h-64 place-items-center rounded-2xl border p-8 text-center',
+              isDark
+                ? 'border-white/10 bg-white/[0.025]'
+                : 'border-slate-200 bg-white shadow-sm'
+            ].join(' ')}
+          >
+            <div className="max-w-md">
+              <FolderIcon dark={isDark} />
+              <h2 className={isDark ? 'mt-5 text-2xl font-black text-white' : 'mt-5 text-2xl font-bold text-slate-800'}>
+                {searchTerm ? 'No matching workflows' : 'Record your first workflow'}
+              </h2>
+              <p className={isDark ? 'mt-2 text-sm leading-6 text-white/45' : 'mt-2 text-sm leading-6 text-slate-500'}>
+                {searchTerm
+                  ? 'Try a different workflow name or clear the search.'
+                  : 'Saved recordings are grouped here by workflow so different executions stay together.'}
+              </p>
+              {!searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/dashboard')}
+                  className={
+                    isDark
+                      ? 'mt-6 rounded-full bg-white px-5 py-3 text-sm font-black text-black transition hover:bg-white/85'
+                      : 'mt-6 rounded-full bg-purple-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-purple-500'
+                  }
                 >
-                  <div className="table-card-topline" />
+                  Start recording
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          visibleWorkflows.map((workflow) => (
+            <button
+              type="button"
+              key={workflow.id}
+              onClick={() => navigate(`/workflows/${workflow.id}`)}
+              className={[
+                'group flex w-full items-center gap-4 rounded-2xl border p-5 text-left transition',
+                isDark
+                  ? 'border-white/10 bg-[#0b0b0b] hover:border-white/20 hover:bg-white/[0.05]'
+                  : 'border-slate-200 bg-white shadow-sm hover:-translate-y-0.5 hover:border-purple-200 hover:shadow-lg'
+              ].join(' ')}
+            >
+              <FolderIcon dark={isDark} />
 
-                  <div className="flex items-start gap-5 p-5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate(
-                          `/sessions/${session.id}`
-                        )
-                      }
-                      className="min-w-0 flex-1 text-left"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-3">
-                            <span
-                              className={`size-2.5 shrink-0 rounded-full ${statusDot(
-                                session
-                              )}`}
-                            />
+              <span className="min-w-0 flex-1">
+                <span className={isDark ? 'block truncate text-lg font-black tracking-[-0.03em] text-white' : 'block truncate text-lg font-bold text-slate-800'}>
+                  {workflow.name}
+                </span>
+                <span className={isDark ? 'mt-1.5 block font-mono text-[10px] uppercase tracking-[0.15em] text-white/35' : 'mt-1.5 block text-sm text-slate-500'}>
+                  {plural(workflow.recording_count, 'recording')} ·{' '}
+                  {plural(workflow.user_count, 'employee')} ·{' '}
+                  {relativeDate(workflow.last_recording_at)}
+                </span>
+              </span>
 
-                            <h3 className="truncate text-lg font-bold text-slate-800">
-                              {session.name}
-                            </h3>
-                          </div>
+              <span className="hidden shrink-0 items-center gap-2 sm:flex">
+                {workflow.processing_count > 0 && (
+                  <span className={isDark ? 'rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-amber-200' : 'rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700'}>
+                    {workflow.processing_count} processing
+                  </span>
+                )}
+                {workflow.ready_count > 0 && (
+                  <span className={isDark ? 'rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-200' : 'rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700'}>
+                    {workflow.ready_count} ready
+                  </span>
+                )}
+              </span>
 
-                          <p className="mt-2 text-sm text-slate-500">
-                            {formatDate(
-                              session.startedAt
-                            )}
-                            {' · '}
-                            {formatDuration(
-                              session.durationMs
-                            )}
-                          </p>
-                        </div>
-
-                        <span
-                          className={statusClassName(
-                            session
-                          )}
-                        >
-                          {statusLabel(session)}
-                        </span>
-                      </div>
-
-                      <div className="mt-5">
-                        <StepProgress
-                          status={statusForSession(
-                            session
-                          )}
-                          failed={failed}
-                          hasAudio={
-                            session.audioChunkCount >
-                            0
-                          }
-                        />
-                      </div>
-
-                      {failureMessage && (
-                        <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] leading-relaxed text-red-600">
-                          {failureMessage}
-                        </p>
-                      )}
-                    </button>
-
-                    <div className="flex shrink-0 flex-col gap-2">
-                      {sopRetryable && (
-                        <button
-                          type="button"
-                          disabled={isBusy}
-                          onClick={() =>
-                            void retryServerSop(
-                              session
-                            )
-                          }
-                          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 transition hover:bg-amber-100 disabled:cursor-wait disabled:opacity-40"
-                        >
-                          {isBusy &&
-                          busyAction === 'sop'
-                            ? 'Retrying'
-                            : 'Retry SOP'}
-                        </button>
-                      )}
-
-                      {retryable && (
-                        <button
-                          type="button"
-                          disabled={isBusy}
-                          onClick={() =>
-                            void retrySession(
-                              session
-                            )
-                          }
-                          className="rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700 transition hover:bg-purple-100 disabled:cursor-wait disabled:opacity-40"
-                        >
-                          {isBusy &&
-                          busyAction === 'upload'
-                            ? 'Retrying'
-                            : 'Retry'}
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        disabled={
-                          !deletable ||
-                          isBusy
-                        }
-                        onClick={() =>
-                          void deleteSession(
-                            session
-                          )
-                        }
-                        className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {isBusy &&
-                        busyAction === 'delete'
-                          ? 'Deleting'
-                          : 'Delete'}
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              )
-            })
-          )}
-        </div>
+              <svg
+                viewBox="0 0 20 20"
+                aria-hidden="true"
+                className={isDark ? 'size-5 shrink-0 text-white/25 transition group-hover:translate-x-0.5 group-hover:text-white/60' : 'size-5 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-purple-500'}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+              >
+                <path d="m7 4 6 6-6 6" />
+              </svg>
+            </button>
+          ))
+        )}
       </div>
     </section>
   )

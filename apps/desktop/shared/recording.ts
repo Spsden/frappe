@@ -138,7 +138,10 @@ export interface RecordingState {
 export interface BackendRecording {
   id: string
   session_id: string | null
+  workflow_id: string | null
   workflow_name: string
+  reference: string | null
+  recorded_by: string | null
   status: BackendRecordingStatus
   expected_chunk_count: number | null
   uploaded_chunk_count: number
@@ -149,6 +152,45 @@ export interface BackendRecording {
   error_message: string | null
   created_at: string
   completed_at: string | null
+}
+
+export interface BackendWorkflow {
+  id: string
+  tenant_id: string
+  name: string
+  description: string | null
+  created_by: string | null
+  created_by_email: string | null
+  recording_count: number
+  user_count: number
+  last_recording_at: string | null
+  processing_count: number
+  ready_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface BackendWorkflowRecording {
+  id: string
+  tenant_id: string
+  workflow_id: string | null
+  workflow_name: string
+  reference: string | null
+  recorded_by: string | null
+  recorded_by_email: string | null
+  session_id: string | null
+  status: BackendRecordingStatus
+  duration_ms: number | null
+  created_at: string
+  completed_at: string | null
+}
+
+/** Save destination chosen after capture. ``workflowName`` is also kept as the
+ * local display label when ``workflowId`` points at an existing workflow. */
+export interface SaveRecordingPayload {
+  workflowId?: string
+  workflowName: string
+  reference?: string
 }
 
 export interface BackendRecordingStatusResponse {
@@ -305,6 +347,8 @@ export interface RecordingSessionManifest {
   eventCount: number
   screenshotCount: number
   audioChunkCount: number
+  workflowId: string | null
+  reference: string | null
   remoteRecordingId: string | null
   remoteSessionId: string | null
   remoteStatus: string | null
@@ -352,10 +396,14 @@ export interface RecordingApi {
   pause: () => Promise<RecordingState>
   resume: () => Promise<RecordingState>
   stop: () => Promise<RecordingState>
-  save: (name: string) => Promise<RecordingState>
+  save: (payload: SaveRecordingPayload) => Promise<RecordingState>
   discard: () => Promise<RecordingState>
   getState: () => Promise<RecordingState>
   listSessions: () => Promise<RecordedSessionSummary[]>
+  getRecordingSummary: (recordingId: string) => Promise<RecordedSessionSummary>
+  listWorkflows: (query?: string) => Promise<BackendWorkflow[]>
+  getWorkflow: (workflowId: string) => Promise<BackendWorkflow>
+  listWorkflowRecordings: (workflowId: string) => Promise<BackendWorkflowRecording[]>
   deleteSession: (sessionId: string) => Promise<void>
   retry: (sessionId: string, target: RecordingRetryTarget) => Promise<void>
   getSession: (backendSessionId: string) => Promise<BackendWorkflowSession>
@@ -405,6 +453,10 @@ export const recordingIpc = {
   discard: 'recording:discard',
   getState: 'recording:get-state',
   listSessions: 'recording:list-sessions',
+  getRecordingSummary: 'recording:get-summary',
+  listWorkflows: 'recording:list-workflows',
+  getWorkflow: 'recording:get-workflow',
+  listWorkflowRecordings: 'recording:list-workflow-recordings',
   deleteSession: 'recording:delete-session',
   retry: 'recording:retry',
   getSession: 'recording:get-session',

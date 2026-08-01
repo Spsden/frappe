@@ -8,6 +8,23 @@ import { SearchPalette } from './SearchPalette'
 import { useConnection } from '../features/connection/useConnection'
 import { useTheme } from '../features/theme/ThemeContext'
 
+const lastWorkflowRouteKey = 'worktrace:last-workflow-route'
+
+function isRecordedWorkflowDetailRoute(pathname: string) {
+  return (
+    pathname.startsWith('/workflows/') ||
+    /^\/sessions\/[^/]+(?:\/sop)?$/.test(pathname)
+  )
+}
+
+function rememberedWorkflowRoute() {
+  const route = localStorage.getItem(lastWorkflowRouteKey)
+  if (!route) return '/sessions'
+
+  const [pathname] = route.split('?')
+  return isRecordedWorkflowDetailRoute(pathname) ? route : '/sessions'
+}
+
 interface NavigationItem {
   label: string
   to: string
@@ -146,6 +163,10 @@ function getPageTitle(pathname: string) {
     return 'Session Detail'
   }
 
+  if (pathname.startsWith('/workflows/')) {
+    return 'Workflow Detail'
+  }
+
   if (pathname.startsWith('/sessions')) {
     return 'Recorded Workflows'
   }
@@ -208,6 +229,23 @@ export function AppShell() {
   const location = useLocation()
 
   const [searchOpen, setSearchOpen] = useState(false)
+  const [recordedWorkflowsPath, setRecordedWorkflowsPath] = useState(
+    rememberedWorkflowRoute
+  )
+
+  useEffect(() => {
+    if (isRecordedWorkflowDetailRoute(location.pathname)) {
+      const route = `${location.pathname}${location.search}`
+      localStorage.setItem(lastWorkflowRouteKey, route)
+      setRecordedWorkflowsPath(route)
+      return
+    }
+
+    if (location.pathname === '/sessions') {
+      localStorage.removeItem(lastWorkflowRouteKey)
+      setRecordedWorkflowsPath('/sessions')
+    }
+  }, [location.pathname, location.search])
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -325,15 +363,23 @@ export function AppShell() {
           {navigation.map((item) => (
             <NavLink
               key={item.to}
-              to={item.to}
+              to={
+                item.to === '/sessions'
+                  ? recordedWorkflowsPath
+                  : item.to
+              }
               end={item.end}
-              className={({ isActive }) =>
-                [
+              className={({ isActive }) => {
+                const active =
+                  isActive ||
+                  (item.to === '/sessions' && location.pathname.startsWith('/workflows/'))
+
+                return [
                   'group relative flex min-h-11 items-center gap-3 px-3 py-2.5 text-sm font-bold transition',
                   isDark
                     ? 'rounded-md'
                     : 'rounded-xl',
-                  isActive
+                  active
                     ? isDark
                       ? 'border-l-2 border-white bg-white/12 text-white'
                       : 'bg-gradient-to-r from-purple-100 to-pink-50 text-purple-800 shadow-[0_8px_20px_rgba(166,106,216,0.08)]'
@@ -341,7 +387,7 @@ export function AppShell() {
                       ? 'border-l-2 border-transparent text-white/50 hover:bg-white/[0.06] hover:text-white'
                       : 'text-slate-500 hover:bg-purple-50 hover:text-purple-700'
                 ].join(' ')
-              }
+              }}
             >
               <span className="size-[18px] shrink-0">
                 {item.icon}

@@ -81,6 +81,9 @@ from worktrace_api.schemas import (
     SopLimitsSettingsUpdate,
     SOPStatus,
     TargetBounds,
+    Workflow,
+    WorkflowCreate,
+    WorkflowRecording,
     WorkflowSession,
     WorkflowSessionCreate,
 )
@@ -113,6 +116,7 @@ app = FastAPI(
         {"name": "settings", "description": "Tenant-level backend configuration."},
         {"name": "sessions", "description": "Workflow ingestion and privacy controls."},
         {"name": "recordings", "description": "Resumable raw recording ingestion."},
+        {"name": "workflows", "description": "Shared procedures that group recordings."},
         {"name": "sops", "description": "SOP generation, review, and approval."},
         {"name": "walkthroughs", "description": "Approved onboarding walkthroughs."},
         {"name": "search", "description": "Cross-entity fuzzy/substring search."},
@@ -342,13 +346,21 @@ def save_sop_limits_settings(
 def create_recording(
     payload: RecordingCreate,
     response: Response,
+    auth: AuthContext = Depends(authenticated_account),
     repo: Repository = Depends(repository),
 ) -> Recording:
+    recorded_by = auth.account.user_id
+
     if payload.id:
         existing = repo.get_recording(payload.id)
         if existing:
+            target_name = payload.workflow_name
+            if payload.workflow_id:
+                target_workflow = repo.get_workflow(payload.workflow_id)
+                target_name = target_workflow.name if target_workflow else None
             if (
-                existing.workflow_name != payload.workflow_name
+                target_name is None
+                or existing.workflow_name != target_name
                 or existing.source_type != payload.source_type
                 or existing.has_audio != payload.has_audio
                 or existing.manual_mode != payload.manual_mode
@@ -359,16 +371,99 @@ def create_recording(
                 )
             response.status_code = status.HTTP_200_OK
             return existing
+
     try:
-        return repo.create_recording(
-            payload.workflow_name,
-            payload.source_type,
-            payload.has_audio,
-            payload.id,
-            payload.manual_mode,
+        if payload.workflow_id:
+            workflow = repo.get_workflow(payload.workflow_id)
+            if not workflow:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
+                )
+            return repo.create_recording(
+                workflow_id=workflow.id,
+                workflow_name=workflow.name,
+                source_type=payload.source_type,
+                has_audio=payload.has_audio,
+                recording_id=payload.id,
+                manual_mode=payload.manual_mode,
+                reference=payload.reference,
+                recorded_by=recorded_by,
+            )
+        # workflow_name path: create-or-reuse the workflow and the recording in
+        # a single transaction so a failed upload never leaves an empty workflow.
+        _workflow, recording = repo.create_workflow_and_recording(
+            workflow_name=payload.workflow_name,
+            source_type=payload.source_type,
+            has_audio=payload.has_audio,
+            recording_id=payload.id,
+            manual_mode=payload.manual_mode,
+            reference=payload.reference,
+            recorded_by=recorded_by,
         )
+        return recording
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@app.get(
+    "/workflows",
+    response_model=list[Workflow],
+    tags=["workflows"],
+)
+def list_workflows(
+    query: str | None = Query(default=None, max_length=200, alias="q"),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    repo: Repository = Depends(repository),
+) -> list[Workflow]:
+    """List/search the tenant's workflows with summary counts (recordings,
+    distinct employees, processing vs ready splits and last recording time)
+    computed in one grouped query."""
+    return repo.list_workflows(query=query, limit=limit, offset=offset)
+
+
+@app.post(
+    "/workflows",
+    response_model=Workflow,
+    status_code=status.HTTP_201_CREATED,
+    tags=["workflows"],
+)
+def create_workflow(
+    payload: WorkflowCreate,
+    auth: AuthContext = Depends(authenticated_account),
+    repo: Repository = Depends(repository),
+) -> Workflow:
+    try:
+        return repo.create_workflow(payload.name, payload.description, auth.account.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@app.get("/workflows/{workflow_id}", response_model=Workflow, tags=["workflows"])
+def get_workflow(workflow_id: UUID, repo: Repository = Depends(repository)) -> Workflow:
+    workflow = repo.get_workflow(workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+    return workflow
+
+
+@app.get(
+    "/workflows/{workflow_id}/recordings",
+    response_model=list[WorkflowRecording],
+    tags=["workflows"],
+)
+def list_workflow_recordings(
+    workflow_id: UUID,
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    repo: Repository = Depends(repository),
+) -> list[WorkflowRecording]:
+    workflow = repo.get_workflow(workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+    return repo.list_recordings_for_workflow(workflow_id)
 
 
 @app.put(

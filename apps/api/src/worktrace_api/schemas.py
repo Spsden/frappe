@@ -380,17 +380,32 @@ class ChunkContentType(StrEnum):
 
 class RecordingCreate(StrictModel):
     id: UUID | None = None
-    workflow_name: str = Field(min_length=1, max_length=200)
+    # Exactly one of workflow_id (attach to an existing workflow) or
+    # workflow_name (create a new workflow in the same transaction) must be
+    # provided. ``workflow_name`` is also accepted for the resumable-upload
+    # retry path, which converges on the existing same-named workflow.
+    workflow_id: UUID | None = None
+    workflow_name: str | None = Field(default=None, min_length=1, max_length=200)
+    reference: str | None = Field(default=None, max_length=300)
     source_type: CaptureSource = CaptureSource.DESKTOP
     has_audio: bool = False
     manual_mode: bool = False
+
+    @model_validator(mode="after")
+    def requires_exactly_one_workflow(self) -> "RecordingCreate":
+        if bool(self.workflow_id) == bool(self.workflow_name):
+            raise ValueError("Provide exactly one of workflow_id or workflow_name")
+        return self
 
 
 class Recording(StrictModel):
     schema_version: Literal["1.0"] = SCHEMA_VERSION
     tenant_id: UUID
     id: UUID
+    workflow_id: UUID | None = None
     workflow_name: str
+    reference: str | None = None
+    recorded_by: UUID | None = None
     source_type: CaptureSource
     session_id: UUID | None = None
     status: RecordingStatus
@@ -411,6 +426,55 @@ class ChunkReceipt(StrictModel):
     checksum_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     payload_size: int = Field(gt=0)
     duplicate: bool = False
+
+
+class WorkflowCreate(StrictModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+
+
+class Workflow(StrictModel):
+    """A shared, reusable procedure that groups one or more recordings.
+
+    The summary counts (recording/user totals, processing vs ready splits and
+    the most recent recording time) are computed server-side in a single
+    grouped query so the list view never runs into N+1 lookups.
+    """
+
+    schema_version: Literal["1.0"] = SCHEMA_VERSION
+    tenant_id: UUID
+    id: UUID
+    name: str
+    description: str | None = None
+    created_by: UUID | None = None
+    created_by_email: str | None = None
+    recording_count: int = Field(default=0, ge=0)
+    user_count: int = Field(default=0, ge=0)
+    last_recording_at: datetime | None = None
+    processing_count: int = Field(default=0, ge=0)
+    ready_count: int = Field(default=0, ge=0)
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowRecording(StrictModel):
+    """A recording row scoped to a workflow, enriched with the joined fields the
+    workflow-details list needs (session duration + recorded-by label) so the
+    page can render without per-row follow-up requests."""
+
+    schema_version: Literal["1.0"] = SCHEMA_VERSION
+    tenant_id: UUID
+    id: UUID
+    workflow_id: UUID | None = None
+    workflow_name: str
+    reference: str | None = None
+    recorded_by: UUID | None = None
+    recorded_by_email: str | None = None
+    session_id: UUID | None = None
+    status: RecordingStatus
+    duration_ms: int | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
 
 
 class RecordingComplete(StrictModel):
