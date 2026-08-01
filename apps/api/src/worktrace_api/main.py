@@ -34,7 +34,7 @@ from worktrace_api.auth import (
     log_out,
     sign_up,
 )
-from worktrace_api.core.celery_app import broker_available
+from worktrace_api.core.celery_app import service_status
 from worktrace_api.database import create_tables
 from worktrace_api.media_tokens import (
     MediaTokenError,
@@ -236,8 +236,6 @@ def screenshot_evidence(
 
 @app.get("/health", tags=["system"])
 def health() -> dict[str, Any]:
-    from worktrace_api.core.celery_app import service_status
-
     return {
         "status": "ok",
         "environment": settings.env,
@@ -500,7 +498,7 @@ def create_analytics_run(
     auth: AuthContext = Depends(authenticated_account),
     repo: Repository = Depends(repository),
 ) -> AnalyticsRun:
-    if not broker_available(settings.redis_url):
+    if service_status(settings.redis_url).get("worker") != "up":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
@@ -599,7 +597,7 @@ def retry_analytics_run(
             status_code=status.HTTP_409_CONFLICT,
             detail="Analytics processing is already active",
         )
-    if not broker_available(settings.redis_url):
+    if service_status(settings.redis_url).get("worker") != "up":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(

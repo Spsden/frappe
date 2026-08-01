@@ -223,7 +223,10 @@ def test_analytics_run_api_queues_lists_and_retries(client, monkeypatch):
         )
 
     queued = []
-    monkeypatch.setattr("worktrace_api.main.broker_available", lambda _url: True)
+    monkeypatch.setattr(
+        "worktrace_api.main.service_status",
+        lambda _url: {"redis": "up", "worker": "up"},
+    )
     monkeypatch.setattr(
         "worktrace_api.main.process_workflow_analytics.delay",
         lambda run_id, tenant_id: queued.append((run_id, tenant_id, "full")),

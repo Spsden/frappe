@@ -4,7 +4,7 @@ import logging
 from uuid import UUID
 
 from worktrace_api.analytics_processing import WorkflowAnalyticsProcessor
-from worktrace_api.analytics_provider import AnalyticsProvider
+from worktrace_api.analytics_provider import AnalyticsProvider, AnalyticsProviderUnavailable
 from worktrace_api.core.celery_app import celery_app
 from worktrace_api.repository import Repository
 from worktrace_api.settings import get_settings
@@ -31,6 +31,10 @@ def process_workflow_analytics(self, run_id: str, tenant_id: str) -> None:
     processor, repo = _processor(tenant_id)
     try:
         processor.process(UUID(run_id))
+    except AnalyticsProviderUnavailable:
+        # Configuration cannot heal during an automatic 30-second retry loop.
+        # The failed run remains available for the Settings -> manual retry flow.
+        return
     except Exception as exc:
         # The processor has already persisted a safe failure state. A retry is
         # useful for transient provider/network failures; immutable inputs make
