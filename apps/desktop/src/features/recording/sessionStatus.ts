@@ -118,6 +118,24 @@ export function isFailed(session: RecordedSessionSummary) {
   )
 }
 
+/**
+ * The most specific human-readable reason a session ended up in a failed state,
+ * or null when the session isn't failed. The backend SOP task persists its
+ * abort reason to `recordings.error_message` (e.g. "No LLM API key is
+ * configured for SOP generation"); upload/network failures land in
+ * `uploadError` / `backendError`. We surface whichever is set so the UI can
+ * explain why a generation failed instead of just saying "Failed".
+ */
+export function failureReason(session: RecordedSessionSummary): string | null {
+  if (!isFailed(session)) return null
+  return (
+    session.backend?.recording.error_message ??
+    session.uploadError ??
+    session.backendError ??
+    null
+  )
+}
+
 export function isActiveSession(session: RecordedSessionSummary) {
   return ACTIVE_LOCAL_STATES.has(session.localStatus)
 }

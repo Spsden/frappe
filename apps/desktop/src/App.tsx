@@ -10,6 +10,7 @@ import { ThemeProvider } from './features/theme/ThemeContext'
 import { DashboardPage } from './pages/DashboardPage'
 import { AuthPage } from './pages/AuthPage'
 import { AudioRecorderPage } from './pages/AudioRecorderPage'
+import { ImageViewerPage } from './pages/ImageViewerPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { RecordingControlsPage } from './pages/RecordingControlsPage'
 import { SessionsPage } from './pages/SessionsPage'
@@ -17,6 +18,7 @@ import { SessionDetailPage } from './pages/SessionDetailPage'
 import { SOPDetailPage } from './pages/SOPDetailPage'
 import { SOPLibraryPage } from './pages/SOPLibraryPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { WalkthroughPage } from './pages/WalkthroughPage'
 
 export default function App() {
   return (
@@ -67,6 +69,16 @@ function ConnectedApp() {
           element={<RecordingControlsPage />}
         />
 
+        <Route
+          path="/walkthrough"
+          element={<WalkthroughPage />}
+        />
+
+        <Route
+          path="/image-viewer"
+          element={<ImageViewerPage />}
+        />
+
         <Route element={<AppShell />}>
           <Route
             index
@@ -107,8 +119,6 @@ function ConnectedApp() {
             path="/analytics"
             element={
               <PlaceholderPage
-                eyebrow="Intelligence"
-                title="Analytics"
                 description="Compare workflow paths and identify process friction."
               />
             }

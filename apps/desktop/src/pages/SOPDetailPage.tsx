@@ -461,6 +461,16 @@ export function SOPDetailPage() {
   ] = useState(false)
 
   const [
+    isStartingWalkthrough,
+    setIsStartingWalkthrough
+  ] = useState(false)
+
+  const [
+    isApprovingSop,
+    setIsApprovingSop
+  ] = useState(false)
+
+  const [
     activeSopIndex,
     setActiveSopIndex
   ] = useState(0)
@@ -630,6 +640,63 @@ export function SOPDetailPage() {
       )
     } finally {
       setIsExportingPdf(false)
+    }
+  }
+
+  const startWalkthrough = async (
+    sop: BackendSOP
+  ) => {
+    setIsStartingWalkthrough(true)
+    setError(null)
+
+    try {
+      await window.api.walkthrough.open({
+        sop,
+        startedAt:
+          new Date().toISOString()
+      })
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not start walkthrough.'
+      )
+    } finally {
+      setIsStartingWalkthrough(false)
+    }
+  }
+
+  const setSopApproval = async (
+    sop: BackendSOP,
+    approved: boolean
+  ) => {
+    setIsApprovingSop(true)
+    setError(null)
+
+    try {
+      const updated =
+        await window.api.recording.approveSop(
+          sop.id,
+          approved
+        )
+
+      setSops((current) =>
+        current.map((item) =>
+          item.id === updated.id
+            ? updated
+            : item
+        )
+      )
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : approved
+            ? 'Could not approve SOP.'
+            : 'Could not move SOP back to draft.'
+      )
+    } finally {
+      setIsApprovingSop(false)
     }
   }
 
@@ -957,6 +1024,78 @@ export function SOPDetailPage() {
                 )}
               </div>
             )}
+            {displaySop &&
+              displaySop.status !==
+                'archived' && (
+                <button
+                  type="button"
+                  title={
+                    displaySop.status ===
+                    'approved'
+                      ? 'Move SOP back to draft'
+                      : 'Approve SOP'
+                  }
+                  disabled={isApprovingSop}
+                  onClick={() =>
+                    void setSopApproval(
+                      displaySop,
+                      displaySop.status !==
+                        'approved'
+                    )
+                  }
+                  className={
+                    displaySop.status ===
+                    'approved'
+                      ? isDark
+                        ? 'flex items-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-black uppercase tracking-[0.1em] text-white/60 transition hover:border-amber-300/30 hover:bg-amber-300/10 hover:text-amber-100 disabled:cursor-wait disabled:opacity-50'
+                        : 'flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-5 py-2.5 text-sm font-bold text-amber-700 transition hover:bg-amber-100 disabled:cursor-wait disabled:opacity-50'
+                      : isDark
+                        ? 'flex items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-xs font-black uppercase tracking-[0.1em] text-emerald-100 transition hover:border-emerald-300/40 hover:bg-emerald-300/16 disabled:cursor-wait disabled:opacity-50'
+                        : 'flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700 shadow-[0_8px_20px_rgba(16,185,129,0.12)] transition hover:-translate-y-0.5 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-50'
+                  }
+                >
+                  <span>
+                    {displaySop.status ===
+                    'approved'
+                      ? '↩'
+                      : '✓'}
+                  </span>
+
+                  {isApprovingSop
+                    ? 'Saving'
+                    : displaySop.status ===
+                        'approved'
+                      ? 'Move to draft'
+                      : 'Approve SOP'}
+                </button>
+              )}
+            {displaySop?.status ===
+              'approved' &&
+              displaySop.steps.length > 0 && (
+                <button
+                  type="button"
+                  title="Start walkthrough"
+                  disabled={isStartingWalkthrough}
+                  onClick={() =>
+                    void startWalkthrough(
+                      displaySop
+                    )
+                  }
+                  className={
+                    isDark
+                      ? 'flex items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-xs font-black uppercase tracking-[0.1em] text-emerald-100 transition hover:border-emerald-300/40 hover:bg-emerald-300/16 disabled:cursor-wait disabled:opacity-50'
+                      : 'flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700 shadow-[0_8px_20px_rgba(16,185,129,0.12)] transition hover:-translate-y-0.5 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-50'
+                  }
+                >
+                  <span className="grid size-5 place-items-center rounded-full bg-emerald-400 text-[10px] text-black">
+                    ▶
+                  </span>
+
+                  {isStartingWalkthrough
+                    ? 'Opening'
+                    : 'Walkthrough'}
+                </button>
+              )}
             {/* PDF / Print export */}
             {displaySop && (
               <button
@@ -1003,8 +1142,8 @@ export function SOPDetailPage() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="space-y-5 px-6 py-6 md:px-8">
+      <div className="min-h-0 flex-1 overflow-hidden px-6 py-6 md:px-8">
+        <div className="flex h-full min-h-0 flex-col gap-5">
           <ProcessingBanner
             session={session}
             isRetryingSop={
@@ -1062,8 +1201,8 @@ export function SOPDetailPage() {
           )}
 
           {displaySop && (
-            <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-              <aside className="space-y-2">
+            <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+              <aside className="min-h-0 space-y-2 overflow-y-auto pr-1">
                 <p
                   className={
                     isDark
@@ -1097,7 +1236,7 @@ export function SOPDetailPage() {
                 </div>
               </aside>
 
-              <section className="min-w-0 space-y-5">
+              <section className="min-h-0 min-w-0 space-y-5 overflow-y-auto pr-1">
                 {displaySop.document && (
                   <div
                     className={

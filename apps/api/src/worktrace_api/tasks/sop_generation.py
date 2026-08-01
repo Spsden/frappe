@@ -119,6 +119,12 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
             return
         limits = _resolve_sop_limits(repo, settings)
         if len(bundle.steps) > limits["sop_max_evidence_steps"]:
+            logger.error(
+                "Recording %s has %d evidence steps (limit %d) — failing SOP generation.",
+                recording_id,
+                len(bundle.steps),
+                limits["sop_max_evidence_steps"],
+            )
             repo.set_recording_status(
                 recording_uuid,
                 RecordingStatus.SOP_FAILED,
@@ -140,6 +146,11 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
             # Missing API key is a configuration problem, not a transient one.
             # Fail cleanly as sop_failed (manually retryable after env is fixed)
             # instead of burning Celery retries that cannot succeed yet.
+            logger.error(
+                "No LLM API key configured (env WORKTRACE_OPENAI_API_KEY nor tenant "
+                "llm_provider_settings row) — failing SOP generation for recording %s.",
+                recording_id,
+            )
             repo.set_recording_status(
                 recording_uuid,
                 RecordingStatus.SOP_FAILED,

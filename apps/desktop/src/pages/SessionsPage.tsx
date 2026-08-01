@@ -8,6 +8,7 @@ import {
   canDeleteSession,
   canRetrySop,
   canRetrySession,
+  failureReason,
   formatDate,
   formatDuration,
   isFailed,
@@ -95,15 +96,6 @@ function EmptyState({
   return (
     <section className="dashboard-page">
       <div className="dashboard-container">
-        <div className="page-header">
-          <h1>Recorded Workflows</h1>
-
-          <p>
-            Live processing status at a glance. Click a session for
-            evidence, transcript and SOP.
-          </p>
-        </div>
-
         <div className="list-controls">
           <input
             className="search-input"
@@ -383,33 +375,35 @@ export function SessionsPage() {
 
   if (isDark) {
     return (
-      <section className="flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-8 md:px-8">
+      <section className="flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-3 md:px-8">
         <div className="shrink-0">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="font-mono text-xs font-bold uppercase tracking-[0.24em] text-emerald-400">
-                Session archive
-              </p>
-
-              <h2 className="mt-3 text-4xl font-black tracking-[-0.045em]">
-                Recorded Workflows
-              </h2>
-
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-white/50">
-                Live processing status at a glance. Click a session for
-                evidence, transcript and SOP.
-              </p>
-            </div>
-
+          <div className="flex justify-end">
             <button
               type="button"
               onClick={() => void refresh()}
               disabled={isLoading}
-              className="rounded-full border border-white/15 bg-white/[0.04] px-5 py-3 text-sm font-black text-white transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-50"
+              title={isLoading ? 'Refreshing' : 'Refresh'}
+              aria-label={isLoading ? 'Refreshing sessions' : 'Refresh sessions'}
+              className="grid size-9 place-items-center rounded-xl border border-white/15 bg-white/[0.04] text-white/65 transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-50"
             >
-              {isLoading
-                ? 'Refreshing...'
-                : 'Refresh'}
+              <svg
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                className={[
+                  'size-4',
+                  isLoading ? 'animate-spin' : ''
+                ].join(' ')}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 12a9 9 0 0 1-15.4 6.4L3 16" />
+                <path d="M3 16v5h5" />
+                <path d="M3 12A9 9 0 0 1 18.4 5.6L21 8" />
+                <path d="M21 8V3h-5" />
+              </svg>
             </button>
           </div>
 
@@ -420,7 +414,7 @@ export function SessionsPage() {
           )}
         </div>
 
-        <div className="mt-8 min-h-0 flex-1 space-y-3 overflow-y-auto pr-2 [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
+        <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-2 [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
           {displaySessions.map((session) => {
             const failed = isFailed(session)
             const retryable =
@@ -434,6 +428,9 @@ export function SessionsPage() {
 
             const isBusy =
               busyId === session.id
+
+            const failureMessage =
+              failureReason(session)
 
             return (
               <article
@@ -492,6 +489,12 @@ export function SessionsPage() {
                         }
                       />
                     </div>
+
+                    {failureMessage && (
+                      <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[11px] leading-relaxed text-red-300">
+                        {failureMessage}
+                      </p>
+                    )}
                   </button>
 
                   <div className="flex shrink-0 flex-col gap-2">
@@ -557,15 +560,6 @@ export function SessionsPage() {
   return (
     <section className="dashboard-page">
       <div className="dashboard-container">
-        <div className="page-header">
-          <h1>Recorded Workflows</h1>
-
-          <p>
-            Live processing status at a glance. Click a session for
-            evidence, transcript and SOP.
-          </p>
-        </div>
-
         <div className="list-controls recordings-list-controls">
           <input
             className="search-input"
@@ -626,6 +620,9 @@ export function SessionsPage() {
 
               const isBusy =
                 busyId === session.id
+
+              const failureMessage =
+                failureReason(session)
 
               return (
                 <article
@@ -690,6 +687,12 @@ export function SessionsPage() {
                           }
                         />
                       </div>
+
+                      {failureMessage && (
+                        <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] leading-relaxed text-red-600">
+                          {failureMessage}
+                        </p>
+                      )}
                     </button>
 
                     <div className="flex shrink-0 flex-col gap-2">

@@ -120,6 +120,10 @@ export class RecordingLibraryService {
     return this.apiClient.listSops()
   }
 
+  async approveSop(sopId: string, approved: boolean): Promise<BackendSOP> {
+    return this.apiClient.approveSop(sopId, approved)
+  }
+
   async getDashboardSummary(): Promise<BackendDashboardSummary> {
     return this.apiClient.getDashboardSummary()
   }

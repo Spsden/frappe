@@ -103,6 +103,16 @@ export function SOPLibraryPage() {
     setIsExportingPdf
   ] = useState(false)
 
+  const [
+    isStartingWalkthrough,
+    setIsStartingWalkthrough
+  ] = useState(false)
+
+  const [
+    isApprovingSop,
+    setIsApprovingSop
+  ] = useState(false)
+
   const [error, setError] =
     useState<string | null>(null)
 
@@ -282,51 +292,104 @@ export function SOPLibraryPage() {
     }
   }
 
+  const startWalkthrough = async () => {
+    if (!selectedSop) return
+
+    setIsStartingWalkthrough(true)
+    setError(null)
+
+    try {
+      await window.api.walkthrough.open({
+        sop: selectedSop,
+        startedAt:
+          new Date().toISOString()
+      })
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not start walkthrough.'
+      )
+    } finally {
+      setIsStartingWalkthrough(false)
+    }
+  }
+
+  const setSopApproval = async (
+    approved: boolean
+  ) => {
+    if (!selectedSop) return
+
+    setIsApprovingSop(true)
+    setError(null)
+
+    try {
+      const updated =
+        await window.api.recording.approveSop(
+          selectedSop.id,
+          approved
+        )
+
+      setSops((current) =>
+        current.map((sop) =>
+          sop.id === updated.id
+            ? updated
+            : sop
+        )
+      )
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : approved
+            ? 'Could not approve SOP.'
+            : 'Could not move SOP back to draft.'
+      )
+    } finally {
+      setIsApprovingSop(false)
+    }
+  }
+
   return (
     <section
       className={[
-        'flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-8 md:px-8',
+        'flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-3 md:px-8',
         isDark
           ? 'text-white'
           : 'bg-[#fafafb] text-slate-900'
       ].join(' ')}
     >
-      {/* Page header */}
-
       <div className="shrink-0">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p
-              className={
-                isDark
-                  ? 'font-mono text-xs font-bold uppercase tracking-[0.24em] text-emerald-400'
-                  : 'text-xs font-bold uppercase tracking-[0.24em] text-purple-500'
-              }
-            >
-              Documentation
-            </p>
-
-            <h2
-              className={[
-                'mt-3 text-4xl font-black tracking-[-0.045em]',
-                isDark
-                  ? 'text-white'
-                  : 'text-slate-900'
-              ].join(' ')}
-            >
-              SOP Library
-            </h2>
-
-            <p
-              className={
-                isDark
-                  ? 'mt-3 max-w-2xl text-sm leading-6 text-white/50'
-                  : 'mt-3 max-w-2xl text-sm leading-6 text-slate-500'
-              }
-            >
-              Review generated procedures
-              across recorded workflows.
-            </p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            {filterOptions.map(
+              (option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() =>
+                    setFilter(
+                      option.value
+                    )
+                  }
+                  className={[
+                    isDark
+                      ? 'rounded-xl px-3 py-2 text-xs font-black uppercase tracking-[0.12em] transition'
+                      : 'rounded-xl px-3 py-2 text-xs font-bold transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2',
+                    filter ===
+                    option.value
+                      ? isDark
+                        ? 'bg-white text-black'
+                        : 'bg-gradient-to-r from-[#a66ad8] to-[#d783b6] text-white shadow-[0_5px_14px_rgba(166,106,216,0.2)]'
+                      : isDark
+                        ? 'border border-white/10 bg-white/[0.03] text-white/50 hover:text-white'
+                        : 'border border-slate-200 bg-white text-slate-600 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700'
+                  ].join(' ')}
+                >
+                  {option.label}
+                </button>
+              )
+            )}
           </div>
 
           <button
@@ -335,15 +398,32 @@ export function SOPLibraryPage() {
               void loadSops()
             }
             disabled={isLoading}
+            title={isLoading ? 'Refreshing' : 'Refresh'}
+            aria-label={isLoading ? 'Refreshing SOPs' : 'Refresh SOPs'}
             className={
               isDark
-                ? 'rounded-full border border-white/15 bg-white/[0.04] px-5 py-3 text-sm font-black text-white transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-50'
-                : 'rounded-xl bg-gradient-to-r from-[#a66ad8] to-[#d783b6] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(166,106,216,0.22)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(166,106,216,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50'
+                ? 'grid size-9 place-items-center rounded-xl border border-white/15 bg-white/[0.04] text-white/65 transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-50'
+                : 'grid size-9 place-items-center rounded-xl bg-gradient-to-r from-[#a66ad8] to-[#d783b6] text-white shadow-[0_8px_20px_rgba(166,106,216,0.22)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(166,106,216,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50'
             }
           >
-            {isLoading
-              ? 'Refreshing...'
-              : 'Refresh'}
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className={[
+                'size-4',
+                isLoading ? 'animate-spin' : ''
+              ].join(' ')}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 12a9 9 0 0 1-15.4 6.4L3 16" />
+              <path d="M3 16v5h5" />
+              <path d="M3 12A9 9 0 0 1 18.4 5.6L21 8" />
+              <path d="M21 8V3h-5" />
+            </svg>
           </button>
         </div>
 
@@ -362,7 +442,7 @@ export function SOPLibraryPage() {
 
       {/* Main two-column layout */}
 
-      <div className="mt-8 grid min-h-0 flex-1 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="mt-3 grid min-h-0 flex-1 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
         {/* Left SOP list */}
 
         <aside
@@ -376,45 +456,6 @@ export function SOPLibraryPage() {
           {!isDark && (
             <div className="h-1 shrink-0 bg-gradient-to-r from-[#a66ad8] via-[#c778d7] to-[#d783b6]" />
           )}
-
-          <div
-            className={
-              isDark
-                ? 'shrink-0 border-b border-white/10 p-4'
-                : 'shrink-0 border-b border-slate-200 p-4'
-            }
-          >
-            <div className="flex flex-wrap gap-2">
-              {filterOptions.map(
-                (option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() =>
-                      setFilter(
-                        option.value
-                      )
-                    }
-                    className={[
-                      isDark
-                        ? 'rounded-lg px-3 py-2 text-xs font-black uppercase tracking-[0.1em] transition'
-                        : 'rounded-lg px-3 py-2 text-xs font-bold transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2',
-                      filter ===
-                      option.value
-                        ? isDark
-                          ? 'bg-white text-black'
-                          : 'bg-gradient-to-r from-[#a66ad8] to-[#d783b6] text-white shadow-[0_5px_14px_rgba(166,106,216,0.2)]'
-                        : isDark
-                          ? 'border border-white/10 bg-white/[0.03] text-white/50 hover:text-white'
-                          : 'border border-slate-200 bg-white text-slate-600 hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700'
-                    ].join(' ')}
-                  >
-                    {option.label}
-                  </button>
-                )
-              )}
-            </div>
-          </div>
 
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
             {isLoading &&
@@ -642,49 +683,119 @@ export function SOPLibraryPage() {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  disabled={
-                    isExportingPdf ||
-                    isLoadingImages
-                  }
-                  onClick={() =>
-                    void exportPdf()
-                  }
-                  className={
-                    isDark
-                      ? 'rounded-xl border border-white/15 bg-white px-4 py-2.5 text-xs font-black uppercase tracking-[0.1em] text-black transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-50'
-                      : 'flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#a66ad8] to-[#d783b6] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(166,106,216,0.22)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(166,106,216,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50'
-                  }
-                >
-                  {!isDark && (
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.4"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                <div className="flex shrink-0 items-center gap-2">
+                  {selectedSop.status !==
+                    'archived' && (
+                    <button
+                      type="button"
+                      disabled={
+                        isApprovingSop
+                      }
+                      onClick={() =>
+                        void setSopApproval(
+                          selectedSop.status !==
+                            'approved'
+                        )
+                      }
+                      className={
+                        selectedSop.status ===
+                        'approved'
+                          ? isDark
+                            ? 'flex items-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-xs font-black uppercase tracking-[0.1em] text-white/60 transition hover:border-amber-300/30 hover:bg-amber-300/10 hover:text-amber-100 disabled:cursor-wait disabled:opacity-50'
+                            : 'flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-5 py-2.5 text-sm font-bold text-amber-700 transition hover:bg-amber-100 disabled:cursor-wait disabled:opacity-50'
+                          : isDark
+                            ? 'flex items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-2.5 text-xs font-black uppercase tracking-[0.1em] text-emerald-100 transition hover:bg-emerald-300/16 disabled:cursor-wait disabled:opacity-50'
+                            : 'flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700 shadow-[0_8px_20px_rgba(16,185,129,0.12)] transition duration-200 hover:-translate-y-0.5 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-50'
+                      }
                     >
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <span>
+                        {selectedSop.status ===
+                        'approved'
+                          ? '↩'
+                          : '✓'}
+                      </span>
 
-                      <polyline points="7 10 12 15 17 10" />
-
-                      <line
-                        x1="12"
-                        y1="15"
-                        x2="12"
-                        y2="3"
-                      />
-                    </svg>
+                      {isApprovingSop
+                        ? 'Saving'
+                        : selectedSop.status ===
+                            'approved'
+                          ? 'Move to draft'
+                          : 'Approve SOP'}
+                    </button>
                   )}
 
-                  {isExportingPdf
-                    ? 'Exporting'
-                    : 'Export PDF'}
-                </button>
+                  {selectedSop.status ===
+                    'approved' &&
+                    selectedSop.steps.length >
+                      0 && (
+                      <button
+                        type="button"
+                        disabled={
+                          isStartingWalkthrough
+                        }
+                        onClick={() =>
+                          void startWalkthrough()
+                        }
+                        className={
+                          isDark
+                            ? 'flex items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-2.5 text-xs font-black uppercase tracking-[0.1em] text-emerald-100 transition hover:bg-emerald-300/16 disabled:cursor-wait disabled:opacity-50'
+                            : 'flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700 shadow-[0_8px_20px_rgba(16,185,129,0.12)] transition duration-200 hover:-translate-y-0.5 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-50'
+                        }
+                      >
+                        <span className="grid size-5 place-items-center rounded-full bg-emerald-400 text-[10px] text-black">
+                          ▶
+                        </span>
+
+                        {isStartingWalkthrough
+                          ? 'Opening'
+                          : 'Walkthrough'}
+                      </button>
+                    )}
+
+                  <button
+                    type="button"
+                    disabled={
+                      isExportingPdf ||
+                      isLoadingImages
+                    }
+                    onClick={() =>
+                      void exportPdf()
+                    }
+                    className={
+                      isDark
+                        ? 'rounded-xl border border-white/15 bg-white px-4 py-2.5 text-xs font-black uppercase tracking-[0.1em] text-black transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-50'
+                        : 'flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#a66ad8] to-[#d783b6] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(166,106,216,0.22)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(166,106,216,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50'
+                    }
+                  >
+                    {!isDark && (
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+
+                        <polyline points="7 10 12 15 17 10" />
+
+                        <line
+                          x1="12"
+                          y1="15"
+                          x2="12"
+                          y2="3"
+                        />
+                      </svg>
+                    )}
+
+                    {isExportingPdf
+                      ? 'Exporting'
+                      : 'Export PDF'}
+                  </button>
+                </div>
               </div>
 
               {/* Overview */}

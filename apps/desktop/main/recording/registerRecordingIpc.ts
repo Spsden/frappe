@@ -54,6 +54,9 @@ export function registerRecordingIpc(
     library.getSessionSops(backendSessionId)
   )
   ipcMain.handle(recordingIpc.listSops, () => library.listSops())
+  ipcMain.handle(recordingIpc.approveSop, (_event, sopId: string, approved: boolean) =>
+    library.approveSop(sopId, approved)
+  )
   ipcMain.handle(recordingIpc.getDashboardSummary, () => library.getDashboardSummary())
   ipcMain.handle(recordingIpc.search, (_event, query: string) => library.search(query))
   ipcMain.handle(recordingIpc.exportSopPdf, (_event, html: string, title: string) =>
@@ -134,6 +137,7 @@ export function registerRecordingIpc(
     ipcMain.removeHandler(recordingIpc.getScreenshotImage)
     ipcMain.removeHandler(recordingIpc.getSessionSops)
     ipcMain.removeHandler(recordingIpc.listSops)
+    ipcMain.removeHandler(recordingIpc.approveSop)
     ipcMain.removeHandler(recordingIpc.getDashboardSummary)
     ipcMain.removeHandler(recordingIpc.search)
     ipcMain.removeHandler(recordingIpc.exportSopPdf)

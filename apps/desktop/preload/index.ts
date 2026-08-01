@@ -29,6 +29,14 @@ import {
   type ExperimentalFlag,
   type ExperimentalFlags
 } from '../shared/settings'
+import {
+  walkthroughIpc,
+  type ImageViewerPayload,
+  type ImageViewerWindowState,
+  type WalkthroughDockSide,
+  type WalkthroughPayload,
+  type WalkthroughWindowState
+} from '../shared/walkthrough'
 
 // Expose a safe, minimal API to the renderer via contextBridge.
 // The renderer can call window.api.getAppVersion() but cannot access
@@ -115,6 +123,8 @@ contextBridge.exposeInMainWorld('api', {
         backendSessionId
       ) as Promise<BackendSOP[]>,
     listSops: () => ipcRenderer.invoke(recordingIpc.listSops) as Promise<BackendSOP[]>,
+    approveSop: (sopId: string, approved: boolean) =>
+      ipcRenderer.invoke(recordingIpc.approveSop, sopId, approved) as Promise<BackendSOP>,
     getDashboardSummary: () =>
       ipcRenderer.invoke(recordingIpc.getDashboardSummary) as Promise<BackendDashboardSummary>,
     search: (query: string) =>
@@ -166,6 +176,53 @@ contextBridge.exposeInMainWorld('api', {
       const handler = (_event: Electron.IpcRendererEvent, state: RecordingState) => listener(state)
       ipcRenderer.on(recordingIpc.stateChanged, handler)
       return () => ipcRenderer.off(recordingIpc.stateChanged, handler)
+    }
+  },
+  walkthrough: {
+    open: (payload: WalkthroughPayload) =>
+      ipcRenderer.invoke(walkthroughIpc.open, payload) as Promise<WalkthroughWindowState>,
+    getState: () =>
+      ipcRenderer.invoke(walkthroughIpc.getState) as Promise<WalkthroughWindowState>,
+    setDockSide: (dockSide: WalkthroughDockSide) =>
+      ipcRenderer.invoke(
+        walkthroughIpc.setDockSide,
+        dockSide
+      ) as Promise<WalkthroughWindowState>,
+    setCollapsed: (collapsed: boolean) =>
+      ipcRenderer.invoke(
+        walkthroughIpc.setCollapsed,
+        collapsed
+      ) as Promise<WalkthroughWindowState>,
+    close: () => ipcRenderer.invoke(walkthroughIpc.close) as Promise<WalkthroughWindowState>,
+    onStateChanged: (listener: (state: WalkthroughWindowState) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: WalkthroughWindowState) =>
+        listener(state)
+      ipcRenderer.on(walkthroughIpc.stateChanged, handler)
+      return () => ipcRenderer.off(walkthroughIpc.stateChanged, handler)
+    },
+    openImageViewer: (payload: ImageViewerPayload) =>
+      ipcRenderer.invoke(
+        walkthroughIpc.openImageViewer,
+        payload
+      ) as Promise<ImageViewerWindowState>,
+    updateImageViewer: (payload: ImageViewerPayload) =>
+      ipcRenderer.invoke(
+        walkthroughIpc.updateImageViewer,
+        payload
+      ) as Promise<ImageViewerWindowState>,
+    getImageViewerState: () =>
+      ipcRenderer.invoke(
+        walkthroughIpc.getImageViewerState
+      ) as Promise<ImageViewerWindowState>,
+    closeImageViewer: () =>
+      ipcRenderer.invoke(
+        walkthroughIpc.closeImageViewer
+      ) as Promise<ImageViewerWindowState>,
+    onImageViewerStateChanged: (listener: (state: ImageViewerWindowState) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: ImageViewerWindowState) =>
+        listener(state)
+      ipcRenderer.on(walkthroughIpc.imageViewerStateChanged, handler)
+      return () => ipcRenderer.off(walkthroughIpc.imageViewerStateChanged, handler)
     }
   }
 })
