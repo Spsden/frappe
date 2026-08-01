@@ -10,9 +10,19 @@ import { useTheme } from '../features/theme/ThemeContext'
 
 const lastWorkflowRouteKey = 'worktrace:last-workflow-route'
 
+function isRecordedWorkflowDetailRoute(pathname: string) {
+  return (
+    pathname.startsWith('/workflows/') ||
+    /^\/sessions\/[^/]+(?:\/sop)?$/.test(pathname)
+  )
+}
+
 function rememberedWorkflowRoute() {
   const route = localStorage.getItem(lastWorkflowRouteKey)
-  return route?.startsWith('/workflows/') ? route : '/sessions'
+  if (!route) return '/sessions'
+
+  const [pathname] = route.split('?')
+  return isRecordedWorkflowDetailRoute(pathname) ? route : '/sessions'
 }
 
 interface NavigationItem {
@@ -224,7 +234,7 @@ export function AppShell() {
   )
 
   useEffect(() => {
-    if (location.pathname.startsWith('/workflows/')) {
+    if (isRecordedWorkflowDetailRoute(location.pathname)) {
       const route = `${location.pathname}${location.search}`
       localStorage.setItem(lastWorkflowRouteKey, route)
       setRecordedWorkflowsPath(route)
