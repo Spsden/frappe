@@ -8,6 +8,7 @@ from worktrace_api.database import SessionLocal
 from worktrace_api.repository import Repository
 from worktrace_api.schemas import (
     SOP,
+    AnalyticsRunStatus,
     CaptureSource,
     EventType,
     RecordingStatus,
@@ -200,3 +201,73 @@ def test_analytics_run_rejects_unapproved_or_foreign_recordings():
                 embedding_model="text-embedding-3-small",
                 algorithm_version="1.0",
             )
+
+
+def test_analytics_run_api_queues_lists_and_retries(client, monkeypatch):
+    with SessionLocal() as db:
+        repo = Repository(db, TENANT_ID)
+        workflow = repo.create_workflow("Reconcile payment", created_by=USER_ID)
+        first_id, _, _ = _add_recording(
+            repo,
+            workflow.id,
+            workflow.name,
+            reference="Path A",
+            duration_ms=4_000,
+        )
+        second_id, _, _ = _add_recording(
+            repo,
+            workflow.id,
+            workflow.name,
+            reference="Path B",
+            duration_ms=7_000,
+        )
+
+    queued = []
+    monkeypatch.setattr("worktrace_api.main.broker_available", lambda _url: True)
+    monkeypatch.setattr(
+        "worktrace_api.main.process_workflow_analytics.delay",
+        lambda run_id, tenant_id: queued.append((run_id, tenant_id, "full")),
+    )
+    response = client.post(
+        f"/workflows/{workflow.id}/analytics-runs",
+        headers=auth_headers(),
+        json={"recording_ids": [str(first_id), str(second_id)]},
+    )
+    assert response.status_code == 202
+    run = response.json()
+    assert run["status"] == "queued"
+    assert run["version"] == 1
+    assert queued == [(run["id"], TEST_TENANT_ID, "full")]
+
+    listed = client.get(
+        f"/workflows/{workflow.id}/analytics-runs", headers=auth_headers()
+    )
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [run["id"]]
+    fetched = client.get(f"/analytics-runs/{run['id']}", headers=auth_headers())
+    assert fetched.status_code == 200
+    assert len(fetched.json()["inputs"]) == 2
+
+    # A summary-only retry is impossible before deterministic metrics exist.
+    summary_retry = client.post(
+        f"/analytics-runs/{run['id']}/retry",
+        headers=auth_headers(),
+        json={"target": "summary"},
+    )
+    assert summary_retry.status_code == 409
+
+    with SessionLocal() as db:
+        Repository(db, TENANT_ID).set_analytics_run_status(
+            UUID(run["id"]),
+            AnalyticsRunStatus.FAILED,
+            failure_stage="embedding",
+            error_message="failed",
+        )
+    full_retry = client.post(
+        f"/analytics-runs/{run['id']}/retry",
+        headers=auth_headers(),
+        json={"target": "full_run"},
+    )
+    assert full_retry.status_code == 202
+    assert full_retry.json()["status"] == "queued"
+    assert queued[-1] == (run["id"], TEST_TENANT_ID, "full")
