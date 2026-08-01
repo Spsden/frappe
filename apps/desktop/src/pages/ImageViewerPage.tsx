@@ -31,6 +31,7 @@ function clampZoom(value: number) {
 export function ImageViewerPage() {
   const viewerRef =
     useRef<HTMLElement | null>(null)
+  const rememberedZoomRef = useRef(1)
   const [state, setState] =
     useState<ImageViewerWindowState | null>(null)
   const [imageUrl, setImageUrl] =
@@ -67,7 +68,6 @@ export function ImageViewerPage() {
       setImageUrl(null)
       setDimensions(null)
       setIsLoading(false)
-      setZoom(1)
       return
     }
 
@@ -78,7 +78,7 @@ export function ImageViewerPage() {
       setIsLoading(true)
       setError(null)
       setDimensions(null)
-      setZoom(1)
+      setZoom(rememberedZoomRef.current)
 
       try {
         const buffer =
@@ -134,6 +134,7 @@ export function ImageViewerPage() {
         event.key === '0' &&
         (event.metaKey || event.ctrlKey)
       ) {
+        rememberedZoomRef.current = 1
         setZoom(1)
       }
     }
@@ -152,6 +153,7 @@ export function ImageViewerPage() {
     const next = clampZoom(nextZoom)
 
     if (!viewer) {
+      rememberedZoomRef.current = next
       setZoom(next)
       return
     }
@@ -172,6 +174,7 @@ export function ImageViewerPage() {
       (viewer.scrollTop + focalY) /
       previousZoom
 
+    rememberedZoomRef.current = next
     setZoom(next)
 
     window.requestAnimationFrame(() => {
@@ -249,7 +252,10 @@ export function ImageViewerPage() {
 
             <button
               type="button"
-              onClick={() => setZoom(1)}
+              onClick={() => {
+                rememberedZoomRef.current = 1
+                setZoom(1)
+              }}
               className="min-w-16 rounded-lg px-2 py-2 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-white/55 transition hover:bg-white/10 hover:text-white"
             >
               {zoomPercent}%
