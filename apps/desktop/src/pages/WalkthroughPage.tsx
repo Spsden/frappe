@@ -140,19 +140,18 @@ function ScreenshotFrame({
       <button
         type="button"
         onClick={onExpand}
-        onMouseEnter={onExpand}
         className="group relative block w-full cursor-zoom-in overflow-hidden bg-black text-left"
         style={noDragStyle}
       >
         <img
           src={imageUrl}
           alt={`${step.title} screenshot`}
-          className="block max-h-[310px] w-full object-contain transition duration-200 group-hover:scale-[1.015] group-hover:opacity-90"
+          className="block max-h-[310px] w-full object-contain transition duration-200 group-hover:opacity-90"
         />
 
         <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/0 opacity-0 transition group-hover:bg-black/20 group-hover:opacity-100">
           <span className="rounded-full border border-white/15 bg-black/75 px-4 py-2 font-mono text-[10px] font-black uppercase tracking-[0.18em] text-white shadow-[0_12px_35px_rgba(0,0,0,0.45)] backdrop-blur">
-            Expand image
+            View full size
           </span>
         </span>
       </button>
@@ -773,14 +772,13 @@ export function WalkthroughPage() {
                   <img
                     src={activeImageUrl}
                     alt={`${activeStep.title} expanded screenshot`}
-                    className="mx-auto block max-h-full max-w-full object-contain"
+                    className="block max-w-none"
                   />
                 </div>
 
                 <div className="border-t border-white/10 bg-white/[0.035] px-4 py-2">
                   <p className="text-center font-mono text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">
-                    Click outside or press Escape
-                    to close
+                    Original size · scroll to inspect · Escape to close
                   </p>
                 </div>
               </div>
