@@ -8,7 +8,11 @@ import type {
   BackendSOP,
   BackendSOPStep
 } from '../../shared/recording'
-import type { WalkthroughWindowState } from '../../shared/walkthrough'
+import type {
+  ImageViewerPayload,
+  ImageViewerWindowState,
+  WalkthroughWindowState
+} from '../../shared/walkthrough'
 
 const dragStyle = {
   WebkitAppRegion: 'drag'
@@ -38,6 +42,23 @@ function sopImageSignature(sop: BackendSOP | null): string {
         step.screenshot_reference ?? ''
     )
     .join('|')
+}
+
+function imageViewerPayloadForStep(
+  sop: BackendSOP,
+  step: BackendSOPStep
+): ImageViewerPayload | null {
+  if (!step.screenshot_reference) {
+    return null
+  }
+
+  return {
+    sessionId: sop.source_session_id,
+    screenshotId: step.screenshot_reference,
+    title: step.title,
+    stepPosition: step.position,
+    openedAt: new Date().toISOString()
+  }
 }
 
 function StepProgressItem({
@@ -235,6 +256,8 @@ function CollapsedWalkthrough({
 
 export function WalkthroughPage() {
   const [state, setState] = useState<WalkthroughWindowState | null>(null)
+  const [imageViewerState, setImageViewerState] =
+    useState<ImageViewerWindowState | null>(null)
   const [activeStepIndex, setActiveStepIndex] = useState(0)
   const [completedStepIds, setCompletedStepIds] = useState<Set<string>>(
     () => new Set()
@@ -252,6 +275,19 @@ export function WalkthroughPage() {
     return window.api.walkthrough.onStateChanged((nextState) => {
       setState(nextState)
     })
+  }, [])
+
+  useEffect(() => {
+    void window.api.walkthrough
+      .getImageViewerState()
+      .then(setImageViewerState)
+      .catch(() => {
+        // The walkthrough can still run without a viewer state snapshot.
+      })
+
+    return window.api.walkthrough.onImageViewerStateChanged(
+      setImageViewerState
+    )
   }, [])
 
   const sop = state?.payload?.sop ?? null
@@ -405,20 +441,24 @@ export function WalkthroughPage() {
   }
 
   const openActiveImage = async () => {
-    if (!sop || !activeStep?.screenshot_reference) {
+    if (!sop || !activeStep) {
       return
     }
 
+    const payload = imageViewerPayloadForStep(
+      sop,
+      activeStep
+    )
+
+    if (!payload) return
+
     try {
-      await window.api.walkthrough.openImageViewer({
-        sessionId: sop.source_session_id,
-        screenshotId:
-          activeStep.screenshot_reference,
-        title: activeStep.title,
-        stepPosition: activeStep.position,
-        openedAt:
-          new Date().toISOString()
-      })
+      const nextState =
+        await window.api.walkthrough.openImageViewer(
+          payload
+        )
+
+      setImageViewerState(nextState)
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -427,6 +467,46 @@ export function WalkthroughPage() {
       )
     }
   }
+
+  useEffect(() => {
+    if (!imageViewerState?.payload || !sop || !activeStep) {
+      return
+    }
+
+    const payload = imageViewerPayloadForStep(
+      sop,
+      activeStep
+    )
+
+    if (!payload) {
+      void window.api.walkthrough
+        .closeImageViewer()
+        .then(setImageViewerState)
+      return
+    }
+
+    const current = imageViewerState.payload
+    const alreadyShowingStep =
+      current.sessionId === payload.sessionId &&
+      current.screenshotId === payload.screenshotId &&
+      current.title === payload.title &&
+      current.stepPosition === payload.stepPosition
+
+    if (alreadyShowingStep) {
+      return
+    }
+
+    void window.api.walkthrough
+      .updateImageViewer(payload)
+      .then(setImageViewerState)
+      .catch(() => {
+        // Keep walkthrough navigation responsive even if the viewer was closed.
+      })
+  }, [
+    activeStep,
+    imageViewerState?.payload,
+    sop
+  ])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

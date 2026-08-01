@@ -29,6 +29,9 @@ export function registerWalkthroughIpc(
   ipcMain.handle(walkthroughIpc.openImageViewer, (_event, payload: ImageViewerPayload) =>
     imageViewerWindow.open(payload)
   )
+  ipcMain.handle(walkthroughIpc.updateImageViewer, (_event, payload: ImageViewerPayload) =>
+    imageViewerWindow.update(payload)
+  )
   ipcMain.handle(walkthroughIpc.getImageViewerState, () => imageViewerWindow.getState())
   ipcMain.handle(walkthroughIpc.closeImageViewer, () => imageViewerWindow.close())
 }

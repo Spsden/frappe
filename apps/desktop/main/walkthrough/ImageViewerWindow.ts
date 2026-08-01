@@ -32,6 +32,23 @@ export class ImageViewerWindow {
     return this.getState()
   }
 
+  update(payload: ImageViewerPayload): ImageViewerWindowState {
+    if (
+      !this.payload ||
+      !this.window ||
+      this.window.isDestroyed() ||
+      !this.window.isVisible()
+    ) {
+      return this.getState()
+    }
+
+    this.payload = payload
+    this.window.setTitle(`${payload.title} · Step ${payload.stepPosition}`)
+    this.emitState()
+
+    return this.getState()
+  }
+
   getState(): ImageViewerWindowState {
     return {
       payload: this.payload

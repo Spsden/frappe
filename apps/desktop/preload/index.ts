@@ -205,6 +205,11 @@ contextBridge.exposeInMainWorld('api', {
         walkthroughIpc.openImageViewer,
         payload
       ) as Promise<ImageViewerWindowState>,
+    updateImageViewer: (payload: ImageViewerPayload) =>
+      ipcRenderer.invoke(
+        walkthroughIpc.updateImageViewer,
+        payload
+      ) as Promise<ImageViewerWindowState>,
     getImageViewerState: () =>
       ipcRenderer.invoke(
         walkthroughIpc.getImageViewerState

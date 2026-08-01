@@ -34,6 +34,7 @@ export interface WalkthroughApi {
   close: () => Promise<WalkthroughWindowState>
   onStateChanged: (listener: (state: WalkthroughWindowState) => void) => () => void
   openImageViewer: (payload: ImageViewerPayload) => Promise<ImageViewerWindowState>
+  updateImageViewer: (payload: ImageViewerPayload) => Promise<ImageViewerWindowState>
   getImageViewerState: () => Promise<ImageViewerWindowState>
   closeImageViewer: () => Promise<ImageViewerWindowState>
   onImageViewerStateChanged: (
@@ -49,6 +50,7 @@ export const walkthroughIpc = {
   close: 'walkthrough:close',
   stateChanged: 'walkthrough:state-changed',
   openImageViewer: 'walkthrough:image-viewer-open',
+  updateImageViewer: 'walkthrough:image-viewer-update',
   getImageViewerState: 'walkthrough:image-viewer-get-state',
   closeImageViewer: 'walkthrough:image-viewer-close',
   imageViewerStateChanged: 'walkthrough:image-viewer-state-changed'
