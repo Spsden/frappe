@@ -1,10 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type {
   BackendWorkflow,
   BackendWorkflowRecording
 } from '../../shared/recording'
 import { useTheme } from '../features/theme/ThemeContext'
+
+const WorkflowAnalyticsPanel = lazy(() =>
+  import('../features/analytics/WorkflowAnalyticsPanel').then((module) => ({
+    default: module.WorkflowAnalyticsPanel
+  }))
+)
 
 type WorkflowTab = 'overview' | 'recordings' | 'analytics'
 
@@ -397,21 +403,9 @@ export function WorkflowDetailPage() {
         )}
 
         {activeTab === 'analytics' && (
-          <section className={isDark ? 'grid min-h-80 place-items-center rounded-2xl border border-dashed border-white/15 bg-white/[0.02] p-10 text-center' : 'grid min-h-80 place-items-center rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center'}>
-            <div className="max-w-lg">
-              <span className={isDark ? 'mx-auto grid size-12 place-items-center rounded-2xl border border-emerald-400/20 bg-emerald-400/10 text-emerald-300' : 'mx-auto grid size-12 place-items-center rounded-2xl border border-purple-200 bg-purple-50 text-purple-600'}>
-                <svg viewBox="0 0 24 24" aria-hidden="true" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-                  <path d="M4 19V9M10 19V5M16 19v-7M22 19V3" />
-                </svg>
-              </span>
-              <h2 className={isDark ? 'mt-5 text-2xl font-black text-white' : 'mt-5 text-2xl font-bold text-slate-800'}>
-                Workflow comparison is next
-              </h2>
-              <p className={isDark ? 'mt-3 text-sm leading-6 text-white/45' : 'mt-3 text-sm leading-6 text-slate-500'}>
-                This space will compare execution paths, completion time, and the fastest completed recording once analytics processing is available.
-              </p>
-            </div>
-          </section>
+          <Suspense fallback={<div className="grid min-h-72 place-items-center"><span className={isDark ? 'size-2.5 animate-pulse rounded-full bg-emerald-400' : 'size-2.5 animate-pulse rounded-full bg-purple-500'} /></div>}>
+            <WorkflowAnalyticsPanel workflowId={workflowId} dark={isDark} />
+          </Suspense>
         )}
       </div>
     </main>
