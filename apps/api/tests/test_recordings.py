@@ -802,9 +802,11 @@ def test_manual_review_saves_transcript_and_prompt(client):
 
     with SessionLocal() as db:
         repo = Repository(db, tenant_id)
+        workflow = repo.create_workflow("Manual invoice review")
         recording = repo.create_recording(
-            "Manual invoice review",
-            CaptureSource.DESKTOP,
+            workflow_id=workflow.id,
+            workflow_name=workflow.name,
+            source_type=CaptureSource.DESKTOP,
             has_audio=True,
             recording_id=recording_id,
             manual_mode=True,
@@ -867,9 +869,11 @@ def test_manual_generate_sop_queues_only_sop_stage(client):
 
     with SessionLocal() as db:
         repo = Repository(db, tenant_id)
+        workflow = repo.create_workflow("Generate reviewed SOP")
         recording = repo.create_recording(
-            "Generate reviewed SOP",
-            CaptureSource.DESKTOP,
+            workflow_id=workflow.id,
+            workflow_name=workflow.name,
+            source_type=CaptureSource.DESKTOP,
             has_audio=False,
             recording_id=recording_id,
             manual_mode=True,

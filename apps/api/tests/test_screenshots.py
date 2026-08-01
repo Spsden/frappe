@@ -79,8 +79,12 @@ def _seed_session_with_screenshot() -> tuple[UUID, UUID, UUID]:
     )
     with SessionLocal() as db:
         repo = Repository(db, TENANT)
+        workflow = repo.create_workflow("Approve invoice")
         recording = repo.create_recording(
-            "Approve invoice", CaptureSource.DESKTOP, has_audio=False
+            workflow_id=workflow.id,
+            workflow_name=workflow.name,
+            source_type=CaptureSource.DESKTOP,
+            has_audio=False,
         )
         session = WorkflowSession(
             tenant_id=TENANT,
@@ -171,8 +175,12 @@ def test_list_session_screenshots_skips_unresolved_coordinate_space(client):
     )
     with SessionLocal() as db:
         repo = Repository(db, TENANT)
+        workflow = repo.create_workflow("Unmapped click")
         recording = repo.create_recording(
-            "Unmapped click", CaptureSource.DESKTOP, has_audio=False
+            workflow_id=workflow.id,
+            workflow_name=workflow.name,
+            source_type=CaptureSource.DESKTOP,
+            has_audio=False,
         )
         session = WorkflowSession(
             tenant_id=TENANT,
