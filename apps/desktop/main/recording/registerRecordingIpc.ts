@@ -4,6 +4,7 @@ import {
   type AnnotationInput,
   type RecordingOptions,
   type RecordingRetryTarget,
+  type SaveRecordingPayload,
   type RecordingState
 } from '../../shared/recording'
 import { RecordingManager } from './RecordingManager'
@@ -28,10 +29,21 @@ export function registerRecordingIpc(
   ipcMain.handle(recordingIpc.pause, () => manager.pause())
   ipcMain.handle(recordingIpc.resume, () => manager.resume())
   ipcMain.handle(recordingIpc.stop, () => manager.stop())
-  ipcMain.handle(recordingIpc.save, (_event, name: string) => manager.save(name))
+  ipcMain.handle(recordingIpc.save, (_event, payload: SaveRecordingPayload) =>
+    manager.save(payload)
+  )
   ipcMain.handle(recordingIpc.discard, () => manager.discard())
   ipcMain.handle(recordingIpc.getState, () => manager.getState())
   ipcMain.handle(recordingIpc.listSessions, () => library.listSessions())
+  ipcMain.handle(recordingIpc.listWorkflows, (_event, query?: string) =>
+    library.listWorkflows(query)
+  )
+  ipcMain.handle(recordingIpc.getWorkflow, (_event, workflowId: string) =>
+    library.getWorkflow(workflowId)
+  )
+  ipcMain.handle(recordingIpc.listWorkflowRecordings, (_event, workflowId: string) =>
+    library.listWorkflowRecordings(workflowId)
+  )
   ipcMain.handle(recordingIpc.deleteSession, (_event, sessionId: string) =>
     library.deleteSession(sessionId)
   )
@@ -130,6 +142,9 @@ export function registerRecordingIpc(
     ipcMain.removeHandler(recordingIpc.discard)
     ipcMain.removeHandler(recordingIpc.getState)
     ipcMain.removeHandler(recordingIpc.listSessions)
+    ipcMain.removeHandler(recordingIpc.listWorkflows)
+    ipcMain.removeHandler(recordingIpc.getWorkflow)
+    ipcMain.removeHandler(recordingIpc.listWorkflowRecordings)
     ipcMain.removeHandler(recordingIpc.deleteSession)
     ipcMain.removeHandler(recordingIpc.retry)
     ipcMain.removeHandler(recordingIpc.getSession)

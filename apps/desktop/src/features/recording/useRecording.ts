@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { RecordingOptions, RecordingState } from '../../../shared/recording'
+import type {
+  RecordingOptions,
+  RecordingState,
+  SaveRecordingPayload
+} from '../../../shared/recording'
 
 const initialState: RecordingState = {
   status: 'idle',
@@ -58,7 +62,8 @@ export function useRecording() {
     [runCommand]
   )
   const save = useCallback(
-    (name: string) => runCommand(() => window.api.recording.save(name)),
+    (payload: SaveRecordingPayload) =>
+      runCommand(() => window.api.recording.save(payload)),
     [runCommand]
   )
   const discard = useCallback(

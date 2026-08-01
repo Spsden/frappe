@@ -4,7 +4,8 @@ import {
   defaultRecordingOptions,
   type RecordingOptions,
   type RecordingPlatform,
-  type RecordingState
+  type RecordingState,
+  type SaveRecordingPayload
 } from '../../shared/recording'
 import { SessionWriter } from './SessionWriter'
 import { ScreenCaptureService } from './ScreenCaptureService'
@@ -226,11 +227,11 @@ export class RecordingManager extends EventEmitter {
     return this.getState()
   }
 
-  async save(name: string): Promise<RecordingState> {
+  async save(payload: SaveRecordingPayload): Promise<RecordingState> {
     this.assertStatus('awaiting-save', 'save')
-    const trimmedName = name.trim()
+    const trimmedName = payload.workflowName.trim()
     if (trimmedName.length === 0) {
-      throw new Error('Recording name is required.')
+      throw new Error('Workflow name is required.')
     }
 
     const sessionPath = this.state.outputPath
@@ -238,14 +239,22 @@ export class RecordingManager extends EventEmitter {
       throw new Error('Recording was saved without an output path.')
     }
 
-    await this.sessionWriter.setName(trimmedName)
+    const selection: SaveRecordingPayload = {
+      workflowId: payload.workflowId?.trim() || undefined,
+      workflowName: trimmedName,
+      reference: payload.reference?.trim() || undefined
+    }
+    await this.sessionWriter.setWorkflowSelection(selection)
     this.updateState({
       status: 'uploading',
       sessionName: trimmedName
     })
 
     try {
-      const remoteRecording = await this.recordingUploader.uploadCompletedSession(sessionPath)
+      const remoteRecording = await this.recordingUploader.uploadCompletedSession(
+        sessionPath,
+        selection
+      )
       await this.sessionWriter.setRemoteRecording(remoteRecording)
       this.updateState({
         status: 'processing',

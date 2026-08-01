@@ -51,6 +51,8 @@ export class SessionWriter {
         eventCount: 0,
         screenshotCount: 0,
         audioChunkCount: 0,
+        workflowId: null,
+        reference: null,
         remoteRecordingId: null,
         remoteSessionId: null,
         remoteStatus: null,
@@ -128,6 +130,20 @@ export class SessionWriter {
     return this.enqueue(async () => {
       const { manifest } = this.requireSession()
       manifest.name = name
+      await this.writeManifest()
+    })
+  }
+
+  async setWorkflowSelection(selection: {
+    workflowId?: string
+    workflowName: string
+    reference?: string
+  }): Promise<void> {
+    return this.enqueue(async () => {
+      const { manifest } = this.requireSession()
+      manifest.name = selection.workflowName
+      manifest.workflowId = selection.workflowId?.trim() || null
+      manifest.reference = selection.reference?.trim() || null
       await this.writeManifest()
     })
   }

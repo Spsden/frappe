@@ -18,10 +18,13 @@ import {
   type BackendScreenshotEvidence,
   type BackendSearchResponse,
   type BackendSOP,
+  type BackendWorkflow,
+  type BackendWorkflowRecording,
   type RecordingOptions,
   type RecordingRetryTarget,
   type RecordedSessionSummary,
   type RecordingState,
+  type SaveRecordingPayload,
   type BackendWorkflowSession
 } from '../shared/recording'
 import {
@@ -91,11 +94,20 @@ contextBridge.exposeInMainWorld('api', {
     pause: () => ipcRenderer.invoke(recordingIpc.pause),
     resume: () => ipcRenderer.invoke(recordingIpc.resume),
     stop: () => ipcRenderer.invoke(recordingIpc.stop),
-    save: (name: string) => ipcRenderer.invoke(recordingIpc.save, name),
+    save: (payload: SaveRecordingPayload) => ipcRenderer.invoke(recordingIpc.save, payload),
     discard: () => ipcRenderer.invoke(recordingIpc.discard),
     getState: () => ipcRenderer.invoke(recordingIpc.getState),
     listSessions: () =>
       ipcRenderer.invoke(recordingIpc.listSessions) as Promise<RecordedSessionSummary[]>,
+    listWorkflows: (query?: string) =>
+      ipcRenderer.invoke(recordingIpc.listWorkflows, query) as Promise<BackendWorkflow[]>,
+    getWorkflow: (workflowId: string) =>
+      ipcRenderer.invoke(recordingIpc.getWorkflow, workflowId) as Promise<BackendWorkflow>,
+    listWorkflowRecordings: (workflowId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.listWorkflowRecordings,
+        workflowId
+      ) as Promise<BackendWorkflowRecording[]>,
     deleteSession: (sessionId: string) => ipcRenderer.invoke(recordingIpc.deleteSession, sessionId),
     retry: (sessionId: string, target: RecordingRetryTarget) =>
       ipcRenderer.invoke(recordingIpc.retry, sessionId, target),

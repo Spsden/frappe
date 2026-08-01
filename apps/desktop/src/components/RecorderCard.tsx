@@ -1,8 +1,10 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState
 } from 'react'
+import type { BackendWorkflow } from '../../shared/recording'
 import { useRecording } from '../features/recording/useRecording'
 import { useTheme } from '../features/theme/ThemeContext'
 
@@ -46,6 +48,16 @@ function formatElapsed(
     .padStart(2, '0')}`
 }
 
+const createWorkflowValue = '__create_workflow__'
+
+function normalizeWorkflowName(value: string) {
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
 export function RecorderCard() {
   const {
     discard,
@@ -80,7 +92,28 @@ export function RecorderCard() {
   const [
     saveName,
     setSaveName
-  ] = useState('Untitled workflow')
+  ] = useState('')
+
+  const [reference, setReference] =
+    useState('')
+
+  const [workflows, setWorkflows] =
+    useState<BackendWorkflow[]>([])
+
+  const [selectedWorkflowId, setSelectedWorkflowId] =
+    useState(createWorkflowValue)
+
+  const [workflowSearch, setWorkflowSearch] =
+    useState('')
+
+  const [workflowPickerOpen, setWorkflowPickerOpen] =
+    useState(false)
+
+  const [workflowsLoading, setWorkflowsLoading] =
+    useState(false)
+
+  const [workflowsError, setWorkflowsError] =
+    useState<string | null>(null)
 
   useEffect(() => {
     localStorage.setItem(
@@ -187,8 +220,21 @@ export function RecorderCard() {
 
   const saveRecording =
     useCallback(() => {
-      void save(saveName)
-    }, [save, saveName])
+      const selectedWorkflow = workflows.find(
+        (workflow) => workflow.id === selectedWorkflowId
+      )
+      const workflowName = selectedWorkflow?.name ?? saveName.trim()
+
+      if (!workflowName) {
+        return
+      }
+
+      void save({
+        workflowId: selectedWorkflow?.id,
+        workflowName,
+        reference: reference.trim() || undefined
+      })
+    }, [reference, save, saveName, selectedWorkflowId, workflows])
 
   useEffect(() => {
     const handleShortcut = (
@@ -260,15 +306,95 @@ export function RecorderCard() {
 
   useEffect(() => {
     if (isAwaitingSave) {
+      const suggestedName = state.sessionName?.trim() || ''
       setSaveName(
-        state.sessionName?.trim() ||
-          'Untitled workflow'
+        suggestedName.toLowerCase() === 'untitled workflow'
+          ? ''
+          : suggestedName
       )
+      setReference('')
+      setSelectedWorkflowId(createWorkflowValue)
+      setWorkflowSearch('')
+      setWorkflowPickerOpen(false)
     }
   }, [
     isAwaitingSave,
     state.sessionName
   ])
+
+  useEffect(() => {
+    if (!isAwaitingSave) {
+      return
+    }
+
+    let active = true
+    setWorkflowsLoading(true)
+    setWorkflowsError(null)
+
+    void window.api.recording
+      .listWorkflows()
+      .then((items) => {
+        if (active) {
+          setWorkflows(items)
+        }
+      })
+      .catch((caught) => {
+        if (active) {
+          setWorkflowsError(
+            caught instanceof Error
+              ? caught.message
+              : 'Existing workflows could not be loaded.'
+          )
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setWorkflowsLoading(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [isAwaitingSave])
+
+  const selectedWorkflow = useMemo(
+    () => workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? null,
+    [selectedWorkflowId, workflows]
+  )
+
+  const visibleWorkflows = useMemo(() => {
+    const query = workflowSearch.trim().toLocaleLowerCase()
+    if (!query) {
+      return workflows.slice(0, 8)
+    }
+    return workflows
+      .filter((workflow) => workflow.name.toLocaleLowerCase().includes(query))
+      .slice(0, 8)
+  }, [workflowSearch, workflows])
+
+  const similarWorkflow = useMemo(() => {
+    if (selectedWorkflowId !== createWorkflowValue) {
+      return null
+    }
+    const candidate = normalizeWorkflowName(saveName)
+    if (candidate.length < 4) {
+      return null
+    }
+    return workflows.find((workflow) => {
+      const existing = normalizeWorkflowName(workflow.name)
+      return (
+        existing === candidate ||
+        (candidate.length >= 7 &&
+          (existing.startsWith(candidate) || candidate.startsWith(existing)))
+      )
+    }) ?? null
+  }, [saveName, selectedWorkflowId, workflows])
+
+  const canSaveRecording = Boolean(
+    selectedWorkflow ||
+      (selectedWorkflowId === createWorkflowValue && saveName.trim())
+  )
 
   const statusText = isRecording
     ? 'Neural trace active'
@@ -281,7 +407,7 @@ export function RecorderCard() {
           : 'Ready to capture'
 
   const title = isAwaitingSave
-    ? 'Name This Workflow'
+    ? 'Save This Recording'
     : isRecording || isPaused
       ? 'Recording Your Workflow'
       : 'Capture a Workflow'
@@ -292,7 +418,7 @@ export function RecorderCard() {
         ? 'Your desktop activity and microphone narration are being captured. Complete the workflow naturally, then stop when you are finished.'
         : 'Your desktop activity is being captured without microphone narration. Complete the workflow naturally, then stop when you are finished.'
       : isAwaitingSave
-        ? 'Capture is stopped. Give this workflow a useful name, then save it for backend processing or discard the local evidence.'
+        ? 'Add this recording to an existing workflow or create a new workflow for it.'
         : manualMode
           ? 'Click below to capture evidence. SOP generation will pause until you review the transcript and annotations.'
           : 'Click below to start recording your desktop activity. Audio narration can be enabled or disabled before capture starts.'
@@ -494,48 +620,229 @@ export function RecorderCard() {
                 : 'save-panel'
             }
           >
-            <label
-              className={
-                isDark
-                  ? 'block'
-                  : 'save-field'
-              }
-            >
+            <div className="relative">
               <span
                 className={
                   isDark
                     ? 'font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/45'
-                    : ''
+                    : 'text-xs font-bold uppercase tracking-[0.12em] text-slate-500'
                 }
               >
-                Workflow name
+                Workflow
               </span>
 
-              <input
-                value={saveName}
-                onChange={(event) =>
-                  setSaveName(
-                    event.target.value
-                  )
+              <button
+                type="button"
+                role="combobox"
+                aria-expanded={workflowPickerOpen}
+                aria-controls="workflow-picker-options"
+                onClick={() => setWorkflowPickerOpen((open) => !open)}
+                className={
+                  isDark
+                    ? 'mt-3 flex w-full items-center justify-between rounded-xl border border-white/15 bg-black/40 px-4 py-3 text-left text-sm font-bold text-white outline-none transition hover:border-white/30'
+                    : 'mt-2 flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-bold text-slate-800 shadow-sm transition hover:border-purple-300'
                 }
+              >
+                <span className="truncate">
+                  {selectedWorkflow?.name ?? '+ Create new workflow'}
+                </span>
+                <svg
+                  viewBox="0 0 20 20"
+                  aria-hidden="true"
+                  className={[
+                    'size-4 shrink-0 transition',
+                    workflowPickerOpen ? 'rotate-180' : ''
+                  ].join(' ')}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path d="m5 7.5 5 5 5-5" />
+                </svg>
+              </button>
+
+              {workflowPickerOpen && (
+                <div
+                  id="workflow-picker-options"
+                  className={
+                    isDark
+                      ? 'absolute inset-x-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-white/15 bg-[#111] shadow-2xl'
+                      : 'absolute inset-x-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl'
+                  }
+                >
+                  <div className="p-2">
+                    <input
+                      value={workflowSearch}
+                      onChange={(event) => setWorkflowSearch(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          setWorkflowPickerOpen(false)
+                        }
+                      }}
+                      placeholder="Search workflows..."
+                      aria-label="Search workflows"
+                      autoFocus
+                      className={
+                        isDark
+                          ? 'w-full rounded-lg border border-white/10 bg-black/50 px-3 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-white/30'
+                          : 'w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-purple-300'
+                      }
+                    />
+                  </div>
+
+                  <div className="max-h-52 overflow-y-auto p-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedWorkflowId(createWorkflowValue)
+                        setWorkflowPickerOpen(false)
+                      }}
+                      className={[
+                        'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-bold transition',
+                        selectedWorkflowId === createWorkflowValue
+                          ? isDark
+                            ? 'bg-emerald-400/12 text-emerald-300'
+                            : 'bg-purple-50 text-purple-700'
+                          : isDark
+                            ? 'text-white/75 hover:bg-white/[0.06]'
+                            : 'text-slate-700 hover:bg-slate-50'
+                      ].join(' ')}
+                    >
+                      <span>+ Create new workflow</span>
+                      {selectedWorkflowId === createWorkflowValue && <span>✓</span>}
+                    </button>
+
+                    {workflowsLoading && (
+                      <p className={isDark ? 'px-3 py-3 text-xs text-white/40' : 'px-3 py-3 text-xs text-slate-400'}>
+                        Loading workflows...
+                      </p>
+                    )}
+
+                    {!workflowsLoading && visibleWorkflows.map((workflow) => (
+                      <button
+                        type="button"
+                        key={workflow.id}
+                        onClick={() => {
+                          setSelectedWorkflowId(workflow.id)
+                          setSaveName(workflow.name)
+                          setWorkflowPickerOpen(false)
+                        }}
+                        className={[
+                          'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition',
+                          selectedWorkflowId === workflow.id
+                            ? isDark
+                              ? 'bg-emerald-400/12 text-emerald-300'
+                              : 'bg-purple-50 text-purple-700'
+                            : isDark
+                              ? 'text-white/75 hover:bg-white/[0.06]'
+                              : 'text-slate-700 hover:bg-slate-50'
+                        ].join(' ')}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-bold">{workflow.name}</span>
+                          <span className={isDark ? 'mt-0.5 block text-[10px] text-white/35' : 'mt-0.5 block text-[10px] text-slate-400'}>
+                            {workflow.recording_count} {workflow.recording_count === 1 ? 'recording' : 'recordings'}
+                          </span>
+                        </span>
+                        {selectedWorkflowId === workflow.id && <span>✓</span>}
+                      </button>
+                    ))}
+
+                    {!workflowsLoading && workflowSearch.trim() && visibleWorkflows.length === 0 && (
+                      <p className={isDark ? 'px-3 py-3 text-xs text-white/40' : 'px-3 py-3 text-xs text-slate-400'}>
+                        No matching workflows.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {selectedWorkflowId === createWorkflowValue && (
+              <label className={isDark ? 'mt-4 block' : 'mt-4 block'}>
+                <span
+                  className={
+                    isDark
+                      ? 'font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/45'
+                      : 'text-xs font-bold uppercase tracking-[0.12em] text-slate-500'
+                  }
+                >
+                  Workflow name
+                </span>
+                <input
+                  value={saveName}
+                  onChange={(event) => setSaveName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && canSaveRecording) {
+                      event.preventDefault()
+                      saveRecording()
+                    }
+                  }}
+                  className={
+                    isDark
+                      ? 'mt-3 w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 text-base font-bold text-white outline-none transition placeholder:text-white/25 focus:border-white/35'
+                      : 'mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-bold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-purple-300'
+                  }
+                  placeholder="e.g. Vendor invoice approval"
+                  autoFocus
+                />
+              </label>
+            )}
+
+            {similarWorkflow && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedWorkflowId(similarWorkflow.id)
+                  setSaveName(similarWorkflow.name)
+                }}
+                className={
+                  isDark
+                    ? 'mt-3 w-full rounded-xl border border-amber-400/20 bg-amber-400/[0.07] px-3 py-2 text-left text-xs leading-5 text-amber-200 transition hover:bg-amber-400/10'
+                    : 'mt-3 w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs leading-5 text-amber-700 transition hover:bg-amber-100'
+                }
+              >
+                Similar workflow found: <strong>{similarWorkflow.name}</strong>. Use this workflow instead?
+              </button>
+            )}
+
+            <label className="mt-4 block">
+              <span
+                className={
+                  isDark
+                    ? 'font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/45'
+                    : 'text-xs font-bold uppercase tracking-[0.12em] text-slate-500'
+                }
+              >
+                Reference <span className="normal-case tracking-normal opacity-60">(optional)</span>
+              </span>
+              <input
+                value={reference}
+                onChange={(event) => setReference(event.target.value)}
                 onKeyDown={(event) => {
-                  if (
-                    event.key ===
-                    'Enter'
-                  ) {
+                  if (event.key === 'Enter' && canSaveRecording) {
                     event.preventDefault()
                     saveRecording()
                   }
                 }}
+                maxLength={300}
                 className={
                   isDark
-                    ? 'mt-3 w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 text-base font-bold text-white outline-none transition placeholder:text-white/25 focus:border-white/35'
-                    : 'save-input'
+                    ? 'mt-3 w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-white/35'
+                    : 'mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-purple-300'
                 }
-                placeholder="e.g. Vendor invoice approval"
-                autoFocus
+                placeholder="e.g. Project Alpha or Ticket #4821"
               />
+              <span className={isDark ? 'mt-2 block text-[11px] leading-4 text-white/35' : 'mt-2 block text-[11px] leading-4 text-slate-400'}>
+                Employee, project, ticket, department, or any label that helps identify this recording.
+              </span>
             </label>
+
+            {workflowsError && (
+              <p className={isDark ? 'mt-3 text-xs text-amber-300' : 'mt-3 text-xs text-amber-700'}>
+                Existing workflows are unavailable. You can still create a new one.
+              </p>
+            )}
 
             <div
               className={
@@ -564,7 +871,7 @@ export function RecorderCard() {
                   saveRecording
                 }
                 disabled={
-                  !saveName.trim()
+                  !canSaveRecording
                 }
                 className={
                   isDark

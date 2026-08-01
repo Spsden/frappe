@@ -7,6 +7,8 @@ import type {
   BackendRecordingStatusResponse,
   BackendSearchResponse,
   BackendSOP,
+  BackendWorkflow,
+  BackendWorkflowRecording,
   BackendWorkflowSession,
   RecordedSessionSummary,
   RecordingRetryTarget,
@@ -37,6 +39,18 @@ export class RecordingLibraryService {
     } finally {
       if (this.listSessionsRequest === request) this.listSessionsRequest = null
     }
+  }
+
+  async listWorkflows(query?: string): Promise<BackendWorkflow[]> {
+    return this.apiClient.listWorkflows(query)
+  }
+
+  async getWorkflow(workflowId: string): Promise<BackendWorkflow> {
+    return this.apiClient.getWorkflow(workflowId)
+  }
+
+  async listWorkflowRecordings(workflowId: string): Promise<BackendWorkflowRecording[]> {
+    return this.apiClient.listWorkflowRecordings(workflowId)
   }
 
   private async loadSessions(): Promise<RecordedSessionSummary[]> {
