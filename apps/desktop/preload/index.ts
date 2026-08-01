@@ -31,6 +31,8 @@ import {
 } from '../shared/settings'
 import {
   walkthroughIpc,
+  type ImageViewerPayload,
+  type ImageViewerWindowState,
   type WalkthroughDockSide,
   type WalkthroughPayload,
   type WalkthroughWindowState
@@ -197,6 +199,25 @@ contextBridge.exposeInMainWorld('api', {
         listener(state)
       ipcRenderer.on(walkthroughIpc.stateChanged, handler)
       return () => ipcRenderer.off(walkthroughIpc.stateChanged, handler)
+    },
+    openImageViewer: (payload: ImageViewerPayload) =>
+      ipcRenderer.invoke(
+        walkthroughIpc.openImageViewer,
+        payload
+      ) as Promise<ImageViewerWindowState>,
+    getImageViewerState: () =>
+      ipcRenderer.invoke(
+        walkthroughIpc.getImageViewerState
+      ) as Promise<ImageViewerWindowState>,
+    closeImageViewer: () =>
+      ipcRenderer.invoke(
+        walkthroughIpc.closeImageViewer
+      ) as Promise<ImageViewerWindowState>,
+    onImageViewerStateChanged: (listener: (state: ImageViewerWindowState) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: ImageViewerWindowState) =>
+        listener(state)
+      ipcRenderer.on(walkthroughIpc.imageViewerStateChanged, handler)
+      return () => ipcRenderer.off(walkthroughIpc.imageViewerStateChanged, handler)
     }
   }
 })

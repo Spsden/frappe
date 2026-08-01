@@ -241,7 +241,6 @@ export function WalkthroughPage() {
   )
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({})
   const [imagesLoading, setImagesLoading] = useState(false)
-  const [isImageExpanded, setIsImageExpanded] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -281,10 +280,6 @@ export function WalkthroughPage() {
       setCompletedStepIds(new Set())
     }
   }, [sop?.id])
-
-  useEffect(() => {
-    setIsImageExpanded(false)
-  }, [activeStep?.id])
 
   useEffect(() => {
     if (!sop || imageSignature.length === 0) {
@@ -409,6 +404,30 @@ export function WalkthroughPage() {
     )
   }
 
+  const openActiveImage = async () => {
+    if (!sop || !activeStep?.screenshot_reference) {
+      return
+    }
+
+    try {
+      await window.api.walkthrough.openImageViewer({
+        sessionId: sop.source_session_id,
+        screenshotId:
+          activeStep.screenshot_reference,
+        title: activeStep.title,
+        stepPosition: activeStep.position,
+        openedAt:
+          new Date().toISOString()
+      })
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not open image viewer.'
+      )
+    }
+  }
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'ArrowLeft') {
@@ -424,11 +443,6 @@ export function WalkthroughPage() {
       }
 
       if (event.key === 'Escape') {
-        if (isImageExpanded) {
-          setIsImageExpanded(false)
-          return
-        }
-
         void window.api.walkthrough.setCollapsed(true)
       }
     }
@@ -621,7 +635,7 @@ export function WalkthroughPage() {
                   imageUrl={activeImageUrl}
                   loading={imagesLoading}
                   onExpand={() =>
-                    setIsImageExpanded(true)
+                    void openActiveImage()
                   }
                 />
 
@@ -730,60 +744,6 @@ export function WalkthroughPage() {
           </div>
         </footer>
 
-        {isImageExpanded &&
-          activeStep &&
-          activeImageUrl && (
-            <div
-              className="absolute inset-0 z-50 bg-black/90 p-3 backdrop-blur-xl"
-              onClick={() =>
-                setIsImageExpanded(false)
-              }
-              style={noDragStyle}
-            >
-              <div
-                className="flex h-full flex-col overflow-hidden rounded-[1.55rem] border border-white/15 bg-[#050505] shadow-[0_24px_85px_rgba(0,0,0,0.75)]"
-                onClick={(event) =>
-                  event.stopPropagation()
-                }
-              >
-                <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-white/[0.04] px-4 py-3">
-                  <div className="min-w-0">
-                    <p className="font-mono text-[9px] font-black uppercase tracking-[0.24em] text-emerald-300/70">
-                      Expanded evidence · Step{' '}
-                      {activeStep.position}
-                    </p>
-                    <h2 className="mt-1 truncate text-sm font-black text-white">
-                      {activeStep.title}
-                    </h2>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setIsImageExpanded(false)
-                    }
-                    className="grid size-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.06] text-lg text-white/55 transition hover:bg-red-500/20 hover:text-red-100"
-                  >
-                    ×
-                  </button>
-                </div>
-
-                <div className="min-h-0 flex-1 overflow-auto bg-black p-3">
-                  <img
-                    src={activeImageUrl}
-                    alt={`${activeStep.title} expanded screenshot`}
-                    className="block max-w-none"
-                  />
-                </div>
-
-                <div className="border-t border-white/10 bg-white/[0.035] px-4 py-2">
-                  <p className="text-center font-mono text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">
-                    Original size · scroll to inspect · Escape to close
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
       </section>
     </main>
   )

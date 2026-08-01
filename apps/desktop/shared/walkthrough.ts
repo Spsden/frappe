@@ -13,6 +13,19 @@ export interface WalkthroughWindowState {
   collapsed: boolean
 }
 
+export interface ImageViewerPayload {
+  sessionId: string
+  screenshotId: string
+  title: string
+  stepPosition: number
+  mediaUrl?: string | null
+  openedAt: string
+}
+
+export interface ImageViewerWindowState {
+  payload: ImageViewerPayload | null
+}
+
 export interface WalkthroughApi {
   open: (payload: WalkthroughPayload) => Promise<WalkthroughWindowState>
   getState: () => Promise<WalkthroughWindowState>
@@ -20,6 +33,12 @@ export interface WalkthroughApi {
   setCollapsed: (collapsed: boolean) => Promise<WalkthroughWindowState>
   close: () => Promise<WalkthroughWindowState>
   onStateChanged: (listener: (state: WalkthroughWindowState) => void) => () => void
+  openImageViewer: (payload: ImageViewerPayload) => Promise<ImageViewerWindowState>
+  getImageViewerState: () => Promise<ImageViewerWindowState>
+  closeImageViewer: () => Promise<ImageViewerWindowState>
+  onImageViewerStateChanged: (
+    listener: (state: ImageViewerWindowState) => void
+  ) => () => void
 }
 
 export const walkthroughIpc = {
@@ -28,5 +47,9 @@ export const walkthroughIpc = {
   setDockSide: 'walkthrough:set-dock-side',
   setCollapsed: 'walkthrough:set-collapsed',
   close: 'walkthrough:close',
-  stateChanged: 'walkthrough:state-changed'
+  stateChanged: 'walkthrough:state-changed',
+  openImageViewer: 'walkthrough:image-viewer-open',
+  getImageViewerState: 'walkthrough:image-viewer-get-state',
+  closeImageViewer: 'walkthrough:image-viewer-close',
+  imageViewerStateChanged: 'walkthrough:image-viewer-state-changed'
 } as const
