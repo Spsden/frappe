@@ -1058,8 +1058,8 @@ export function SOPDetailPage() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="space-y-5 px-6 py-6 md:px-8">
+      <div className="min-h-0 flex-1 overflow-hidden px-6 py-6 md:px-8">
+        <div className="flex h-full min-h-0 flex-col gap-5">
           <ProcessingBanner
             session={session}
             isRetryingSop={
@@ -1117,8 +1117,8 @@ export function SOPDetailPage() {
           )}
 
           {displaySop && (
-            <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-              <aside className="space-y-2">
+            <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+              <aside className="min-h-0 space-y-2 overflow-y-auto pr-1">
                 <p
                   className={
                     isDark
@@ -1152,7 +1152,7 @@ export function SOPDetailPage() {
                 </div>
               </aside>
 
-              <section className="min-w-0 space-y-5">
+              <section className="min-h-0 min-w-0 space-y-5 overflow-y-auto pr-1">
                 {displaySop.document && (
                   <div
                     className={
