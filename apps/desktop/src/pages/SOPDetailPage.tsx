@@ -461,6 +461,11 @@ export function SOPDetailPage() {
   ] = useState(false)
 
   const [
+    isStartingWalkthrough,
+    setIsStartingWalkthrough
+  ] = useState(false)
+
+  const [
     activeSopIndex,
     setActiveSopIndex
   ] = useState(0)
@@ -630,6 +635,29 @@ export function SOPDetailPage() {
       )
     } finally {
       setIsExportingPdf(false)
+    }
+  }
+
+  const startWalkthrough = async (
+    sop: BackendSOP
+  ) => {
+    setIsStartingWalkthrough(true)
+    setError(null)
+
+    try {
+      await window.api.walkthrough.open({
+        sop,
+        startedAt:
+          new Date().toISOString()
+      })
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not start walkthrough.'
+      )
+    } finally {
+      setIsStartingWalkthrough(false)
     }
   }
 
@@ -957,6 +985,33 @@ export function SOPDetailPage() {
                 )}
               </div>
             )}
+            {displaySop?.status ===
+              'approved' &&
+              displaySop.steps.length > 0 && (
+                <button
+                  type="button"
+                  title="Start walkthrough"
+                  disabled={isStartingWalkthrough}
+                  onClick={() =>
+                    void startWalkthrough(
+                      displaySop
+                    )
+                  }
+                  className={
+                    isDark
+                      ? 'flex items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-xs font-black uppercase tracking-[0.1em] text-emerald-100 transition hover:border-emerald-300/40 hover:bg-emerald-300/16 disabled:cursor-wait disabled:opacity-50'
+                      : 'flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700 shadow-[0_8px_20px_rgba(16,185,129,0.12)] transition hover:-translate-y-0.5 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-50'
+                  }
+                >
+                  <span className="grid size-5 place-items-center rounded-full bg-emerald-400 text-[10px] text-black">
+                    ▶
+                  </span>
+
+                  {isStartingWalkthrough
+                    ? 'Opening'
+                    : 'Walkthrough'}
+                </button>
+              )}
             {/* PDF / Print export */}
             {displaySop && (
               <button

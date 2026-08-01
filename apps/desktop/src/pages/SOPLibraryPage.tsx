@@ -103,6 +103,11 @@ export function SOPLibraryPage() {
     setIsExportingPdf
   ] = useState(false)
 
+  const [
+    isStartingWalkthrough,
+    setIsStartingWalkthrough
+  ] = useState(false)
+
   const [error, setError] =
     useState<string | null>(null)
 
@@ -279,6 +284,29 @@ export function SOPLibraryPage() {
       )
     } finally {
       setIsExportingPdf(false)
+    }
+  }
+
+  const startWalkthrough = async () => {
+    if (!selectedSop) return
+
+    setIsStartingWalkthrough(true)
+    setError(null)
+
+    try {
+      await window.api.walkthrough.open({
+        sop: selectedSop,
+        startedAt:
+          new Date().toISOString()
+      })
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not start walkthrough.'
+      )
+    } finally {
+      setIsStartingWalkthrough(false)
     }
   }
 
@@ -642,49 +670,79 @@ export function SOPLibraryPage() {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  disabled={
-                    isExportingPdf ||
-                    isLoadingImages
-                  }
-                  onClick={() =>
-                    void exportPdf()
-                  }
-                  className={
-                    isDark
-                      ? 'rounded-xl border border-white/15 bg-white px-4 py-2.5 text-xs font-black uppercase tracking-[0.1em] text-black transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-50'
-                      : 'flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#a66ad8] to-[#d783b6] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(166,106,216,0.22)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(166,106,216,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50'
-                  }
-                >
-                  {!isDark && (
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.4"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <div className="flex shrink-0 items-center gap-2">
+                  {selectedSop.status ===
+                    'approved' &&
+                    selectedSop.steps.length >
+                      0 && (
+                      <button
+                        type="button"
+                        disabled={
+                          isStartingWalkthrough
+                        }
+                        onClick={() =>
+                          void startWalkthrough()
+                        }
+                        className={
+                          isDark
+                            ? 'flex items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-2.5 text-xs font-black uppercase tracking-[0.1em] text-emerald-100 transition hover:bg-emerald-300/16 disabled:cursor-wait disabled:opacity-50'
+                            : 'flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700 shadow-[0_8px_20px_rgba(16,185,129,0.12)] transition duration-200 hover:-translate-y-0.5 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-50'
+                        }
+                      >
+                        <span className="grid size-5 place-items-center rounded-full bg-emerald-400 text-[10px] text-black">
+                          ▶
+                        </span>
 
-                      <polyline points="7 10 12 15 17 10" />
+                        {isStartingWalkthrough
+                          ? 'Opening'
+                          : 'Walkthrough'}
+                      </button>
+                    )}
 
-                      <line
-                        x1="12"
-                        y1="15"
-                        x2="12"
-                        y2="3"
-                      />
-                    </svg>
-                  )}
+                  <button
+                    type="button"
+                    disabled={
+                      isExportingPdf ||
+                      isLoadingImages
+                    }
+                    onClick={() =>
+                      void exportPdf()
+                    }
+                    className={
+                      isDark
+                        ? 'rounded-xl border border-white/15 bg-white px-4 py-2.5 text-xs font-black uppercase tracking-[0.1em] text-black transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-50'
+                        : 'flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#a66ad8] to-[#d783b6] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(166,106,216,0.22)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(166,106,216,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50'
+                    }
+                  >
+                    {!isDark && (
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
 
-                  {isExportingPdf
-                    ? 'Exporting'
-                    : 'Export PDF'}
-                </button>
+                        <polyline points="7 10 12 15 17 10" />
+
+                        <line
+                          x1="12"
+                          y1="15"
+                          x2="12"
+                          y2="3"
+                        />
+                      </svg>
+                    )}
+
+                    {isExportingPdf
+                      ? 'Exporting'
+                      : 'Export PDF'}
+                  </button>
+                </div>
               </div>
 
               {/* Overview */}
