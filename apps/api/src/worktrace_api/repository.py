@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, delete, distinct, func, or_, select
+from sqlalchemy import Select, case, delete, distinct, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,8 @@ from worktrace_api.database import (
     SessionLocal,
     SopLimitsSettingsRecord,
     SOPRecord,
+    UserRecord,
+    WorkflowRecord,
     WorkflowSessionRecord,
 )
 from worktrace_api.schemas import (
@@ -40,6 +42,8 @@ from worktrace_api.schemas import (
     SopLimitsSettingsUpdate,
     SOPStatus,
     TranscriptSegment,
+    Workflow,
+    WorkflowRecording,
     WorkflowSession,
 )
 
@@ -51,6 +55,25 @@ def get_db() -> Generator[Session, None, None]:
 
 def tenant_query(model: type, tenant_id: UUID) -> Select:
     return select(model).where(model.tenant_id == str(tenant_id))
+
+
+# Recording statuses that count as "still working" vs "done" for the workflow
+# summary cards. Kept as plain strings so they slot into SQL ``IN`` clauses.
+PROCESSING_RECORDING_STATUSES = [
+    RecordingStatus.RECORDING.value,
+    RecordingStatus.UPLOADING.value,
+    RecordingStatus.VALIDATING.value,
+    RecordingStatus.TRANSCRIBING_AUDIO.value,
+    RecordingStatus.PROCESSING_SCREENSHOTS.value,
+    RecordingStatus.ALIGNING_EVIDENCE.value,
+    RecordingStatus.AWAITING_MANUAL_REVIEW.value,
+    RecordingStatus.GENERATING_SOP.value,
+    RecordingStatus.SOP_FAILED.value,
+]
+READY_RECORDING_STATUSES = [
+    RecordingStatus.READY_FOR_REVIEW.value,
+    RecordingStatus.COMPLETED.value,
+]
 
 
 class Repository:
@@ -85,37 +108,49 @@ class Repository:
 
     def create_recording(
         self,
+        workflow_id: UUID,
         workflow_name: str,
         source_type: CaptureSource,
         has_audio: bool,
         recording_id: UUID | None = None,
         manual_mode: bool = False,
+        reference: str | None = None,
+        recorded_by: UUID | None = None,
     ) -> Recording:
         recording_id = recording_id or uuid4()
+        created_at = datetime.now(UTC)
+        reference_value = reference.strip() if reference else None
+        recorded_by_value = str(recorded_by) if recorded_by else None
         recording = Recording(
             tenant_id=self.tenant_id,
             id=recording_id,
+            workflow_id=workflow_id,
             workflow_name=workflow_name,
+            reference=reference_value,
+            recorded_by=recorded_by_value,
             source_type=source_type,
             status=RecordingStatus.RECORDING,
             uploaded_chunk_count=0,
             uploaded_bytes=0,
             has_audio=has_audio,
             manual_mode=manual_mode,
-            created_at=datetime.now(UTC),
+            created_at=created_at,
         )
         self.db.add(
             RecordingRecord(
                 id=str(recording.id),
                 tenant_id=str(self.tenant_id),
-                source_type=source_type,
+                workflow_id=str(workflow_id),
                 workflow_name=workflow_name,
+                reference=reference_value,
+                recorded_by=recorded_by_value,
+                source_type=source_type,
                 status=recording.status,
                 uploaded_chunk_count=0,
                 uploaded_bytes=0,
                 has_audio=has_audio,
                 manual_mode=manual_mode,
-                created_at=recording.created_at,
+                created_at=created_at,
             )
         )
         try:
@@ -132,6 +167,240 @@ class Repository:
             )
         )
         return self._recording_from_record(record) if record else None
+
+    # ------------------------------------------------------------------ #
+    # Workflows: a shared procedure that groups many recordings.          #
+    # ------------------------------------------------------------------ #
+
+    def create_workflow(
+        self,
+        name: str,
+        description: str | None = None,
+        created_by: UUID | None = None,
+    ) -> Workflow:
+        now = datetime.now(UTC)
+        record = WorkflowRecord(
+            id=str(uuid4()),
+            tenant_id=str(self.tenant_id),
+            name=name,
+            description=description,
+            created_by=str(created_by) if created_by else None,
+            created_at=now,
+            updated_at=now,
+        )
+        self.db.add(record)
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise ValueError("A workflow with this name already exists") from exc
+        return self._workflow_from_record(record)
+
+    def get_workflow(self, workflow_id: UUID) -> Workflow | None:
+        row = self._workflow_summary_query(
+            WorkflowRecord.id == str(workflow_id)
+        ).first()
+        if not row:
+            return None
+        workflow = self._workflow_from_row(row)
+        creator_id = row.WorkflowRecord.created_by
+        if creator_id:
+            workflow.created_by_email = self._user_email(creator_id)
+        return workflow
+
+    def get_workflow_by_name(self, name: str) -> Workflow | None:
+        row = self._workflow_summary_query(
+            WorkflowRecord.name == name
+        ).first()
+        return self._workflow_from_row(row) if row else None
+
+    def list_workflows(
+        self,
+        query: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Workflow]:
+        stmt = (
+            self._workflow_summary_query()
+            .order_by(
+                func.coalesce(
+                    func.max(RecordingRecord.created_at), WorkflowRecord.created_at
+                ).desc(),
+                WorkflowRecord.name.asc(),
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+        if query:
+            stmt = stmt.where(WorkflowRecord.name.ilike(f"%{query}%"))
+        return [self._workflow_from_row(row) for row in stmt.all()]
+
+    def list_recordings_for_workflow(self, workflow_id: UUID) -> list[WorkflowRecording]:
+        rows = self.db.execute(
+            select(
+                RecordingRecord,
+                WorkflowSessionRecord.duration_ms.label("duration_ms"),
+                UserRecord.email.label("recorded_by_email"),
+            )
+            .outerjoin(
+                WorkflowSessionRecord,
+                WorkflowSessionRecord.id == RecordingRecord.session_id,
+            )
+            .outerjoin(UserRecord, UserRecord.id == RecordingRecord.recorded_by)
+            .where(
+                RecordingRecord.tenant_id == str(self.tenant_id),
+                RecordingRecord.workflow_id == str(workflow_id),
+            )
+            .order_by(RecordingRecord.created_at.desc())
+        ).all()
+        return [self._workflow_recording_from_row(row) for row in rows]
+
+    def create_workflow_and_recording(
+        self,
+        workflow_name: str,
+        source_type: CaptureSource,
+        has_audio: bool,
+        recording_id: UUID | None = None,
+        manual_mode: bool = False,
+        reference: str | None = None,
+        recorded_by: UUID | None = None,
+        description: str | None = None,
+    ) -> tuple[Workflow, Recording]:
+        """Create a new workflow and the recording in a single transaction.
+
+        If a workflow with the same name already exists (e.g. a resumable retry
+        of the upload), it is reused rather than duplicated. Both writes share
+        one commit, so a recording failure rolls the new workflow back too —
+        the caller can never be left with an empty workflow.
+        """
+        record = self.db.scalar(
+            tenant_query(WorkflowRecord, self.tenant_id).where(
+                WorkflowRecord.name == workflow_name
+            )
+        )
+        if record is None:
+            now = datetime.now(UTC)
+            record = WorkflowRecord(
+                id=str(uuid4()),
+                tenant_id=str(self.tenant_id),
+                name=workflow_name,
+                description=description,
+                created_by=str(recorded_by) if recorded_by else None,
+                created_at=now,
+                updated_at=now,
+            )
+            self.db.add(record)
+            try:
+                self.db.flush()
+            except IntegrityError as exc:
+                self.db.rollback()
+                record = self.db.scalar(
+                    tenant_query(WorkflowRecord, self.tenant_id).where(
+                        WorkflowRecord.name == workflow_name
+                    )
+                )
+                if record is None:
+                    raise ValueError("Workflow could not be created") from exc
+        workflow = self._workflow_from_record(record)
+        recording = self.create_recording(
+            workflow_id=UUID(record.id),
+            workflow_name=record.name,
+            source_type=source_type,
+            has_audio=has_audio,
+            recording_id=recording_id,
+            manual_mode=manual_mode,
+            reference=reference,
+            recorded_by=recorded_by,
+        )
+        return workflow, recording
+
+    def _workflow_summary_query(self, *extra_filters):
+        processing = case(
+            (RecordingRecord.status.in_(PROCESSING_RECORDING_STATUSES), 1), else_=0
+        )
+        ready = case(
+            (RecordingRecord.status.in_(READY_RECORDING_STATUSES), 1), else_=0
+        )
+        stmt = (
+            select(
+                WorkflowRecord,
+                func.count(RecordingRecord.id).label("recording_count"),
+                func.count(distinct(RecordingRecord.recorded_by)).label("user_count"),
+                func.max(RecordingRecord.created_at).label("last_recording_at"),
+                func.coalesce(func.sum(processing), 0).label("processing_count"),
+                func.coalesce(func.sum(ready), 0).label("ready_count"),
+            )
+            .outerjoin(
+                RecordingRecord, RecordingRecord.workflow_id == WorkflowRecord.id
+            )
+            .where(WorkflowRecord.tenant_id == str(self.tenant_id))
+            .group_by(WorkflowRecord.id)
+        )
+        for clause in extra_filters:
+            stmt = stmt.where(clause)
+        return stmt
+
+    def _user_email(self, user_id: str) -> str | None:
+        user = self.db.get(UserRecord, user_id)
+        return user.email if user else None
+
+    @staticmethod
+    def _workflow_from_record(record: WorkflowRecord) -> Workflow:
+        return Workflow(
+            tenant_id=record.tenant_id,
+            id=record.id,
+            name=record.name,
+            description=record.description,
+            created_by=record.created_by,
+            created_by_email=None,
+            recording_count=0,
+            user_count=0,
+            last_recording_at=None,
+            processing_count=0,
+            ready_count=0,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+    @staticmethod
+    def _workflow_from_row(row) -> Workflow:
+        record = row.WorkflowRecord
+        return Workflow(
+            tenant_id=record.tenant_id,
+            id=record.id,
+            name=record.name,
+            description=record.description,
+            created_by=record.created_by,
+            created_by_email=None,
+            recording_count=int(row.recording_count or 0),
+            user_count=int(row.user_count or 0),
+            last_recording_at=row.last_recording_at,
+            processing_count=int(row.processing_count or 0),
+            ready_count=int(row.ready_count or 0),
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+    @staticmethod
+    def _workflow_recording_from_row(row) -> WorkflowRecording:
+        record: RecordingRecord = row.RecordingRecord
+        return WorkflowRecording.model_validate(
+            {
+                "schema_version": "1.0",
+                "tenant_id": record.tenant_id,
+                "id": record.id,
+                "workflow_id": record.workflow_id,
+                "workflow_name": record.workflow_name,
+                "reference": record.reference,
+                "recorded_by": record.recorded_by,
+                "recorded_by_email": row.recorded_by_email,
+                "session_id": record.session_id,
+                "status": record.status,
+                "duration_ms": row.duration_ms,
+                "created_at": record.created_at,
+                "completed_at": record.completed_at,
+            }
+        )
 
     def get_recordings(self, recording_ids: list[UUID]) -> list[Recording]:
         if not recording_ids:
@@ -1144,7 +1413,10 @@ class Repository:
                 "schema_version": "1.0",
                 "tenant_id": record.tenant_id,
                 "id": record.id,
+                "workflow_id": getattr(record, "workflow_id", None),
                 "workflow_name": record.workflow_name,
+                "reference": getattr(record, "reference", None),
+                "recorded_by": getattr(record, "recorded_by", None),
                 "source_type": record.source_type,
                 "session_id": record.session_id,
                 "status": record.status,
