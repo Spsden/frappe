@@ -353,7 +353,7 @@ export function SOPLibraryPage() {
   return (
     <section
       className={[
-        'flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-5 md:px-8',
+        'flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-3 md:px-8',
         isDark
           ? 'text-white'
           : 'bg-[#fafafb] text-slate-900'
@@ -367,15 +367,32 @@ export function SOPLibraryPage() {
               void loadSops()
             }
             disabled={isLoading}
+            title={isLoading ? 'Refreshing' : 'Refresh'}
+            aria-label={isLoading ? 'Refreshing SOPs' : 'Refresh SOPs'}
             className={
               isDark
-                ? 'rounded-full border border-white/15 bg-white/[0.04] px-5 py-3 text-sm font-black text-white transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-50'
-                : 'rounded-xl bg-gradient-to-r from-[#a66ad8] to-[#d783b6] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(166,106,216,0.22)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(166,106,216,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50'
+                ? 'grid size-9 place-items-center rounded-xl border border-white/15 bg-white/[0.04] text-white/65 transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-50'
+                : 'grid size-9 place-items-center rounded-xl bg-gradient-to-r from-[#a66ad8] to-[#d783b6] text-white shadow-[0_8px_20px_rgba(166,106,216,0.22)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(166,106,216,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50'
             }
           >
-            {isLoading
-              ? 'Refreshing...'
-              : 'Refresh'}
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className={[
+                'size-4',
+                isLoading ? 'animate-spin' : ''
+              ].join(' ')}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 12a9 9 0 0 1-15.4 6.4L3 16" />
+              <path d="M3 16v5h5" />
+              <path d="M3 12A9 9 0 0 1 18.4 5.6L21 8" />
+              <path d="M21 8V3h-5" />
+            </svg>
           </button>
         </div>
 
@@ -394,7 +411,7 @@ export function SOPLibraryPage() {
 
       {/* Main two-column layout */}
 
-      <div className="mt-4 grid min-h-0 flex-1 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="mt-3 grid min-h-0 flex-1 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
         {/* Left SOP list */}
 
         <aside

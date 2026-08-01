@@ -375,18 +375,35 @@ export function SessionsPage() {
 
   if (isDark) {
     return (
-      <section className="flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-5 md:px-8">
+      <section className="flex h-[calc(100vh-4rem)] min-h-0 flex-col overflow-hidden px-5 py-3 md:px-8">
         <div className="shrink-0">
           <div className="flex justify-end">
             <button
               type="button"
               onClick={() => void refresh()}
               disabled={isLoading}
-              className="rounded-full border border-white/15 bg-white/[0.04] px-5 py-3 text-sm font-black text-white transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-50"
+              title={isLoading ? 'Refreshing' : 'Refresh'}
+              aria-label={isLoading ? 'Refreshing sessions' : 'Refresh sessions'}
+              className="grid size-9 place-items-center rounded-xl border border-white/15 bg-white/[0.04] text-white/65 transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-50"
             >
-              {isLoading
-                ? 'Refreshing...'
-                : 'Refresh'}
+              <svg
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                className={[
+                  'size-4',
+                  isLoading ? 'animate-spin' : ''
+                ].join(' ')}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 12a9 9 0 0 1-15.4 6.4L3 16" />
+                <path d="M3 16v5h5" />
+                <path d="M3 12A9 9 0 0 1 18.4 5.6L21 8" />
+                <path d="M21 8V3h-5" />
+              </svg>
             </button>
           </div>
 
@@ -397,7 +414,7 @@ export function SessionsPage() {
           )}
         </div>
 
-        <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-2 [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
+        <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-2 [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
           {displaySessions.map((session) => {
             const failed = isFailed(session)
             const retryable =
