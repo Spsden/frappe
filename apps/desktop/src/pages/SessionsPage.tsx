@@ -8,6 +8,7 @@ import {
   canDeleteSession,
   canRetrySop,
   canRetrySession,
+  failureReason,
   formatDate,
   formatDuration,
   isFailed,
@@ -435,6 +436,9 @@ export function SessionsPage() {
             const isBusy =
               busyId === session.id
 
+            const failureMessage =
+              failureReason(session)
+
             return (
               <article
                 key={session.id}
@@ -492,6 +496,12 @@ export function SessionsPage() {
                         }
                       />
                     </div>
+
+                    {failureMessage && (
+                      <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[11px] leading-relaxed text-red-300">
+                        {failureMessage}
+                      </p>
+                    )}
                   </button>
 
                   <div className="flex shrink-0 flex-col gap-2">
@@ -627,6 +637,9 @@ export function SessionsPage() {
               const isBusy =
                 busyId === session.id
 
+              const failureMessage =
+                failureReason(session)
+
               return (
                 <article
                   key={session.id}
@@ -690,6 +703,12 @@ export function SessionsPage() {
                           }
                         />
                       </div>
+
+                      {failureMessage && (
+                        <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] leading-relaxed text-red-600">
+                          {failureMessage}
+                        </p>
+                      )}
                     </button>
 
                     <div className="flex shrink-0 flex-col gap-2">

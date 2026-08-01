@@ -14,6 +14,7 @@ import {
   canRetrySop,
   canRetrySession,
   canReviewEvidence,
+  failureReason,
   formatDate,
   formatDuration,
   isFailed,
@@ -811,6 +812,7 @@ export function SessionDetailPage() {
   const retryable = canRetrySession(session)
   const sopRetryable = canRetrySop(session)
   const deletable = canDeleteSession(session)
+  const failureMessage = failureReason(session)
 
   const currentStatus =
     statusForSession(session)
@@ -988,9 +990,9 @@ export function SessionDetailPage() {
             />
           </div>
 
-          {session.uploadError && (
+          {failureMessage && (
             <p className="mt-5 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-              {session.uploadError}
+              {failureMessage}
             </p>
           )}
 
@@ -1349,9 +1351,9 @@ export function SessionDetailPage() {
               </div>
             </div>
 
-            {session.uploadError && (
+            {failureMessage && (
               <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-                {session.uploadError}
+                {failureMessage}
               </p>
             )}
           </section>
