@@ -34,7 +34,9 @@ Each selectable recording should show enough context to make the choice meaningf
 - Processing status
 - SOP/evidence readiness
 
-Only recordings with completed processing and usable step evidence should be selectable.
+Only recordings with an approved SOP are selectable. The latest approved SOP
+for that recording is used; a newer draft does not replace it until the draft
+is explicitly approved.
 
 Useful selection controls include:
 
@@ -257,7 +259,7 @@ Generate the three-sentence summary
 Persist and display the comparison
 ```
 
-The request should be asynchronous. A possible API shape is:
+The request is asynchronous. The implemented API is:
 
 ```http
 POST /workflows/{workflow_id}/analytics-runs
@@ -270,11 +272,33 @@ POST /workflows/{workflow_id}/analytics-runs
 }
 ```
 
-The endpoint should immediately return an analytics-run identifier. The existing processing-status approach can then report stages such as aligning, calculating, summarising, completed, or failed.
+The endpoint returns a persisted, versioned analytics run with immutable input
+snapshots. The UI polls only while its status is `queued`, `embedding`,
+`aligning`, `calculating`, or `summarizing`. Terminal runs stop polling.
+
+Supporting routes:
+
+```http
+GET  /workflows/{workflow_id}/analytics/eligible-recordings
+GET  /workflows/{workflow_id}/analytics-runs
+GET  /analytics-runs/{run_id}
+POST /analytics-runs/{run_id}/retry
+```
+
+`summary_failed` preserves the deterministic charts and allows a summary-only
+retry. A full retry reuses the same locked SOP snapshots. Generating analytics
+again creates a new workflow-scoped version and leaves prior versions intact.
+
+Step embeddings use `text-embedding-3-small` at 1536 dimensions and are cached
+per SOP step/content hash in pgvector. Alignment groups are local to one run;
+there is no canonical sequence and unmatched steps remain optional or
+path-specific rather than being labelled incorrect.
 
 ## Workflow analytics and sample size
 
-Full workflow analytics should analyze all eligible completed recordings in the workflow, optionally constrained by an explicit date range. It should not be limited to five manually selected recordings.
+Full workflow analytics should analyze all eligible approved recordings in the
+workflow. It should not be limited to five manually selected recordings. The
+first product version does not include date-range filtering.
 
 Recommended interpretation by sample size:
 
