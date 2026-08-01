@@ -11,6 +11,9 @@ import type {
 } from '../../shared/connection'
 import type {
   AnnotationInput,
+  AnalyticsRetryTarget,
+  BackendAnalyticsEligibleRecording,
+  BackendAnalyticsRun,
   BackendDashboardSummary,
   BackendRecording,
   BackendRecordingStatusResponse,
@@ -188,6 +191,49 @@ export class WorkTraceApiClient {
   async listWorkflowRecordings(workflowId: string): Promise<BackendWorkflowRecording[]> {
     const response = await this.request(`/workflows/${workflowId}/recordings`)
     return (await response.json()) as BackendWorkflowRecording[]
+  }
+
+  async listAnalyticsEligibleRecordings(
+    workflowId: string
+  ): Promise<BackendAnalyticsEligibleRecording[]> {
+    const response = await this.request(
+      `/workflows/${workflowId}/analytics/eligible-recordings`
+    )
+    return (await response.json()) as BackendAnalyticsEligibleRecording[]
+  }
+
+  async listAnalyticsRuns(workflowId: string): Promise<BackendAnalyticsRun[]> {
+    const response = await this.request(`/workflows/${workflowId}/analytics-runs`)
+    return (await response.json()) as BackendAnalyticsRun[]
+  }
+
+  async createAnalyticsRun(
+    workflowId: string,
+    recordingIds: string[]
+  ): Promise<BackendAnalyticsRun> {
+    const response = await this.request(`/workflows/${workflowId}/analytics-runs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recording_ids: recordingIds })
+    })
+    return (await response.json()) as BackendAnalyticsRun
+  }
+
+  async getAnalyticsRun(runId: string): Promise<BackendAnalyticsRun> {
+    const response = await this.request(`/analytics-runs/${runId}`)
+    return (await response.json()) as BackendAnalyticsRun
+  }
+
+  async retryAnalyticsRun(
+    runId: string,
+    target: AnalyticsRetryTarget
+  ): Promise<BackendAnalyticsRun> {
+    const response = await this.request(`/analytics-runs/${runId}/retry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target })
+    })
+    return (await response.json()) as BackendAnalyticsRun
   }
 
   async uploadRecordingChunk(

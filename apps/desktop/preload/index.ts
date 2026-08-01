@@ -13,6 +13,9 @@ import {
 import {
   recordingIpc,
   type AnnotationInput,
+  type AnalyticsRetryTarget,
+  type BackendAnalyticsEligibleRecording,
+  type BackendAnalyticsRun,
   type AudioRecorderApi,
   type BackendDashboardSummary,
   type BackendScreenshotEvidence,
@@ -113,6 +116,33 @@ contextBridge.exposeInMainWorld('api', {
         recordingIpc.listWorkflowRecordings,
         workflowId
       ) as Promise<BackendWorkflowRecording[]>,
+    listAnalyticsEligibleRecordings: (workflowId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.listAnalyticsEligibleRecordings,
+        workflowId
+      ) as Promise<BackendAnalyticsEligibleRecording[]>,
+    listAnalyticsRuns: (workflowId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.listAnalyticsRuns,
+        workflowId
+      ) as Promise<BackendAnalyticsRun[]>,
+    createAnalyticsRun: (workflowId: string, recordingIds: string[]) =>
+      ipcRenderer.invoke(
+        recordingIpc.createAnalyticsRun,
+        workflowId,
+        recordingIds
+      ) as Promise<BackendAnalyticsRun>,
+    getAnalyticsRun: (runId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.getAnalyticsRun,
+        runId
+      ) as Promise<BackendAnalyticsRun>,
+    retryAnalyticsRun: (runId: string, target: AnalyticsRetryTarget) =>
+      ipcRenderer.invoke(
+        recordingIpc.retryAnalyticsRun,
+        runId,
+        target
+      ) as Promise<BackendAnalyticsRun>,
     deleteSession: (sessionId: string) => ipcRenderer.invoke(recordingIpc.deleteSession, sessionId),
     retry: (sessionId: string, target: RecordingRetryTarget) =>
       ipcRenderer.invoke(recordingIpc.retry, sessionId, target),

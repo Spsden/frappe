@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain, shell } from 'electron'
 import {
   recordingIpc,
   type AnnotationInput,
+  type AnalyticsRetryTarget,
   type RecordingOptions,
   type RecordingRetryTarget,
   type SaveRecordingPayload,
@@ -46,6 +47,26 @@ export function registerRecordingIpc(
   )
   ipcMain.handle(recordingIpc.listWorkflowRecordings, (_event, workflowId: string) =>
     library.listWorkflowRecordings(workflowId)
+  )
+  ipcMain.handle(
+    recordingIpc.listAnalyticsEligibleRecordings,
+    (_event, workflowId: string) => library.listAnalyticsEligibleRecordings(workflowId)
+  )
+  ipcMain.handle(recordingIpc.listAnalyticsRuns, (_event, workflowId: string) =>
+    library.listAnalyticsRuns(workflowId)
+  )
+  ipcMain.handle(
+    recordingIpc.createAnalyticsRun,
+    (_event, workflowId: string, recordingIds: string[]) =>
+      library.createAnalyticsRun(workflowId, recordingIds)
+  )
+  ipcMain.handle(recordingIpc.getAnalyticsRun, (_event, runId: string) =>
+    library.getAnalyticsRun(runId)
+  )
+  ipcMain.handle(
+    recordingIpc.retryAnalyticsRun,
+    (_event, runId: string, target: AnalyticsRetryTarget) =>
+      library.retryAnalyticsRun(runId, target)
   )
   ipcMain.handle(recordingIpc.deleteSession, (_event, sessionId: string) =>
     library.deleteSession(sessionId)
@@ -149,6 +170,11 @@ export function registerRecordingIpc(
     ipcMain.removeHandler(recordingIpc.listWorkflows)
     ipcMain.removeHandler(recordingIpc.getWorkflow)
     ipcMain.removeHandler(recordingIpc.listWorkflowRecordings)
+    ipcMain.removeHandler(recordingIpc.listAnalyticsEligibleRecordings)
+    ipcMain.removeHandler(recordingIpc.listAnalyticsRuns)
+    ipcMain.removeHandler(recordingIpc.createAnalyticsRun)
+    ipcMain.removeHandler(recordingIpc.getAnalyticsRun)
+    ipcMain.removeHandler(recordingIpc.retryAnalyticsRun)
     ipcMain.removeHandler(recordingIpc.deleteSession)
     ipcMain.removeHandler(recordingIpc.retry)
     ipcMain.removeHandler(recordingIpc.getSession)
