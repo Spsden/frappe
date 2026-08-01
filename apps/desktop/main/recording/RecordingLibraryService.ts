@@ -20,6 +20,7 @@ import { RecordingUploader } from './RecordingUploader'
 export class RecordingLibraryService {
   private readonly uploader: RecordingUploader
   private listSessionsRequest: Promise<RecordedSessionSummary[]> | null = null
+  private readonly workflowListRequests = new Map<string, Promise<BackendWorkflow[]>>()
   private readonly sessionRequests = new Map<string, Promise<BackendWorkflowSession>>()
 
   constructor(
@@ -42,7 +43,19 @@ export class RecordingLibraryService {
   }
 
   async listWorkflows(query?: string): Promise<BackendWorkflow[]> {
-    return this.apiClient.listWorkflows(query)
+    const key = query?.trim() ?? ''
+    const existing = this.workflowListRequests.get(key)
+    if (existing) return existing
+
+    const request = this.apiClient.listWorkflows(key || undefined)
+    this.workflowListRequests.set(key, request)
+    try {
+      return await request
+    } finally {
+      if (this.workflowListRequests.get(key) === request) {
+        this.workflowListRequests.delete(key)
+      }
+    }
   }
 
   async getWorkflow(workflowId: string): Promise<BackendWorkflow> {
