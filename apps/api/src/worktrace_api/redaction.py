@@ -3,17 +3,21 @@
 This is the production form of ``notebooks/redaction_pipeline_demo.ipynb``:
 RapidOCR locates text, ``openai/privacy-filter`` classifies each OCR region,
 regex rules catch common structured secrets, and Pillow blurs every matching
-box. Model weights are loaded lazily and cached in the Celery worker process.
+box. Model weights are warmed during Docker startup and cached on disk. The
+loader remains lazy as a fallback for non-Docker development and tests.
 """
 
 from __future__ import annotations
 
 import io
+import json
 import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageFilter
@@ -40,6 +44,8 @@ RULE_PATTERNS = {
 OCRBox = list[list[float]]
 OCRItem = tuple[OCRBox, str, float]
 Classifier = Callable[[str], list[dict[str, Any]]]
+
+MODEL_READY_PATH = Path("/root/.cache/worktrace/redaction-model.json")
 
 
 class RedactionUnavailable(RuntimeError):
@@ -138,6 +144,32 @@ def load_pii_classifier(model: str, token: str | None) -> Classifier | None:
         # optional classifier cannot be loaded. Do not log OCR text or tokens.
         logger.exception("Privacy classifier unavailable; using regex rules only")
         return None
+
+
+def redaction_model_ready(model: str) -> bool:
+    """Return whether Docker warm-up completed for the configured model."""
+    try:
+        payload = json.loads(MODEL_READY_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    return payload.get("model") == model and payload.get("status") == "ready"
+
+
+def mark_redaction_model_ready(model: str) -> None:
+    """Atomically publish model readiness for API health checks."""
+    MODEL_READY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary = MODEL_READY_PATH.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(
+            {
+                "model": model,
+                "status": "ready",
+                "warmed_at": datetime.now(UTC).isoformat(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    temporary.replace(MODEL_READY_PATH)
 
 
 class PrivacyRedactor:

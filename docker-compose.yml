@@ -83,8 +83,22 @@ services:
       # Recording storage shared with the worker, persisted on the host so
       # `compose down` keeps your data. (Postgres lives in its own volume.)
       - ./apps/api/data:/data
-      # Whisper/torch model weights download once and are reused.
+      # Worker model weights download once and are reused.
       - whisper-cache:/root/.cache
+
+  model-init:
+    # One-shot startup job. Compose waits for this to populate the shared model
+    # cache before it starts the Celery worker.
+    image: worktrace-api:dev
+    environment:
+      <<: *api-env
+    env_file:
+      - ./apps/api/.env
+    volumes:
+      - ./apps/api/src:/app/src
+      - whisper-cache:/root/.cache
+    command: ["python", "-m", "worktrace_api.model_bootstrap"]
+    restart: "no"
 
   worker:
     # Same image as `api` (built once), different command. This is what keeps
@@ -95,6 +109,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      model-init:
+        condition: service_completed_successfully
     environment:
       <<: *api-env
     env_file:

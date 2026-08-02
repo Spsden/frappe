@@ -8,6 +8,7 @@ from PIL import Image
 from test_api import auth_headers
 
 import worktrace_api.main as api_main
+import worktrace_api.redaction as redaction
 from worktrace_api.database import SessionLocal
 from worktrace_api.recordings import ChunkStorage
 from worktrace_api.redaction import PrivacyRedactor, RedactionRegion, RedactionResult
@@ -24,6 +25,18 @@ from worktrace_api.schemas import (
 from worktrace_api.settings import get_settings
 
 TENANT = UUID(TEST_TENANT_ID)
+
+
+def test_redaction_model_readiness_marker(tmp_path, monkeypatch):
+    marker = tmp_path / "worktrace" / "redaction-model.json"
+    monkeypatch.setattr(redaction, "MODEL_READY_PATH", marker)
+
+    assert redaction.redaction_model_ready("test-model") is False
+
+    redaction.mark_redaction_model_ready("test-model")
+
+    assert redaction.redaction_model_ready("test-model") is True
+    assert redaction.redaction_model_ready("other-model") is False
 
 
 def png_bytes(width: int = 240, height: int = 120) -> bytes:
