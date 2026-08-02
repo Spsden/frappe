@@ -51,6 +51,7 @@ def create_celery_app() -> Celery:
         task_routes={
             "worktrace_api.tasks.transcription.*": {"queue": "audio"},
             "worktrace_api.tasks.annotation.*": {"queue": "vision"},
+            "worktrace_api.tasks.redaction.*": {"queue": "vision"},
             "worktrace_api.tasks.sop.*": {"queue": "llm"},
             "worktrace_api.tasks.analytics.*": {"queue": "llm"},
             "worktrace_api.tasks.pipeline.*": {"queue": "default"},
@@ -62,6 +63,7 @@ def create_celery_app() -> Celery:
         "worktrace_api.tasks.transcription",
         "worktrace_api.tasks.sop_generation",
         "worktrace_api.tasks.analytics",
+        "worktrace_api.tasks.redaction",
     )
     return app
 
