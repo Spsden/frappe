@@ -161,6 +161,11 @@ class ScreenshotEvidence(StrictModel):
     media_url: str | None = Field(default=None, max_length=4000)
     annotated_media_url: str | None = Field(default=None, max_length=4000)
     annotations: list[ScreenshotAnnotation] = Field(default_factory=list, max_length=50)
+    privacy_redaction_status: Literal[
+        "not_run", "queued", "processing", "clear", "redacted", "failed"
+    ] = "not_run"
+    privacy_redaction_count: int = Field(default=0, ge=0)
+    privacy_redaction_version: int = Field(default=0, ge=0)
 
 
 class ScreenshotAnnotationInput(StrictModel):
@@ -525,6 +530,33 @@ class RecordingStatus(StrEnum):
     FAILED = "failed"
 
 
+class RedactionRunStatus(StrEnum):
+    NOT_RUN = "not_run"
+    QUEUED = "queued"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    PARTIAL_FAILED = "partial_failed"
+    FAILED = "failed"
+
+
+class RedactionRun(StrictModel):
+    id: UUID | None = None
+    recording_id: UUID
+    version: int = Field(default=0, ge=0)
+    status: RedactionRunStatus = RedactionRunStatus.NOT_RUN
+    total_screenshots: int = Field(default=0, ge=0)
+    processed_screenshots: int = Field(default=0, ge=0)
+    redacted_screenshots: int = Field(default=0, ge=0)
+    redaction_count: int = Field(default=0, ge=0)
+    failed_screenshots: int = Field(default=0, ge=0)
+    detector_mode: Literal["model_and_rules", "rules_only"] | None = None
+    warning_message: str | None = None
+    error_message: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime | None = None
+
+
 class ChunkContentType(StrEnum):
     AUDIO = "audio"
     EVENTS = "events"
@@ -736,6 +768,12 @@ class Screenshot(StrictModel):
     redaction_status: Literal["pending", "not_required", "redacted", "failed"] = "pending"
     annotated_storage_key: str | None = Field(default=None, max_length=500)
     annotations: list[dict[str, Any]] | None = None
+    privacy_redaction_status: Literal[
+        "not_run", "queued", "processing", "clear", "redacted", "failed"
+    ] = "not_run"
+    privacy_redaction_count: int = Field(default=0, ge=0)
+    privacy_redaction_version: int = Field(default=0, ge=0)
+    privacy_redacted_storage_key: str | None = Field(default=None, max_length=500)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

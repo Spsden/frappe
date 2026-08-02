@@ -16,6 +16,7 @@ import type {
   BackendAnalyticsRun,
   BackendDashboardSummary,
   BackendRecording,
+  BackendRedactionRun,
   BackendRecordingStatusResponse,
   BackendScreenshotEvidence,
   BackendSearchResponse,
@@ -116,11 +117,9 @@ export class WorkTraceApiClient {
   }
 
   async getHealth(): Promise<BackendHealth> {
-    // No auth required (/health is public) and works pre-login, so resolve the
-    // URL from the stored status rather than requiring a session token.
-    const apiUrl = this.settings.normalizeApiUrl(this.settings.getStatus().apiUrl)
-    const response = await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(3_000) })
-    await requireSuccess(response)
+    // Detailed capability health is tenant-aware because LLM configuration is
+    // stored per workspace. Keep it behind the normal authenticated request.
+    const response = await this.request('/health/services')
     return (await response.json()) as BackendHealth
   }
 
@@ -439,6 +438,18 @@ export class WorkTraceApiClient {
       body: JSON.stringify({ custom_instruction: customInstruction })
     })
     return (await response.json()) as BackendRecording
+  }
+
+  async getRedaction(recordingId: string): Promise<BackendRedactionRun> {
+    const response = await this.request(`/recordings/${recordingId}/redaction`)
+    return (await response.json()) as BackendRedactionRun
+  }
+
+  async startRedaction(recordingId: string): Promise<BackendRedactionRun> {
+    const response = await this.request(`/recordings/${recordingId}/redaction`, {
+      method: 'POST'
+    })
+    return (await response.json()) as BackendRedactionRun
   }
 
   async request(path: string, init: RequestInit = {}): Promise<Response> {

@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     external_ai_enabled: bool = False
     external_ai_approval_required: bool = True
     whisper_model_size: str = "tiny"
+    hf_token: str | None = None
+    redaction_model: str = "openai/privacy-filter"
+    redaction_score_threshold: float = Field(default=0.5, ge=0, le=1)
+    redaction_blur_radius: int = Field(default=14, ge=1, le=100)
+    redaction_max_dimension_px: int = Field(default=1600, ge=320, le=4096)
     openai_api_key: str | None = None
     # Provider endpoint + model are env-configurable so the backend can be
     # swapped (OpenAI, OpenRouter, a Claude-compatible gateway) without code

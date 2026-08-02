@@ -29,10 +29,29 @@ export interface ConnectionStatus {
 export interface BackendHealth {
   status: string
   environment: string
-  services: {
-    redis: 'up' | 'down'
-    worker: 'up' | 'down' | 'unknown'
-  }
+  services: Record<BackendServiceName, BackendServiceHealth>
+}
+
+export type BackendServiceName =
+  | 'api'
+  | 'database'
+  | 'redis'
+  | 'celery'
+  | 'annotation'
+  | 'redaction'
+  | 'transcription'
+  | 'llm'
+
+export type BackendServiceStatus =
+  | 'up'
+  | 'down'
+  | 'starting'
+  | 'unconfigured'
+  | 'unknown'
+
+export interface BackendServiceHealth {
+  status: BackendServiceStatus
+  detail: string
 }
 
 export interface LLMProviderSettings {

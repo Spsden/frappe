@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type {
+  BackendRedactionRun,
   BackendTranscript,
   BackendWorkflowSession,
   RecordedSessionSummary
@@ -342,6 +343,45 @@ const POLLING_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   'awaiting_manual_review'
 ])
 
+const ACTIVE_REDACTION_STATUSES = new Set(['queued', 'processing'])
+
+function redactionButtonLabel(
+  run: BackendRedactionRun | null,
+  starting: boolean
+): string {
+  if (starting) return 'Starting scan'
+  if (!run || run.status === 'not_run') return 'AI redaction'
+  if (ACTIVE_REDACTION_STATUSES.has(run.status)) {
+    return run.status === 'queued'
+      ? 'Redaction queued'
+      : `Scanning ${run.processed_screenshots} of ${run.total_screenshots}`
+  }
+  if (run.status === 'completed') return 'Redact again'
+  return 'Retry redaction'
+}
+
+function redactionSummary(run: BackendRedactionRun | null): string {
+  if (!run || run.status === 'not_run') {
+    return 'AI redaction has not been run. It starts only when you click the button.'
+  }
+  if (run.status === 'queued') return 'The screenshot scan is waiting for the vision worker.'
+  if (run.status === 'processing') {
+    return `Scanning screenshot ${Math.min(
+      run.processed_screenshots + 1,
+      run.total_screenshots
+    )} of ${run.total_screenshots}.`
+  }
+  if (run.status === 'completed') {
+    return run.redaction_count > 0
+      ? `${run.redaction_count} sensitive region${run.redaction_count === 1 ? '' : 's'} blurred across ${run.redacted_screenshots} screenshot${run.redacted_screenshots === 1 ? '' : 's'}.`
+      : `${run.total_screenshots} screenshot${run.total_screenshots === 1 ? '' : 's'} scanned. No sensitive regions were found.`
+  }
+  if (run.status === 'partial_failed') {
+    return `${run.processed_screenshots - run.failed_screenshots} of ${run.total_screenshots} screenshots scanned. ${run.failed_screenshots} failed.`
+  }
+  return run.error_message ?? 'Screenshot redaction failed. You can retry it manually.'
+}
+
 function isTerminalForPolling(
   session: RecordedSessionSummary
 ): boolean {
@@ -400,6 +440,18 @@ export function SessionDetailPage() {
 
   const [reviewDirty, setReviewDirty] =
     useState(false)
+
+  const [redaction, setRedaction] =
+    useState<BackendRedactionRun | null>(null)
+
+  const [redactionStarting, setRedactionStarting] =
+    useState(false)
+
+  const [redactionReloadNonce, setRedactionReloadNonce] =
+    useState(0)
+
+  const [evidenceRefreshVersion, setEvidenceRefreshVersion] =
+    useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -558,6 +610,78 @@ export function SessionDetailPage() {
     session?.backend?.recording
       .custom_sop_instruction
   ])
+
+  const remoteRecordingId =
+    session?.remoteRecordingId ?? null
+
+  useEffect(() => {
+    if (!remoteRecordingId) {
+      setRedaction(null)
+      return
+    }
+
+    let cancelled = false
+    let timer: number | undefined
+
+    const loadRedaction = async () => {
+      try {
+        const run =
+          await window.api.recording.getRedaction(
+            remoteRecordingId
+          )
+        if (cancelled) return
+        setRedaction(run)
+
+        if (!ACTIVE_REDACTION_STATUSES.has(run.status)) {
+          if (run.version > 0) {
+            setEvidenceRefreshVersion(run.version)
+          }
+          return
+        }
+
+        timer = window.setTimeout(
+          () => void loadRedaction(),
+          1500
+        )
+      } catch (caught) {
+        if (!cancelled) {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : 'Could not load redaction status.'
+          )
+        }
+      }
+    }
+
+    void loadRedaction()
+    return () => {
+      cancelled = true
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [redactionReloadNonce, remoteRecordingId])
+
+  const startRedaction = async () => {
+    if (!remoteRecordingId) return
+    setRedactionStarting(true)
+    setError(null)
+    try {
+      const run =
+        await window.api.recording.startRedaction(
+          remoteRecordingId
+        )
+      setRedaction(run)
+      setRedactionReloadNonce((value) => value + 1)
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not start AI redaction.'
+      )
+    } finally {
+      setRedactionStarting(false)
+    }
+  }
 
   const retry = async () => {
     setActing('upload')
@@ -807,6 +931,10 @@ export function SessionDetailPage() {
 
   const canEditEvidence = canReviewEvidence(session)
 
+  const redactionActive =
+    redaction !== null &&
+    ACTIVE_REDACTION_STATUSES.has(redaction.status)
+
   const reviewCtaLabel =
     currentStatus === 'ready_for_review'
       ? 'Regenerate SOP'
@@ -1029,6 +1157,16 @@ export function SessionDetailPage() {
                   Saving writes the review state
                   back to the backend.
                 </p>
+
+                <p className="mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">
+                  {redactionSummary(redaction)}
+                </p>
+
+                {redaction?.warning_message && (
+                  <p className="mt-2 text-xs text-amber-200/75">
+                    {redaction.warning_message}
+                  </p>
+                )}
               </div>
 
               <div className="flex shrink-0 flex-wrap gap-2">
@@ -1048,6 +1186,25 @@ export function SessionDetailPage() {
                     : reviewDirty
                       ? 'Save review'
                       : 'Saved'}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={
+                    acting !== null ||
+                    redactionStarting ||
+                    redactionActive ||
+                    !remoteRecordingId
+                  }
+                  onClick={() =>
+                    void startRedaction()
+                  }
+                  className="rounded-xl border border-emerald-400/35 bg-emerald-400/[0.08] px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-emerald-200 transition hover:bg-emerald-400/[0.16] disabled:cursor-wait disabled:opacity-45"
+                >
+                  {redactionButtonLabel(
+                    redaction,
+                    redactionStarting
+                  )}
                 </button>
 
                 <button
@@ -1141,6 +1298,7 @@ export function SessionDetailPage() {
                 session.remoteSessionId
               }
               editable={canEditEvidence}
+              refreshVersion={evidenceRefreshVersion}
             />
           </div>
         </section>
@@ -1373,6 +1531,16 @@ export function SessionDetailPage() {
                     short instruction for the SOP
                     prompt.
                   </p>
+
+                  <p className="mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                    {redactionSummary(redaction)}
+                  </p>
+
+                  {redaction?.warning_message && (
+                    <p className="mt-2 text-xs text-amber-700">
+                      {redaction.warning_message}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -1392,6 +1560,25 @@ export function SessionDetailPage() {
                       : reviewDirty
                         ? 'Save review'
                         : 'Saved'}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={
+                      acting !== null ||
+                      redactionStarting ||
+                      redactionActive ||
+                      !remoteRecordingId
+                    }
+                    onClick={() =>
+                      void startRedaction()
+                    }
+                    className="action-button"
+                  >
+                    {redactionButtonLabel(
+                      redaction,
+                      redactionStarting
+                    )}
                   </button>
 
                   <button
@@ -1513,6 +1700,7 @@ export function SessionDetailPage() {
                   session.remoteSessionId
                 }
                 editable={canEditEvidence}
+                refreshVersion={evidenceRefreshVersion}
               />
             </div>
           </div>

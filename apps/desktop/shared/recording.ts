@@ -27,6 +27,14 @@ export type BackendRecordingStatus =
 
 export type RecordingRetryTarget = 'upload' | 'sop'
 
+export type RedactionRunStatus =
+  | 'not_run'
+  | 'queued'
+  | 'processing'
+  | 'completed'
+  | 'partial_failed'
+  | 'failed'
+
 export type CaptureMode = 'full-desktop' | 'display'
 export type RecordingPlatform = 'darwin' | 'win32' | 'linux'
 export type CaptureCoordinateSpace = 'global-screen' | 'display-dip' | 'display-pixels'
@@ -369,6 +377,27 @@ export interface BackendScreenshotEvidence {
   media_url: string | null
   annotated_media_url: string | null
   annotations: BackendAnnotation[]
+  privacy_redaction_status: 'not_run' | 'queued' | 'processing' | 'clear' | 'redacted' | 'failed'
+  privacy_redaction_count: number
+  privacy_redaction_version: number
+}
+
+export interface BackendRedactionRun {
+  id: string | null
+  recording_id: string
+  version: number
+  status: RedactionRunStatus
+  total_screenshots: number
+  processed_screenshots: number
+  redacted_screenshots: number
+  redaction_count: number
+  failed_screenshots: number
+  detector_mode: 'model_and_rules' | 'rules_only' | null
+  warning_message: string | null
+  error_message: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string | null
 }
 
 export interface SopDecisionBranch {
@@ -583,6 +612,8 @@ export interface RecordingApi {
     recordingId: string,
     customInstruction?: string | null
   ) => Promise<BackendRecording>
+  getRedaction: (recordingId: string) => Promise<BackendRedactionRun>
+  startRedaction: (recordingId: string) => Promise<BackendRedactionRun>
   openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') => Promise<void>
   onStateChanged: (listener: (state: RecordingState) => void) => () => void
 }
@@ -621,6 +652,8 @@ export const recordingIpc = {
   deleteScreenshot: 'recording:delete-screenshot',
   saveManualReview: 'recording:save-manual-review',
   generateSop: 'recording:generate-sop',
+  getRedaction: 'recording:get-redaction',
+  startRedaction: 'recording:start-redaction',
   openPermissionSettings: 'recording:open-permission-settings',
   stateChanged: 'recording:state-changed',
   frameSample: 'recording:frame-sample',

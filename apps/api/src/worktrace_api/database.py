@@ -368,6 +368,38 @@ class RecordingRecord(TenantRecord, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class RedactionRunRecord(TenantRecord, Base):
+    __tablename__ = "redaction_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "recording_id",
+            "version",
+            name="uq_redaction_run_version",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    recording_id: Mapped[str] = mapped_column(
+        ForeignKey("recordings.id", ondelete="CASCADE"), index=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    total_screenshots: Mapped[int] = mapped_column(Integer, default=0)
+    processed_screenshots: Mapped[int] = mapped_column(Integer, default=0)
+    redacted_screenshots: Mapped[int] = mapped_column(Integer, default=0)
+    redaction_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_screenshots: Mapped[int] = mapped_column(Integer, default=0)
+    detector_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    warning_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 class RecordingChunkRecord(TenantRecord, Base):
     __tablename__ = "recording_chunks"
     __table_args__ = (
@@ -417,6 +449,14 @@ class ScreenshotRecord(TenantRecord, Base):
     redaction_status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
     annotated_storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
     annotations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    privacy_redaction_status: Mapped[str] = mapped_column(
+        String(30), default="not_run", index=True
+    )
+    privacy_redaction_count: Mapped[int] = mapped_column(Integer, default=0)
+    privacy_redaction_version: Mapped[int] = mapped_column(Integer, default=0)
+    privacy_redacted_storage_key: Mapped[str | None] = mapped_column(
+        String(500), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

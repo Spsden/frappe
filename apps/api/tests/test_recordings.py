@@ -931,3 +931,30 @@ def test_health_reports_services(client):
     assert body["status"] == "ok"
     assert body["services"]["redis"] in {"up", "down"}
     assert body["services"]["worker"] in {"up", "down", "unknown"}
+
+
+def test_authenticated_health_reports_pipeline_capabilities(client, monkeypatch):
+    import worktrace_api.main as api_main
+
+    monkeypatch.setattr(
+        api_main,
+        "service_status",
+        lambda _url: {"redis": "up", "worker": "up"},
+    )
+    monkeypatch.setattr(
+        api_main,
+        "consumed_queues",
+        lambda _url: {"audio", "vision", "llm"},
+    )
+    monkeypatch.setattr(api_main, "redaction_model_ready", lambda _model: True)
+
+    response = client.get("/health/services", headers=auth_headers())
+
+    assert response.status_code == 200
+    services = response.json()["services"]
+    assert services["api"]["status"] == "up"
+    assert services["database"]["status"] == "up"
+    assert services["annotation"]["status"] == "up"
+    assert services["redaction"]["status"] == "up"
+    assert services["transcription"]["status"] == "up"
+    assert services["llm"]["status"] == "unconfigured"

@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react'
 import type { BackendHealth } from '../../../shared/connection'
 
 /**
- * Polls GET /health so the UI can show when the async pipeline (Redis +
- * Celery worker) is offline. Only polls while `enabled` (typically when the API
- * connection itself is up — otherwise the "SYSTEM OFFLINE" indicator already
- * covers it). Returns null while unknown or unreachable.
+ * Polls tenant-aware service health so Settings can distinguish infrastructure,
+ * queue consumers, local models, and provider configuration. Returns null while
+ * unknown or unreachable.
  */
 export function useServices(enabled: boolean): BackendHealth | null {
   const [health, setHealth] = useState<BackendHealth | null>(null)

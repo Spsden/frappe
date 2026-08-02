@@ -20,7 +20,7 @@ import io
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 _ANNOTATION_RGB: dict[str, tuple[int, int, int]] = {
     "click_rectangle": (239, 68, 68),
@@ -167,6 +167,16 @@ def render_annotated_png(image_bytes: bytes, annotations: list[dict[str, Any]]) 
         width, height = img.size
         for annotation in annotations:
             ann_type = annotation.get("type", "click_rectangle")
+            if ann_type == "redact":
+                bounds = annotation.get("bounds") or {}
+                x = max(0, int(float(bounds.get("x", 0))))
+                y = max(0, int(float(bounds.get("y", 0))))
+                x2 = min(width, int(float(bounds.get("x", 0)) + float(bounds.get("width", 0))))
+                y2 = min(height, int(float(bounds.get("y", 0)) + float(bounds.get("height", 0))))
+                if x2 > x and y2 > y:
+                    crop = img.crop((x, y, x2, y2)).filter(ImageFilter.GaussianBlur(radius=14))
+                    img.paste(crop, (x, y))
+                continue
             rgb = _ANNOTATION_RGB.get(ann_type, _ANNOTATION_RGB["click_rectangle"])
             bounds = annotation.get("bounds") or {}
             if ann_type == "click_rectangle":

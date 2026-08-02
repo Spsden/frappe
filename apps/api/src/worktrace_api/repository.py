@@ -17,6 +17,7 @@ from worktrace_api.database import (
     LLMProviderSettingsRecord,
     RecordingChunkRecord,
     RecordingRecord,
+    RedactionRunRecord,
     ScreenshotRecord,
     SessionLocal,
     SopLimitsSettingsRecord,
@@ -45,6 +46,8 @@ from worktrace_api.schemas import (
     Recording,
     RecordingStatus,
     RecordingTranscript,
+    RedactionRun,
+    RedactionRunStatus,
     Screenshot,
     SearchResponse,
     SearchResult,
@@ -1066,6 +1069,10 @@ class Repository:
                     change_score=screenshot.change_score,
                     content_hash=screenshot.content_hash,
                     redaction_status=screenshot.redaction_status,
+                    privacy_redaction_status=screenshot.privacy_redaction_status,
+                    privacy_redaction_count=screenshot.privacy_redaction_count,
+                    privacy_redaction_version=screenshot.privacy_redaction_version,
+                    privacy_redacted_storage_key=screenshot.privacy_redacted_storage_key,
                     created_at=screenshot.created_at,
                 )
             )
@@ -1123,6 +1130,193 @@ class Repository:
         if record:
             record.annotations = annotations
             self.db.commit()
+
+    def get_latest_redaction_run(self, recording_id: UUID) -> RedactionRun | None:
+        record = self.db.scalar(
+            tenant_query(RedactionRunRecord, self.tenant_id)
+            .where(RedactionRunRecord.recording_id == str(recording_id))
+            .order_by(RedactionRunRecord.version.desc())
+            .limit(1)
+        )
+        return self._redaction_run_from_record(record) if record else None
+
+    def get_redaction_run(self, run_id: UUID) -> RedactionRun | None:
+        record = self.db.scalar(
+            tenant_query(RedactionRunRecord, self.tenant_id).where(
+                RedactionRunRecord.id == str(run_id)
+            )
+        )
+        return self._redaction_run_from_record(record) if record else None
+
+    def create_redaction_run(self, recording_id: UUID) -> tuple[RedactionRun, bool]:
+        recording = self.get_recording(recording_id)
+        if not recording:
+            raise LookupError("Recording not found")
+        if not recording.session_id:
+            raise ValueError("Recording screenshots are not ready yet")
+
+        latest = self.get_latest_redaction_run(recording_id)
+        if latest and latest.status in {
+            RedactionRunStatus.QUEUED,
+            RedactionRunStatus.PROCESSING,
+        }:
+            return latest, False
+
+        screenshot_records = list(
+            self.db.scalars(
+                tenant_query(ScreenshotRecord, self.tenant_id)
+                .where(ScreenshotRecord.recording_id == str(recording_id))
+                .order_by(ScreenshotRecord.sequence)
+            ).all()
+        )
+        if not screenshot_records:
+            raise ValueError("Recording contains no screenshots to redact")
+
+        version = (latest.version if latest else 0) + 1
+        now = datetime.now(UTC)
+        record = RedactionRunRecord(
+            id=str(uuid4()),
+            tenant_id=str(self.tenant_id),
+            recording_id=str(recording_id),
+            version=version,
+            status=RedactionRunStatus.QUEUED.value,
+            total_screenshots=len(screenshot_records),
+            created_at=now,
+        )
+        self.db.add(record)
+        for screenshot in screenshot_records:
+            screenshot.privacy_redaction_status = "queued"
+            screenshot.privacy_redaction_count = 0
+            screenshot.privacy_redaction_version = version
+        self.db.commit()
+        return self._redaction_run_from_record(record), True
+
+    def start_redaction_run(self, run_id: UUID) -> RedactionRun | None:
+        record = self._get_redaction_run_record(run_id)
+        if not record:
+            return None
+        record.status = RedactionRunStatus.PROCESSING.value
+        record.started_at = datetime.now(UTC)
+        record.error_message = None
+        self.db.commit()
+        return self._redaction_run_from_record(record)
+
+    def start_screenshot_redaction(self, run_id: UUID, screenshot_id: UUID) -> bool:
+        run = self._get_redaction_run_record(run_id)
+        if not run:
+            return False
+        screenshot = self.db.scalar(
+            tenant_query(ScreenshotRecord, self.tenant_id).where(
+                ScreenshotRecord.id == str(screenshot_id),
+                ScreenshotRecord.recording_id == run.recording_id,
+                ScreenshotRecord.privacy_redaction_version == run.version,
+            )
+        )
+        if not screenshot:
+            return False
+        screenshot.privacy_redaction_status = "processing"
+        self.db.commit()
+        return True
+
+    def finish_screenshot_redaction(
+        self,
+        run_id: UUID,
+        screenshot_id: UUID,
+        *,
+        status: str,
+        redaction_count: int,
+        storage_key: str | None,
+        annotated_storage_key: str | None,
+    ) -> None:
+        run = self._get_redaction_run_record(run_id)
+        if not run:
+            raise LookupError("Redaction run not found")
+        screenshot = self.db.scalar(
+            tenant_query(ScreenshotRecord, self.tenant_id).where(
+                ScreenshotRecord.id == str(screenshot_id),
+                ScreenshotRecord.recording_id == run.recording_id,
+                ScreenshotRecord.privacy_redaction_version == run.version,
+            )
+        )
+        if not screenshot:
+            raise LookupError("Screenshot not found for redaction run")
+
+        screenshot.privacy_redaction_status = status
+        screenshot.privacy_redaction_count = max(0, redaction_count)
+        if storage_key:
+            screenshot.privacy_redacted_storage_key = storage_key
+        if annotated_storage_key:
+            screenshot.annotated_storage_key = annotated_storage_key
+        self.db.flush()
+        self._refresh_redaction_counts(run)
+        self.db.commit()
+
+    def finish_redaction_run(
+        self,
+        run_id: UUID,
+        *,
+        detector_mode: str,
+        warning_message: str | None = None,
+    ) -> RedactionRun | None:
+        record = self._get_redaction_run_record(run_id)
+        if not record:
+            return None
+        self._refresh_redaction_counts(record)
+        record.detector_mode = detector_mode
+        record.warning_message = warning_message
+        record.completed_at = datetime.now(UTC)
+        if record.failed_screenshots == 0:
+            record.status = RedactionRunStatus.COMPLETED.value
+            record.error_message = None
+        elif record.failed_screenshots >= record.total_screenshots:
+            record.status = RedactionRunStatus.FAILED.value
+            record.error_message = "No screenshots could be redacted"
+        else:
+            record.status = RedactionRunStatus.PARTIAL_FAILED.value
+            record.error_message = (
+                f"{record.failed_screenshots} screenshot(s) could not be redacted"
+            )
+        self.db.commit()
+        return self._redaction_run_from_record(record)
+
+    def fail_redaction_run(self, run_id: UUID, error_message: str) -> RedactionRun | None:
+        record = self._get_redaction_run_record(run_id)
+        if not record:
+            return None
+        self._refresh_redaction_counts(record)
+        record.status = RedactionRunStatus.FAILED.value
+        record.error_message = error_message[:1000]
+        record.completed_at = datetime.now(UTC)
+        self.db.commit()
+        return self._redaction_run_from_record(record)
+
+    def _get_redaction_run_record(self, run_id: UUID) -> RedactionRunRecord | None:
+        return self.db.scalar(
+            tenant_query(RedactionRunRecord, self.tenant_id).where(
+                RedactionRunRecord.id == str(run_id)
+            )
+        )
+
+    def _refresh_redaction_counts(self, run: RedactionRunRecord) -> None:
+        screenshots = self.db.scalars(
+            tenant_query(ScreenshotRecord, self.tenant_id).where(
+                ScreenshotRecord.recording_id == run.recording_id,
+                ScreenshotRecord.privacy_redaction_version == run.version,
+            )
+        ).all()
+        terminal = {"clear", "redacted", "failed"}
+        run.processed_screenshots = sum(
+            screenshot.privacy_redaction_status in terminal for screenshot in screenshots
+        )
+        run.redacted_screenshots = sum(
+            screenshot.privacy_redaction_status == "redacted" for screenshot in screenshots
+        )
+        run.redaction_count = sum(
+            screenshot.privacy_redaction_count for screenshot in screenshots
+        )
+        run.failed_screenshots = sum(
+            screenshot.privacy_redaction_status == "failed" for screenshot in screenshots
+        )
 
     def delete_screenshot(self, session_id: UUID, screenshot_id: UUID) -> Screenshot | None:
         record = self.db.scalar(
@@ -1956,6 +2150,36 @@ class Repository:
                 "annotated_storage_key": getattr(record, "annotated_storage_key", None),
                 "annotations": getattr(record, "annotations", None),
                 "redaction_status": record.redaction_status,
+                "privacy_redaction_status": getattr(
+                    record, "privacy_redaction_status", "not_run"
+                ),
+                "privacy_redaction_count": getattr(record, "privacy_redaction_count", 0),
+                "privacy_redaction_version": getattr(record, "privacy_redaction_version", 0),
+                "privacy_redacted_storage_key": getattr(
+                    record, "privacy_redacted_storage_key", None
+                ),
+                "created_at": record.created_at,
+            }
+        )
+
+    @staticmethod
+    def _redaction_run_from_record(record: RedactionRunRecord) -> RedactionRun:
+        return RedactionRun.model_validate(
+            {
+                "id": record.id,
+                "recording_id": record.recording_id,
+                "version": record.version,
+                "status": record.status,
+                "total_screenshots": record.total_screenshots,
+                "processed_screenshots": record.processed_screenshots,
+                "redacted_screenshots": record.redacted_screenshots,
+                "redaction_count": record.redaction_count,
+                "failed_screenshots": record.failed_screenshots,
+                "detector_mode": record.detector_mode,
+                "warning_message": record.warning_message,
+                "error_message": record.error_message,
+                "started_at": record.started_at,
+                "completed_at": record.completed_at,
                 "created_at": record.created_at,
             }
         )

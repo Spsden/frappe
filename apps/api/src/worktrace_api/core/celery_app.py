@@ -33,6 +33,28 @@ def service_status(redis_url: str, timeout: float = 1.0) -> dict[str, str]:
         return {"redis": "up", "worker": "unknown"}
 
 
+def consumed_queues(redis_url: str, timeout: float = 1.0) -> set[str]:
+    """Return queue names consumed by responding workers.
+
+    An empty set means either no worker is reachable or queue inspection could
+    not complete. Callers keep that distinction by combining this with
+    :func:`service_status`.
+    """
+    if not broker_available(redis_url, timeout=timeout):
+        return set()
+    try:
+        replies = celery_app.control.inspect(timeout=timeout).active_queues() or {}
+    except Exception:
+        return set()
+
+    return {
+        str(queue.get("name"))
+        for queues in replies.values()
+        for queue in (queues or [])
+        if queue.get("name")
+    }
+
+
 def create_celery_app() -> Celery:
     settings = get_settings()
     app = Celery(
@@ -51,6 +73,7 @@ def create_celery_app() -> Celery:
         task_routes={
             "worktrace_api.tasks.transcription.*": {"queue": "audio"},
             "worktrace_api.tasks.annotation.*": {"queue": "vision"},
+            "worktrace_api.tasks.redaction.*": {"queue": "vision"},
             "worktrace_api.tasks.sop.*": {"queue": "llm"},
             "worktrace_api.tasks.analytics.*": {"queue": "llm"},
             "worktrace_api.tasks.pipeline.*": {"queue": "default"},
@@ -62,6 +85,7 @@ def create_celery_app() -> Celery:
         "worktrace_api.tasks.transcription",
         "worktrace_api.tasks.sop_generation",
         "worktrace_api.tasks.analytics",
+        "worktrace_api.tasks.redaction",
     )
     return app
 

@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
+from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
 from worktrace_api.analytics_provider import AnalyticsProvider
@@ -34,8 +35,8 @@ from worktrace_api.auth import (
     log_out,
     sign_up,
 )
-from worktrace_api.core.celery_app import service_status
-from worktrace_api.database import create_tables
+from worktrace_api.core.celery_app import consumed_queues, service_status
+from worktrace_api.database import create_tables, engine
 from worktrace_api.media_tokens import (
     MediaTokenError,
     create_media_token,
@@ -44,6 +45,7 @@ from worktrace_api.media_tokens import (
 from worktrace_api.privacy import sanitize_session
 from worktrace_api.processing import RecordingProcessor
 from worktrace_api.recordings import ChunkStorage
+from worktrace_api.redaction import redaction_model_ready
 from worktrace_api.repository import Repository, get_db
 from worktrace_api.schemas import (
     SOP,
@@ -77,6 +79,8 @@ from worktrace_api.schemas import (
     RecordingStatus,
     RecordingStatusesRequest,
     RecordingStatusResponse,
+    RedactionRun,
+    RedactionRunStatus,
     Screenshot,
     ScreenshotAnnotation,
     ScreenshotAnnotationSet,
@@ -101,6 +105,7 @@ from worktrace_api.tasks.analytics import (
     process_workflow_analytics,
     summarize_workflow_analytics,
 )
+from worktrace_api.tasks.redaction import redact_recording_screenshots
 from worktrace_api.workflow_analytics import ALGORITHM_VERSION
 
 
@@ -218,20 +223,27 @@ def screenshot_evidence(
     screenshot: Screenshot,
     annotations: list[ScreenshotAnnotation],
 ) -> ScreenshotEvidence:
+    display_key = screenshot.privacy_redacted_storage_key or screenshot.storage_key
+    display_media_type = (
+        "image/png" if screenshot.privacy_redacted_storage_key else screenshot.media_type
+    )
     return ScreenshotEvidence(
         id=screenshot.id,
         sequence=screenshot.sequence,
         captured_at=screenshot.captured_at,
         width=screenshot.width,
         height=screenshot.height,
-        media_type=screenshot.media_type,
-        media_url=signed_media_url(request, screenshot.storage_key, screenshot.media_type),
+        media_type=display_media_type,
+        media_url=signed_media_url(request, display_key, display_media_type),
         annotated_media_url=(
             signed_media_url(request, screenshot.annotated_storage_key, "image/png")
             if screenshot.annotated_storage_key
             else None
         ),
         annotations=annotations,
+        privacy_redaction_status=screenshot.privacy_redaction_status,
+        privacy_redaction_count=screenshot.privacy_redaction_count,
+        privacy_redaction_version=screenshot.privacy_redaction_version,
     )
 
 
@@ -241,6 +253,99 @@ def health() -> dict[str, Any]:
         "status": "ok",
         "environment": settings.env,
         "services": service_status(settings.redis_url),
+    }
+
+
+def _database_status() -> str:
+    try:
+        with engine.connect() as connection:
+            connection.execute(sql_text("SELECT 1"))
+        return "up"
+    except Exception:
+        return "down"
+
+
+def _service_details(repo: Repository) -> dict[str, dict[str, str]]:
+    infrastructure = service_status(settings.redis_url)
+    queues = consumed_queues(settings.redis_url) if infrastructure.get("worker") == "up" else set()
+    database = _database_status()
+    llm_settings = repo.get_llm_provider_settings(
+        settings.openai_base_url,
+        settings.openai_model,
+        settings.openai_api_key,
+    )
+
+    def queue_state(queue: str) -> str:
+        if infrastructure.get("worker") == "unknown":
+            return "unknown"
+        return "up" if queue in queues else "down"
+
+    vision = queue_state("vision")
+    audio = queue_state("audio")
+    llm_queue = queue_state("llm")
+    model_ready = redaction_model_ready(settings.redaction_model)
+    redaction = (
+        "up" if vision == "up" and model_ready else "starting" if not model_ready else vision
+    )
+    llm = llm_queue if llm_settings.has_api_key else "unconfigured"
+
+    return {
+        "api": {"status": "up", "detail": "API is accepting requests."},
+        "database": {
+            "status": database,
+            "detail": (
+                "PostgreSQL is reachable."
+                if database == "up"
+                else "Database is unreachable."
+            ),
+        },
+        "redis": {
+            "status": infrastructure.get("redis", "unknown"),
+            "detail": "Task broker and result store.",
+        },
+        "celery": {
+            "status": infrastructure.get("worker", "unknown"),
+            "detail": "Background worker process.",
+        },
+        "annotation": {
+            "status": vision,
+            "detail": "Vision queue for pointer and screenshot annotation.",
+        },
+        "redaction": {
+            "status": redaction,
+            "detail": (
+                f"Privacy model ready: {settings.redaction_model}."
+                if model_ready
+                else "Privacy model is downloading or unavailable."
+            ),
+        },
+        "transcription": {
+            "status": audio,
+            "detail": "Audio queue for speech transcription.",
+        },
+        "llm": {
+            "status": llm,
+            "detail": (
+                f"Configured model: {llm_settings.model}."
+                if llm_settings.has_api_key
+                else "Add an API key in LLM provider settings."
+            ),
+        },
+    }
+
+
+@app.get("/health/services", tags=["system"])
+def health_services(repo: Repository = Depends(repository)) -> dict[str, Any]:
+    services = _service_details(repo)
+    healthy = all(
+        service["status"] == "up"
+        for name, service in services.items()
+        if name not in {"llm"}
+    )
+    return {
+        "status": "ok" if healthy else "degraded",
+        "environment": settings.env,
+        "services": services,
     }
 
 
@@ -855,6 +960,74 @@ def generate_recording_sop(
 
 
 @app.get(
+    "/recordings/{recording_id}/redaction",
+    response_model=RedactionRun,
+    tags=["recordings"],
+)
+def get_recording_redaction(
+    recording_id: UUID,
+    repo: Repository = Depends(repository),
+) -> RedactionRun:
+    recording = repo.get_recording(recording_id)
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+    latest = repo.get_latest_redaction_run(recording_id)
+    if latest:
+        return latest
+    return RedactionRun(
+        recording_id=recording_id,
+        total_screenshots=len(repo.get_screenshots_for_recording(recording_id)),
+    )
+
+
+@app.post(
+    "/recordings/{recording_id}/redaction",
+    response_model=RedactionRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["recordings"],
+)
+def start_recording_redaction(
+    recording_id: UUID,
+    repo: Repository = Depends(repository),
+) -> RedactionRun:
+    recording = repo.get_recording(recording_id)
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+
+    latest = repo.get_latest_redaction_run(recording_id)
+    if latest and latest.status in {
+        RedactionRunStatus.QUEUED,
+        RedactionRunStatus.PROCESSING,
+    }:
+        return latest
+
+    if service_status(settings.redis_url).get("worker") != "up":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Redaction worker is unavailable. Start Redis and the Celery worker.",
+        )
+
+    try:
+        run, created = repo.create_redaction_run(recording_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    if not created or not run.id:
+        return run
+    try:
+        redact_recording_screenshots.delay(str(run.id), str(repo.tenant_id))
+    except Exception as exc:
+        repo.fail_redaction_run(run.id, "The redaction job could not be queued")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The redaction job could not be queued. Try again shortly.",
+        ) from exc
+    return run
+
+
+@app.get(
     "/recordings/{recording_id}/status",
     response_model=RecordingStatusResponse,
     tags=["recordings"],
@@ -1149,6 +1322,8 @@ def delete_session_screenshot(
     storage.delete(screenshot.storage_key)
     if screenshot.annotated_storage_key:
         storage.delete(screenshot.annotated_storage_key)
+    if screenshot.privacy_redacted_storage_key:
+        storage.delete(screenshot.privacy_redacted_storage_key)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1168,11 +1343,15 @@ def get_session_screenshot_image(
         root=settings.recording_storage_path,
         max_chunk_bytes=settings.max_chunk_bytes,
     )
-    key_to_serve = (
-        screenshot.annotated_storage_key
-        if type == "annotated" and screenshot.annotated_storage_key
-        else screenshot.storage_key
-    )
+    if type == "annotated" and screenshot.annotated_storage_key:
+        key_to_serve = screenshot.annotated_storage_key
+        media_type = "image/png"
+    elif screenshot.privacy_redacted_storage_key:
+        key_to_serve = screenshot.privacy_redacted_storage_key
+        media_type = "image/png"
+    else:
+        key_to_serve = screenshot.storage_key
+        media_type = screenshot.media_type
     if not key_to_serve or not storage.exists(key_to_serve):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot image not available"
@@ -1181,7 +1360,7 @@ def get_session_screenshot_image(
         signed_media_url(
             request,
             key_to_serve,
-            "image/png" if type == "annotated" else screenshot.media_type,
+            media_type,
         ),
         status_code=status.HTTP_307_TEMPORARY_REDIRECT,
     )
