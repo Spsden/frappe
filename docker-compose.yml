@@ -1,6 +1,6 @@
 # WorkTrace backend — single entry point.
 #
-#   docker compose up        # api + worker + redis + postgres
+#   ./scripts/docker-up.sh --build  # welcome banner + all services
 #   docker compose up api    # just the API (needs redis + postgres)
 #   docker compose logs -f worker
 #

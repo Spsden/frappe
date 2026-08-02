@@ -54,6 +54,13 @@ Swagger UI is available at `http://localhost:8000/docs`. The checked-in
 
 ### Debug FastAPI inside Docker
 
+Start the normal Docker stack from the repository root with the Project 79
+welcome banner above the build output:
+
+```bash
+./scripts/docker-up.sh --build
+```
+
 Run the API with `debugpy` exposed on port `5678`:
 
 ```bash
