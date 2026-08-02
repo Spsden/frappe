@@ -1,6 +1,6 @@
 # WorkTrace backend — single entry point.
 #
-#   ./scripts/docker-up.sh --build  # welcome banner + all services
+#   docker compose up        # welcome banner + all services
 #   docker compose up api    # just the API (needs redis + postgres)
 #   docker compose logs -f worker
 #
@@ -30,10 +30,31 @@ x-api-env: &api-env
   WORKTRACE_WHISPER_MODEL_SIZE: tiny
 
 services:
+  welcome:
+    image: alpine:3.21
+    command:
+      - /bin/sh
+      - -c
+      - |
+        printf '\nWELCOME TO\n\n'
+        cat <<'PROJECT_79'
+         ____            _           _     _____ ___
+        |  _ \ _ __ ___ (_) ___  ___| |_  |___  / _ \
+        | |_) | '__/ _ \| |/ _ \/ __| __|    / / (_) |
+        |  __/| | | (_) | |  __/ (__| |_    / / \__, |
+        |_|   |_|  \___// |\___|\___|\__|  /_/    /_/
+                      |__/
+        PROJECT_79
+        printf '\n'
+    restart: "no"
+
   postgres:
     # Pin pgvector with Postgres so the analytics migration can create the
     # vector extension on every developer machine and deployment.
     image: pgvector/pgvector:0.8.2-pg17
+    depends_on:
+      welcome:
+        condition: service_completed_successfully
     environment:
       <<: *db-env
     ports:
@@ -49,6 +70,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    depends_on:
+      welcome:
+        condition: service_completed_successfully
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "6379:6379"
@@ -90,6 +114,9 @@ services:
     # One-shot startup job. Compose waits for this to populate the shared model
     # cache before it starts the Celery worker.
     image: worktrace-api:dev
+    depends_on:
+      welcome:
+        condition: service_completed_successfully
     environment:
       <<: *api-env
     env_file:
