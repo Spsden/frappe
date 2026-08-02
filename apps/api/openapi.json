@@ -1623,6 +1623,134 @@
         }
       }
     },
+    "/recordings/{recording_id}/redaction": {
+      "get": {
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Get Recording Redaction",
+        "operationId": "get_recording_redaction_recordings__recording_id__redaction_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Recording Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedactionRun"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Start Recording Redaction",
+        "operationId": "start_recording_redaction_recordings__recording_id__redaction_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Recording Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedactionRun"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recordings/{recording_id}/status": {
       "get": {
         "tags": [
@@ -5007,6 +5135,158 @@
         ],
         "title": "RecordingTranscript"
       },
+      "RedactionRun": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "recording_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Recording Id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Version",
+            "default": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/RedactionRunStatus",
+            "default": "not_run"
+          },
+          "total_screenshots": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Screenshots",
+            "default": 0
+          },
+          "processed_screenshots": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Processed Screenshots",
+            "default": 0
+          },
+          "redacted_screenshots": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Redacted Screenshots",
+            "default": 0
+          },
+          "redaction_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Redaction Count",
+            "default": 0
+          },
+          "failed_screenshots": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Failed Screenshots",
+            "default": 0
+          },
+          "detector_mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "model_and_rules",
+                  "rules_only"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detector Mode"
+          },
+          "warning_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warning Message"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recording_id"
+        ],
+        "title": "RedactionRun"
+      },
+      "RedactionRunStatus": {
+        "type": "string",
+        "enum": [
+          "not_run",
+          "queued",
+          "processing",
+          "completed",
+          "partial_failed",
+          "failed"
+        ],
+        "title": "RedactionRunStatus"
+      },
       "SOP": {
         "properties": {
           "schema_version": {
@@ -5546,6 +5826,31 @@
             "type": "array",
             "maxItems": 50,
             "title": "Annotations"
+          },
+          "privacy_redaction_status": {
+            "type": "string",
+            "enum": [
+              "not_run",
+              "queued",
+              "processing",
+              "clear",
+              "redacted",
+              "failed"
+            ],
+            "title": "Privacy Redaction Status",
+            "default": "not_run"
+          },
+          "privacy_redaction_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Privacy Redaction Count",
+            "default": 0
+          },
+          "privacy_redaction_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Privacy Redaction Version",
+            "default": 0
           }
         },
         "additionalProperties": false,
