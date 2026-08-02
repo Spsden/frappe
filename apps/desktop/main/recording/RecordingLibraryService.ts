@@ -10,6 +10,7 @@ import type {
   BackendRecordingStatusResponse,
   BackendSearchResponse,
   BackendSOP,
+  BackendSOPLibraryItem,
   BackendWorkflow,
   BackendWorkflowRecording,
   BackendWorkflowSession,
@@ -264,7 +265,7 @@ export class RecordingLibraryService {
     return this.apiClient.getSessionSops(backendSessionId)
   }
 
-  async listSops(): Promise<BackendSOP[]> {
+  async listSops(): Promise<BackendSOPLibraryItem[]> {
     return this.apiClient.listSops()
   }
 

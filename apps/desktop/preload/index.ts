@@ -21,6 +21,7 @@ import {
   type BackendScreenshotEvidence,
   type BackendSearchResponse,
   type BackendSOP,
+  type BackendSOPLibraryItem,
   type BackendWorkflow,
   type BackendWorkflowRecording,
   type RecordingOptions,
@@ -169,7 +170,8 @@ contextBridge.exposeInMainWorld('api', {
         recordingIpc.getSessionSops,
         backendSessionId
       ) as Promise<BackendSOP[]>,
-    listSops: () => ipcRenderer.invoke(recordingIpc.listSops) as Promise<BackendSOP[]>,
+    listSops: () =>
+      ipcRenderer.invoke(recordingIpc.listSops) as Promise<BackendSOPLibraryItem[]>,
     approveSop: (sopId: string, approved: boolean) =>
       ipcRenderer.invoke(recordingIpc.approveSop, sopId, approved) as Promise<BackendSOP>,
     getDashboardSummary: () =>

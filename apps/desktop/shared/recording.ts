@@ -400,6 +400,17 @@ export interface BackendSOP {
   created_at: string
 }
 
+export interface BackendSOPLibraryItem extends BackendSOP {
+  workflow_id: string | null
+  workflow_name: string
+  recording_id: string | null
+  recording_reference: string | null
+  recorded_by: string | null
+  recorded_by_email: string | null
+  recording_created_at: string | null
+  session_duration_ms: number
+}
+
 export interface BackendDashboardSummary {
   tenant_id: string
   workflows_recorded: number
@@ -546,7 +557,7 @@ export interface RecordingApi {
     mediaUrl?: string | null
   ) => Promise<ArrayBuffer>
   getSessionSops: (backendSessionId: string) => Promise<BackendSOP[]>
-  listSops: () => Promise<BackendSOP[]>
+  listSops: () => Promise<BackendSOPLibraryItem[]>
   approveSop: (sopId: string, approved: boolean) => Promise<BackendSOP>
   getDashboardSummary: () => Promise<BackendDashboardSummary>
   search: (query: string) => Promise<BackendSearchResponse>
