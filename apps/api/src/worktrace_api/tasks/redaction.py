@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
     bind=True,
     max_retries=1,
     queue="vision",
-    soft_time_limit=900,
-    time_limit=960,
+    # First use may download/cache the privacy model before scanning begins.
+    soft_time_limit=1800,
+    time_limit=1860,
 )
 def redact_recording_screenshots(self, run_id: str, tenant_id: str) -> None:
     repo = make_repo(tenant_id)

@@ -35,7 +35,12 @@ COPY migrations ./migrations
 COPY docker-entrypoint.sh ./
 # --system installs into system site-packages (no venv). Cache mount lets
 # the resolved-wheel cache survive across `docker compose build` runs.
+# Install the CPU build first. It satisfies pyproject.toml when the rest of
+# the package is resolved, avoiding generic Linux Torch's CUDA dependencies.
 RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system \
+      --index-url https://download.pytorch.org/whl/cpu \
+      "torch==2.10.0+cpu" && \
     uv pip install --system -e . && \
     uv pip install --system "debugpy>=1.8,<2" && \
     chmod +x ./docker-entrypoint.sh
