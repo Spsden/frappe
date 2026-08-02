@@ -19,6 +19,7 @@ import {
   type AudioRecorderApi,
   type BackendDashboardSummary,
   type BackendScreenshotEvidence,
+  type BackendRedactionRun,
   type BackendSearchResponse,
   type BackendSOP,
   type BackendSOPLibraryItem,
@@ -219,6 +220,10 @@ contextBridge.exposeInMainWorld('api', {
       ),
     generateSop: (recordingId: string, customInstruction?: string | null) =>
       ipcRenderer.invoke(recordingIpc.generateSop, recordingId, customInstruction ?? null),
+    getRedaction: (recordingId: string) =>
+      ipcRenderer.invoke(recordingIpc.getRedaction, recordingId) as Promise<BackendRedactionRun>,
+    startRedaction: (recordingId: string) =>
+      ipcRenderer.invoke(recordingIpc.startRedaction, recordingId) as Promise<BackendRedactionRun>,
     openPermissionSettings: (permission: 'accessibility' | 'screen' | 'microphone') =>
       ipcRenderer.invoke(recordingIpc.openPermissionSettings, permission),
     onStateChanged: (listener: (state: RecordingState) => void) => {

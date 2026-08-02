@@ -137,6 +137,12 @@ export function registerRecordingIpc(
     (_event, recordingId: string, customInstruction: string | null) =>
       library.generateSop(recordingId, customInstruction)
   )
+  ipcMain.handle(recordingIpc.getRedaction, (_event, recordingId: string) =>
+    library.getRedaction(recordingId)
+  )
+  ipcMain.handle(recordingIpc.startRedaction, (_event, recordingId: string) =>
+    library.startRedaction(recordingId)
+  )
   ipcMain.handle(
     recordingIpc.openPermissionSettings,
     (_event, permission: 'accessibility' | 'screen' | 'microphone') => {
@@ -191,6 +197,8 @@ export function registerRecordingIpc(
     ipcMain.removeHandler(recordingIpc.deleteScreenshot)
     ipcMain.removeHandler(recordingIpc.saveManualReview)
     ipcMain.removeHandler(recordingIpc.generateSop)
+    ipcMain.removeHandler(recordingIpc.getRedaction)
+    ipcMain.removeHandler(recordingIpc.startRedaction)
     ipcMain.removeHandler(recordingIpc.openPermissionSettings)
   }
 }

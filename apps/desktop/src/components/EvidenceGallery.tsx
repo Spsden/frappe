@@ -18,6 +18,7 @@ import textIcon from '../assets/Add Text Icon.svg?raw'
 interface EvidenceGalleryProps {
   remoteSessionId: string | null
   editable?: boolean
+  refreshVersion?: number
 }
 
 type AnnotationType = AnnotationInput['type']
@@ -836,7 +837,11 @@ function ToolButton({
   )
 }
 
-export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGalleryProps) {
+export function EvidenceGallery({
+  remoteSessionId,
+  editable = true,
+  refreshVersion = 0
+}: EvidenceGalleryProps) {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
 
@@ -865,15 +870,22 @@ export function EvidenceGallery({ remoteSessionId, editable = true }: EvidenceGa
     y: 96
   }))
   const paletteDragRef = useRef<PaletteDragState | null>(null)
+  const loadedRefresh = useRef({ sessionId: null as string | null, version: 0 })
 
   useEffect(() => {
     if (!remoteSessionId) {
       setActionError(null)
+      loadedRefresh.current = { sessionId: null, version: 0 }
       return
     }
     setActionError(null)
-    void loadEvidenceSession(remoteSessionId)
-  }, [loadEvidenceSession, remoteSessionId])
+    const force =
+      refreshVersion > 0 &&
+      (loadedRefresh.current.sessionId !== remoteSessionId ||
+        refreshVersion > loadedRefresh.current.version)
+    loadedRefresh.current = { sessionId: remoteSessionId, version: refreshVersion }
+    void loadEvidenceSession(remoteSessionId, { force })
+  }, [loadEvidenceSession, refreshVersion, remoteSessionId])
 
   const enterEdit = () => {
     const initial: Record<string, AnnotationInput[]> = {}

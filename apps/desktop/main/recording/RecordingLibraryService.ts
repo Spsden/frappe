@@ -8,6 +8,7 @@ import type {
   BackendDashboardSummary,
   BackendScreenshotEvidence,
   BackendRecordingStatusResponse,
+  BackendRedactionRun,
   BackendSearchResponse,
   BackendSOP,
   BackendSOPLibraryItem,
@@ -317,6 +318,14 @@ export class RecordingLibraryService {
 
   async generateSop(recordingId: string, customInstruction: string | null = null) {
     return this.apiClient.generateSop(recordingId, customInstruction)
+  }
+
+  async getRedaction(recordingId: string): Promise<BackendRedactionRun> {
+    return this.apiClient.getRedaction(recordingId)
+  }
+
+  async startRedaction(recordingId: string): Promise<BackendRedactionRun> {
+    return this.apiClient.startRedaction(recordingId)
   }
 
   async retry(sessionId: string, target: RecordingRetryTarget): Promise<void> {

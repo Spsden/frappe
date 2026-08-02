@@ -16,6 +16,7 @@ import type {
   BackendAnalyticsRun,
   BackendDashboardSummary,
   BackendRecording,
+  BackendRedactionRun,
   BackendRecordingStatusResponse,
   BackendScreenshotEvidence,
   BackendSearchResponse,
@@ -439,6 +440,18 @@ export class WorkTraceApiClient {
       body: JSON.stringify({ custom_instruction: customInstruction })
     })
     return (await response.json()) as BackendRecording
+  }
+
+  async getRedaction(recordingId: string): Promise<BackendRedactionRun> {
+    const response = await this.request(`/recordings/${recordingId}/redaction`)
+    return (await response.json()) as BackendRedactionRun
+  }
+
+  async startRedaction(recordingId: string): Promise<BackendRedactionRun> {
+    const response = await this.request(`/recordings/${recordingId}/redaction`, {
+      method: 'POST'
+    })
+    return (await response.json()) as BackendRedactionRun
   }
 
   async request(path: string, init: RequestInit = {}): Promise<Response> {

@@ -92,15 +92,24 @@ export const useEvidenceStore = create<EvidenceStore>((set, get) => ({
         const currentUrls = new Map(
           currentFrames.map((frame) => [frame.evidence.id, frame.url])
         )
-        const seenIds = new Set(screenshots.map((item) => item.id))
-        for (const frame of currentFrames) {
-          if (!seenIds.has(frame.evidence.id)) URL.revokeObjectURL(frame.url)
-        }
 
         const frames = await mapWithConcurrency(screenshots, 4, async (evidence) => ({
           evidence,
-          url: await loadImageUrl(sessionId, evidence, currentUrls.get(evidence.id))
+          url: await loadImageUrl(
+            sessionId,
+            evidence,
+            options?.force ? undefined : currentUrls.get(evidence.id)
+          )
         }))
+
+        if (options?.force) {
+          revokeFrameUrls(currentFrames)
+        } else {
+          const seenIds = new Set(screenshots.map((item) => item.id))
+          for (const frame of currentFrames) {
+            if (!seenIds.has(frame.evidence.id)) URL.revokeObjectURL(frame.url)
+          }
+        }
 
         set((state) => ({
           sessions: {
