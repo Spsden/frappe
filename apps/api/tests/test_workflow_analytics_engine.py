@@ -6,7 +6,7 @@ from worktrace_api.schemas import SOP, SOPStatus, SOPStep
 from worktrace_api.workflow_analytics import build_comparison, step_documents
 
 
-def _snapshot(reference, duration_ms, steps):
+def _snapshot(reference, duration_ms, steps, recorded_by_email=None):
     recording_id = uuid4()
     sop = SOP(
         tenant_id=uuid4(),
@@ -27,6 +27,7 @@ def _snapshot(reference, duration_ms, steps):
         "recording_id": str(recording_id),
         "duration_ms": duration_ms,
         "reference": reference,
+        "recorded_by_email": recorded_by_email,
         "sop": sop.model_dump(mode="json"),
     }
 
@@ -133,6 +134,38 @@ def test_repeated_steps_remain_separate_in_the_path():
     assert len(result.path_timelines[1].steps) == 3
     assert result.overview.path_specific_step_count == 1
     assert result.path_timelines[1].steps[0].group_id != result.path_timelines[1].steps[1].group_id
+
+
+def test_duplicate_references_are_disambiguated_with_recorder():
+    snapshots = [
+        _snapshot(
+            "Month end",
+            4_000,
+            [("Open", "Open the report.", 4_000)],
+            recorded_by_email="alex@example.test",
+        ),
+        _snapshot(
+            "Month end",
+            5_000,
+            [("Open report", "Open the report.", 5_000)],
+            recorded_by_email="sam@example.test",
+        ),
+    ]
+    vectors = _embeddings(
+        snapshots,
+        {"Open": [1.0, 0.0], "Open report": [0.99, 0.05]},
+    )
+
+    result = build_comparison(snapshots, vectors)
+
+    assert [item.label for item in result.completion_ranking] == [
+        "Month end · alex@example.test",
+        "Month end · sam@example.test",
+    ]
+    assert [item.label for item in result.path_timelines] == [
+        "Month end · alex@example.test",
+        "Month end · sam@example.test",
+    ]
 
 
 def test_missing_step_timing_is_not_counted_as_zero():

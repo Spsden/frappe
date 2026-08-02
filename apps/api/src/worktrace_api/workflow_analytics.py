@@ -212,6 +212,7 @@ def _prepare_recordings(
         (document.sop_id, document.step_id): document
         for document in step_documents(input_snapshots)
     }
+    labels = _recording_labels(input_snapshots)
     prepared: list[_PreparedRecording] = []
     for index, item in enumerate(input_snapshots, start=1):
         recording_id = UUID(str(item["recording_id"]))
@@ -236,17 +237,43 @@ def _prepare_recordings(
             )
         if not steps:
             raise ValueError(f"Approved SOP {sop.id} contains no steps")
-        label = str(item.get("reference") or "").strip() or f"Recording {index}"
         prepared.append(
             _PreparedRecording(
                 recording_id=recording_id,
-                label=label,
+                label=labels[index - 1],
                 duration_ms=max(0, int(item["duration_ms"])),
                 sop=sop,
                 steps=tuple(steps),
             )
         )
     return prepared
+
+
+def _recording_labels(input_snapshots: list[dict[str, Any]]) -> list[str]:
+    """Build stable, human-readable labels without hiding duplicate references."""
+    base_labels: list[str] = []
+    for index, item in enumerate(input_snapshots, start=1):
+        reference = str(item.get("reference") or "").strip()
+        recorded_by = str(item.get("recorded_by_email") or "").strip()
+        base_labels.append(reference or recorded_by or f"Recording {index}")
+
+    base_counts = Counter(label.casefold() for label in base_labels)
+    used: Counter[str] = Counter()
+    labels: list[str] = []
+    for item, base in zip(input_snapshots, base_labels, strict=True):
+        label = base
+        if base_counts[base.casefold()] > 1:
+            recorded_by = str(item.get("recorded_by_email") or "").strip()
+            if recorded_by and recorded_by.casefold() != base.casefold():
+                label = f"{base} · {recorded_by}"
+
+        normalized = label.casefold()
+        used[normalized] += 1
+        if used[normalized] > 1:
+            label = f"{label} · #{used[normalized]}"
+        labels.append(label)
+
+    return labels
 
 
 def _progressive_alignment(recordings: list[_PreparedRecording]) -> list[_AlignmentGroup]:
