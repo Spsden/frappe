@@ -84,6 +84,7 @@ from worktrace_api.schemas import (
     SearchResponse,
     SignUpRequest,
     SOPApproval,
+    SOPLibraryItem,
     SopLimitsSettings,
     SopLimitsSettingsUpdate,
     SOPStatus,
@@ -1226,14 +1227,14 @@ def set_external_ai_approval(
     return approved
 
 
-@app.get("/sops", response_model=list[SOP], tags=["sops"])
+@app.get("/sops", response_model=list[SOPLibraryItem], tags=["sops"])
 def list_sops(
     status_filter: SOPStatus | None = Query(default=None, alias="status"),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     repo: Repository = Depends(repository),
-) -> list[SOP]:
-    return repo.list_sops(
+) -> list[SOPLibraryItem]:
+    return repo.list_sop_library(
         status_filter.value if status_filter else None, limit, offset
     )
 

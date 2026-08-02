@@ -49,6 +49,7 @@ from worktrace_api.schemas import (
     SearchResponse,
     SearchResult,
     SearchResultKind,
+    SOPLibraryItem,
     SopLimitsSettings,
     SopLimitsSettingsUpdate,
     SOPStatus,
@@ -1472,6 +1473,67 @@ class Repository:
             query = query.limit(limit)
         records = self.db.scalars(query).all()
         return [self._sop_from_record(record) for record in records]
+
+    def list_sop_library(
+        self,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[SOPLibraryItem]:
+        """Load library cards with workflow/recording context in one query."""
+        query = (
+            select(
+                SOPRecord,
+                WorkflowSessionRecord.workflow_name.label("session_workflow_name"),
+                WorkflowSessionRecord.duration_ms.label("session_duration_ms"),
+                RecordingRecord.workflow_id.label("workflow_id"),
+                RecordingRecord.id.label("recording_id"),
+                RecordingRecord.reference.label("recording_reference"),
+                RecordingRecord.recorded_by.label("recorded_by"),
+                RecordingRecord.created_at.label("recording_created_at"),
+                WorkflowRecord.name.label("workflow_name"),
+                UserRecord.email.label("recorded_by_email"),
+            )
+            .join(
+                WorkflowSessionRecord,
+                (WorkflowSessionRecord.id == SOPRecord.source_session_id)
+                & (WorkflowSessionRecord.tenant_id == str(self.tenant_id)),
+            )
+            .outerjoin(
+                RecordingRecord,
+                (RecordingRecord.id == WorkflowSessionRecord.recording_id)
+                & (RecordingRecord.tenant_id == str(self.tenant_id)),
+            )
+            .outerjoin(
+                WorkflowRecord,
+                (WorkflowRecord.id == RecordingRecord.workflow_id)
+                & (WorkflowRecord.tenant_id == str(self.tenant_id)),
+            )
+            .outerjoin(
+                UserRecord,
+                (UserRecord.id == RecordingRecord.recorded_by)
+                & (UserRecord.tenant_id == str(self.tenant_id)),
+            )
+            .where(SOPRecord.tenant_id == str(self.tenant_id))
+        )
+        if status:
+            query = query.where(SOPRecord.status == status)
+        query = query.order_by(SOPRecord.created_at.desc()).offset(offset).limit(limit)
+
+        return [
+            SOPLibraryItem(
+                **self._sop_from_record(row.SOPRecord).model_dump(),
+                workflow_id=row.workflow_id,
+                workflow_name=row.workflow_name or row.session_workflow_name,
+                recording_id=row.recording_id,
+                recording_reference=row.recording_reference,
+                recorded_by=row.recorded_by,
+                recorded_by_email=row.recorded_by_email,
+                recording_created_at=row.recording_created_at,
+                session_duration_ms=row.session_duration_ms,
+            )
+            for row in self.db.execute(query).all()
+        ]
 
     def search(self, query: str, limit: int = 20) -> SearchResponse:
         """Tenant-scoped substring search across SOPs and workflow sessions.

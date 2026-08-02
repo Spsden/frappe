@@ -283,6 +283,24 @@ class SOP(StrictModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class SOPLibraryItem(SOP):
+    """SOP plus recording context needed by the tenant-wide library.
+
+    Detail/export APIs continue to use the core ``SOP`` schema. Keeping this
+    enrichment specific to the library avoids making recording metadata part
+    of the SOP document itself.
+    """
+
+    workflow_id: UUID | None = None
+    workflow_name: str
+    recording_id: UUID | None = None
+    recording_reference: str | None = None
+    recorded_by: UUID | None = None
+    recorded_by_email: str | None = None
+    recording_created_at: datetime | None = None
+    session_duration_ms: int = Field(ge=0)
+
+
 class FeedbackClassification(StrEnum):
     TASK_DESCRIPTION = "task_description"
     FRUSTRATION_SIGNAL = "frustration_signal"
