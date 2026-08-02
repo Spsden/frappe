@@ -13,7 +13,8 @@ import type {
   AnalyticsRetryTarget,
   AnalyticsRunStatus,
   BackendAnalyticsEligibleRecording,
-  BackendAnalyticsRun
+  BackendAnalyticsRun,
+  BackendAnalyticsRunInput
 } from '../../../shared/recording'
 
 const activeStatuses = new Set<AnalyticsRunStatus>([
@@ -72,7 +73,18 @@ function formatDuration(milliseconds: number) {
 }
 
 function recordingLabel(recording: BackendAnalyticsEligibleRecording) {
-  return recording.reference || recording.recorded_by_email || 'Unlabelled recording'
+  return recording.reference?.trim() || 'Unlabelled recording'
+}
+
+function inputLabel(input: BackendAnalyticsRunInput) {
+  return input.recording_reference?.trim() || 'Unlabelled recording'
+}
+
+function savedRunLabel(run: BackendAnalyticsRun) {
+  const references = run.inputs.map(inputLabel)
+  const visible = references.slice(0, 2).join(', ') || `${run.input_count} recordings`
+  const remainder = references.length > 2 ? ` +${references.length - 2}` : ''
+  return `Version ${run.version} · ${visible}${remainder} · ${run.status.replaceAll('_', ' ')}`
 }
 
 function Card({
@@ -230,6 +242,9 @@ function RecordingPicker({
                   {recordingLabel(recording)}
                 </span>
                 <span className={dark ? 'mt-1 block truncate text-[11px] text-white/35' : 'mt-1 block truncate text-[11px] text-slate-500'}>
+                  {recording.recorded_by_email || 'Recorder unavailable'}
+                </span>
+                <span className={dark ? 'mt-1 block truncate font-mono text-[9px] uppercase tracking-[0.08em] text-white/25' : 'mt-1 block truncate text-[10px] font-medium text-slate-400'}>
                   SOP v{recording.sop_version} · {recording.step_count} steps · {formatDuration(recording.duration_ms)}
                 </span>
               </span>
@@ -246,6 +261,52 @@ function RecordingPicker({
             </p>
           </div>
         )}
+      </div>
+    </Card>
+  )
+}
+
+function RunInputs({ run, dark }: { run: BackendAnalyticsRun; dark: boolean }) {
+  if (run.inputs.length === 0) return null
+
+  return (
+    <Card dark={dark}>
+      <div className={dark ? 'flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4' : 'flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4'}>
+        <div>
+          <p className={dark ? 'font-mono text-[9px] font-bold uppercase tracking-[0.2em] text-white/35' : 'text-[10px] font-bold uppercase tracking-[0.13em] text-slate-400'}>
+            Compared evidence
+          </p>
+          <p className={dark ? 'mt-1 text-sm font-black text-white' : 'mt-1 text-sm font-bold text-slate-800'}>
+            References and SOP versions used in analysis version {run.version}
+          </p>
+        </div>
+        <span className={dark ? 'rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-[8px] uppercase tracking-[0.14em] text-white/35' : 'rounded-full border border-purple-100 bg-purple-50 px-3 py-1.5 text-[10px] font-bold text-purple-600'}>
+          Locked snapshot
+        </span>
+      </div>
+
+      <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3">
+        {run.inputs.map((input) => (
+          <div
+            key={input.recording_id}
+            className={dark ? 'flex min-w-0 gap-3 rounded-xl border border-white/8 bg-white/[0.02] p-4' : 'flex min-w-0 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4'}
+          >
+            <span className={dark ? 'grid size-7 shrink-0 place-items-center rounded-full bg-emerald-400/10 font-mono text-[10px] font-black text-emerald-300' : 'grid size-7 shrink-0 place-items-center rounded-full bg-purple-100 text-[11px] font-black text-purple-600'}>
+              {input.position}
+            </span>
+            <div className="min-w-0">
+              <p className={dark ? 'truncate text-sm font-black text-white' : 'truncate text-sm font-bold text-slate-800'} title={inputLabel(input)}>
+                {inputLabel(input)}
+              </p>
+              <p className={dark ? 'mt-1 truncate text-[11px] text-white/35' : 'mt-1 truncate text-[11px] text-slate-500'} title={input.recorded_by_email ?? undefined}>
+                {input.recorded_by_email || 'Recorder unavailable'}
+              </p>
+              <p className={dark ? 'mt-2 font-mono text-[9px] uppercase tracking-[0.1em] text-white/25' : 'mt-2 text-[10px] font-semibold text-slate-400'}>
+                SOP v{input.sop_version} · {formatDuration(input.duration_ms)}
+              </p>
+            </div>
+          </div>
+        ))}
       </div>
     </Card>
   )
@@ -513,7 +574,7 @@ export function WorkflowAnalyticsPanel({ workflowId, dark }: WorkflowAnalyticsPa
               className={dark ? 'rounded-xl border border-white/12 bg-[#0b0b0b] px-3 py-2 text-xs font-bold text-white outline-none' : 'rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 outline-none'}
             >
               {runs.map((run) => (
-                <option key={run.id} value={run.id}>Version {run.version} · {run.status.replaceAll('_', ' ')}</option>
+                <option key={run.id} value={run.id}>{savedRunLabel(run)}</option>
               ))}
             </select>
           </label>
@@ -524,6 +585,8 @@ export function WorkflowAnalyticsPanel({ workflowId, dark }: WorkflowAnalyticsPa
           )}
         </div>
       )}
+
+      {currentRun && <RunInputs run={currentRun} dark={dark} />}
 
       {currentRun && activeStatuses.has(currentRun.status) && (
         <ProcessingCard run={currentRun} dark={dark} />
