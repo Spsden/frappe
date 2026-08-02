@@ -117,11 +117,9 @@ export class WorkTraceApiClient {
   }
 
   async getHealth(): Promise<BackendHealth> {
-    // No auth required (/health is public) and works pre-login, so resolve the
-    // URL from the stored status rather than requiring a session token.
-    const apiUrl = this.settings.normalizeApiUrl(this.settings.getStatus().apiUrl)
-    const response = await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(3_000) })
-    await requireSuccess(response)
+    // Detailed capability health is tenant-aware because LLM configuration is
+    // stored per workspace. Keep it behind the normal authenticated request.
+    const response = await this.request('/health/services')
     return (await response.json()) as BackendHealth
   }
 

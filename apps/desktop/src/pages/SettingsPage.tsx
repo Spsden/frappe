@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react'
 import type {
+  BackendHealth,
+  BackendServiceName,
+  BackendServiceStatus,
   LLMProviderSettings,
   SopLimitsSettings,
   SopLimitsSettingsUpdate
 } from '../../shared/connection'
 import type { ExperimentalFlags } from '../../shared/settings'
 import { useConnection } from '../features/connection/useConnection'
+import { useServices } from '../features/connection/useServices'
 import {
   useTheme,
   type Theme
@@ -29,6 +33,9 @@ export function SettingsPage() {
   const { status, logout, test } = useConnection()
   const { theme, setTheme } = useTheme()
   const isDark = theme === 'dark'
+  const services = useServices(
+    status.hasSession && status.state === 'connected'
+  )
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -66,6 +73,12 @@ export function SettingsPage() {
         <AppearanceSection
           theme={theme}
           onChange={setTheme}
+          isDark={isDark}
+        />
+
+        <ServiceStatusSection
+          health={services}
+          connected={status.state === 'connected'}
           isDark={isDark}
         />
 
@@ -249,6 +262,180 @@ export function SettingsPage() {
       </div>
     </section>
   )
+}
+
+const serviceOrder: Array<{
+  key: BackendServiceName
+  label: string
+}> = [
+  { key: 'api', label: 'API' },
+  { key: 'database', label: 'Database' },
+  { key: 'redis', label: 'Redis' },
+  { key: 'celery', label: 'Celery worker' },
+  { key: 'annotation', label: 'Annotation' },
+  { key: 'redaction', label: 'AI redaction' },
+  { key: 'transcription', label: 'Transcription' },
+  { key: 'llm', label: 'LLM provider' }
+]
+
+const serviceStatusLabels: Record<BackendServiceStatus, string> = {
+  up: 'Online',
+  down: 'Offline',
+  starting: 'Starting',
+  unconfigured: 'Setup needed',
+  unknown: 'Unknown'
+}
+
+function ServiceStatusSection({
+  health,
+  connected,
+  isDark
+}: {
+  health: BackendHealth | null
+  connected: boolean
+  isDark: boolean
+}) {
+  const onlineCount = health
+    ? serviceOrder.filter(
+        ({ key }) => health.services[key]?.status === 'up'
+      ).length
+    : 0
+
+  return (
+    <div
+      className={
+        isDark
+          ? 'mt-5 overflow-hidden rounded-xl border border-white/10 bg-white/[0.025]'
+          : 'mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_45px_rgba(95,60,150,0.08)]'
+      }
+    >
+      {!isDark && (
+        <div className="h-1 bg-gradient-to-r from-[#a66ad8] via-[#c778d7] to-[#d783b6]" />
+      )}
+
+      <div
+        className={
+          isDark
+            ? 'flex items-center justify-between border-b border-white/10 px-5 py-4'
+            : 'flex items-center justify-between gap-5 border-b border-slate-200 px-6 py-5'
+        }
+      >
+        <div>
+          <p
+            className={
+              isDark
+                ? 'text-xs font-bold text-white'
+                : 'settings-label'
+            }
+          >
+            Service health
+          </p>
+
+          <p
+            className={
+              isDark
+                ? 'mt-1 text-xs text-white/45'
+                : 'mt-1 text-sm leading-6 text-slate-500'
+            }
+          >
+            Live backend capabilities · updates every 10 seconds
+          </p>
+        </div>
+
+        <span
+          className={
+            isDark
+              ? 'font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-white/45'
+              : 'rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-500'
+          }
+        >
+          {health
+            ? `${onlineCount} / ${serviceOrder.length} online`
+            : connected
+              ? 'Checking…'
+              : 'API offline'}
+        </span>
+      </div>
+
+      <div
+        className={
+          isDark
+            ? 'grid gap-px bg-white/10 sm:grid-cols-2'
+            : 'grid gap-px bg-slate-200 sm:grid-cols-2'
+        }
+      >
+        {serviceOrder.map(({ key, label }) => {
+          const service = health?.services[key]
+          const state: BackendServiceStatus = service?.status ?? 'unknown'
+
+          return (
+            <div
+              key={key}
+              className={
+                isDark
+                  ? 'flex min-h-24 items-start gap-3 bg-[#0c0c0c] px-5 py-4'
+                  : 'flex min-h-24 items-start gap-3 bg-white px-6 py-4'
+              }
+            >
+              <ServiceDot status={state} isDark={isDark} />
+
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p
+                    className={
+                      isDark
+                        ? 'text-xs font-bold text-white'
+                        : 'text-sm font-bold text-slate-900'
+                    }
+                  >
+                    {label}
+                  </p>
+
+                  <span
+                    className={
+                      isDark
+                        ? 'font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-white/40'
+                        : 'text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400'
+                    }
+                  >
+                    {serviceStatusLabels[state]}
+                  </span>
+                </div>
+
+                <p
+                  className={
+                    isDark
+                      ? 'mt-1.5 text-[11px] leading-4 text-white/40'
+                      : 'mt-1.5 text-xs leading-5 text-slate-500'
+                  }
+                >
+                  {service?.detail ?? 'Waiting for a health response.'}
+                </p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function ServiceDot({
+  status,
+  isDark
+}: {
+  status: BackendServiceStatus
+  isDark: boolean
+}) {
+  const color = {
+    up: 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.45)]',
+    down: 'bg-red-400',
+    starting: 'animate-pulse bg-amber-400',
+    unconfigured: 'bg-amber-400',
+    unknown: isDark ? 'bg-white/25' : 'bg-slate-300'
+  }[status]
+
+  return <span className={`mt-1 size-2.5 shrink-0 rounded-full ${color}`} />
 }
 
 function AppearanceSection({
