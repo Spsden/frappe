@@ -875,6 +875,369 @@
         }
       }
     },
+    "/workflows/{workflow_id}/analytics/eligible-recordings": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "List Analytics Eligible Recordings",
+        "operationId": "list_analytics_eligible_recordings_workflows__workflow_id__analytics_eligible_recordings_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AnalyticsEligibleRecording"
+                  },
+                  "title": "Response List Analytics Eligible Recordings Workflows  Workflow Id  Analytics Eligible Recordings Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflows/{workflow_id}/analytics-runs": {
+      "post": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Create Analytics Run",
+        "operationId": "create_analytics_run_workflows__workflow_id__analytics_runs_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsRunCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsRun"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "List Analytics Runs",
+        "operationId": "list_analytics_runs_workflows__workflow_id__analytics_runs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AnalyticsRun"
+                  },
+                  "title": "Response List Analytics Runs Workflows  Workflow Id  Analytics Runs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analytics-runs/{run_id}": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Get Analytics Run",
+        "operationId": "get_analytics_run_analytics_runs__run_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsRun"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analytics-runs/{run_id}/retry": {
+      "post": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Retry Analytics Run",
+        "operationId": "retry_analytics_run_analytics_runs__run_id__retry_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "X-Tenant-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsRetryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsRun"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recordings/{recording_id}/chunks/{chunk_index}": {
       "put": {
         "tags": [
@@ -2265,7 +2628,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/SOP"
+                    "$ref": "#/components/schemas/SOPLibraryItem"
                   },
                   "title": "Response List Sops Sops Get"
                 }
@@ -2754,87 +3117,6 @@
           }
         }
       }
-    },
-    "/analytics/{workflow_name}": {
-      "get": {
-        "tags": [
-          "analytics"
-        ],
-        "summary": "Workflow Analytics",
-        "operationId": "workflow_analytics_analytics__workflow_name__get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "workflow_name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Workflow Name"
-            }
-          },
-          {
-            "name": "reference_session_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Reference Session Id"
-            }
-          },
-          {
-            "name": "X-Tenant-ID",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Tenant-Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AnalyticsSummary"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
@@ -2883,7 +3165,321 @@
         ],
         "title": "AccountRole"
       },
-      "AnalyticsSummary": {
+      "AnalyticsComparisonOverview": {
+        "properties": {
+          "recording_count": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 2.0,
+            "title": "Recording Count"
+          },
+          "distinct_path_count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Distinct Path Count"
+          },
+          "fastest_recording_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Fastest Recording Id"
+          },
+          "fastest_duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Fastest Duration Ms"
+          },
+          "average_duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Average Duration Ms"
+          },
+          "potential_time_saved_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Potential Time Saved Ms"
+          },
+          "shared_step_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Shared Step Count"
+          },
+          "optional_step_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Optional Step Count"
+          },
+          "path_specific_step_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Path Specific Step Count"
+          },
+          "timing_coverage": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Timing Coverage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recording_count",
+          "distinct_path_count",
+          "fastest_recording_id",
+          "fastest_duration_ms",
+          "average_duration_ms",
+          "potential_time_saved_ms",
+          "shared_step_count",
+          "optional_step_count",
+          "path_specific_step_count",
+          "timing_coverage"
+        ],
+        "title": "AnalyticsComparisonOverview"
+      },
+      "AnalyticsEligibleRecording": {
+        "properties": {
+          "recording_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Recording Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "recorded_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By"
+          },
+          "recorded_by_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By Email"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duration Ms"
+          },
+          "sop_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Sop Id"
+          },
+          "sop_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sop Version"
+          },
+          "sop_title": {
+            "type": "string",
+            "title": "Sop Title"
+          },
+          "step_count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Step Count"
+          },
+          "approved_sop_created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Approved Sop Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recording_id",
+          "session_id",
+          "duration_ms",
+          "sop_id",
+          "sop_version",
+          "sop_title",
+          "step_count",
+          "approved_sop_created_at"
+        ],
+        "title": "AnalyticsEligibleRecording"
+      },
+      "AnalyticsPathTimeline": {
+        "properties": {
+          "recording_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Recording Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "total_duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Duration Ms"
+          },
+          "unallocated_duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unallocated Duration Ms"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsTimelineStep"
+            },
+            "type": "array",
+            "title": "Steps"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recording_id",
+          "label",
+          "total_duration_ms",
+          "unallocated_duration_ms",
+          "steps"
+        ],
+        "title": "AnalyticsPathTimeline"
+      },
+      "AnalyticsRecordingMetric": {
+        "properties": {
+          "recording_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Recording Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Rank"
+          },
+          "total_duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Duration Ms"
+          },
+          "step_count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Step Count"
+          },
+          "path_signature": {
+            "type": "string",
+            "title": "Path Signature"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recording_id",
+          "label",
+          "rank",
+          "total_duration_ms",
+          "step_count",
+          "path_signature"
+        ],
+        "title": "AnalyticsRecordingMetric"
+      },
+      "AnalyticsResult": {
+        "properties": {
+          "overview": {
+            "$ref": "#/components/schemas/AnalyticsComparisonOverview"
+          },
+          "completion_ranking": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsRecordingMetric"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 2,
+            "title": "Completion Ranking"
+          },
+          "path_timelines": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsPathTimeline"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 2,
+            "title": "Path Timelines"
+          },
+          "fastest_vs_average": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsStepComparison"
+            },
+            "type": "array",
+            "title": "Fastest Vs Average"
+          },
+          "alignment_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Alignment Notes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "overview",
+          "completion_ranking",
+          "path_timelines",
+          "fastest_vs_average"
+        ],
+        "title": "AnalyticsResult"
+      },
+      "AnalyticsRetryRequest": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/AnalyticsRetryTarget"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "title": "AnalyticsRetryRequest"
+      },
+      "AnalyticsRetryTarget": {
+        "type": "string",
+        "enum": [
+          "summary",
+          "full_run"
+        ],
+        "title": "AnalyticsRetryTarget"
+      },
+      "AnalyticsRun": {
         "properties": {
           "schema_version": {
             "type": "string",
@@ -2896,11 +3492,103 @@
             "format": "uuid",
             "title": "Tenant Id"
           },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "workflow_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Workflow Id"
+          },
           "workflow_name": {
             "type": "string",
             "title": "Workflow Name"
           },
-          "reference_session_id": {
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AnalyticsRunMode"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AnalyticsRunStatus"
+          },
+          "input_count": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 2.0,
+            "title": "Input Count"
+          },
+          "embedding_model": {
+            "type": "string",
+            "title": "Embedding Model"
+          },
+          "algorithm_version": {
+            "type": "string",
+            "title": "Algorithm Version"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsRunInput"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 2,
+            "title": "Inputs"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalyticsResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "executive_summary": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 3,
+                "minItems": 3
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Summary"
+          },
+          "failure_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Stage"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "created_by": {
             "anyOf": [
               {
                 "type": "string",
@@ -2910,53 +3598,308 @@
                 "type": "null"
               }
             ],
-            "title": "Reference Session Id"
+            "title": "Created By"
           },
-          "clustering_status": {
-            "type": "string",
-            "enum": [
-              "disabled_insufficient_sessions",
-              "not_implemented",
-              "available"
+          "supersedes_run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Clustering Status"
+            "title": "Supersedes Run Id"
           },
-          "path_summaries": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "title": "Path Summaries"
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
           },
-          "friction_points": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "title": "Friction Points"
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
           },
-          "executive_summary": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "maxItems": 3,
-            "title": "Executive Summary"
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "tenant_id",
+          "id",
+          "workflow_id",
           "workflow_name",
-          "clustering_status",
-          "path_summaries",
-          "friction_points",
-          "executive_summary"
+          "version",
+          "mode",
+          "status",
+          "input_count",
+          "embedding_model",
+          "algorithm_version",
+          "inputs",
+          "created_at",
+          "updated_at"
         ],
-        "title": "AnalyticsSummary"
+        "title": "AnalyticsRun"
+      },
+      "AnalyticsRunCreate": {
+        "properties": {
+          "recording_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 2,
+            "title": "Recording Ids"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AnalyticsRunMode",
+            "default": "recording_comparison"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recording_ids"
+        ],
+        "title": "AnalyticsRunCreate"
+      },
+      "AnalyticsRunInput": {
+        "properties": {
+          "position": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Position"
+          },
+          "recording_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Recording Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "sop_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Sop Id"
+          },
+          "sop_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sop Version"
+          },
+          "sop_content_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Sop Content Hash"
+          },
+          "recording_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Reference"
+          },
+          "recorded_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By"
+          },
+          "recorded_by_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By Email"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duration Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "position",
+          "recording_id",
+          "session_id",
+          "sop_id",
+          "sop_version",
+          "sop_content_hash",
+          "duration_ms"
+        ],
+        "title": "AnalyticsRunInput"
+      },
+      "AnalyticsRunMode": {
+        "type": "string",
+        "enum": [
+          "recording_comparison"
+        ],
+        "title": "AnalyticsRunMode"
+      },
+      "AnalyticsRunStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "embedding",
+          "aligning",
+          "calculating",
+          "summarizing",
+          "completed",
+          "summary_failed",
+          "failed"
+        ],
+        "title": "AnalyticsRunStatus"
+      },
+      "AnalyticsStepComparison": {
+        "properties": {
+          "group_id": {
+            "type": "string",
+            "title": "Group Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "sample_count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sample Count"
+          },
+          "fastest_duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fastest Duration Ms"
+          },
+          "average_duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Average Duration Ms"
+          },
+          "fastest_path_has_step": {
+            "type": "boolean",
+            "title": "Fastest Path Has Step"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "group_id",
+          "label",
+          "sample_count",
+          "average_duration_ms",
+          "fastest_path_has_step"
+        ],
+        "title": "AnalyticsStepComparison"
+      },
+      "AnalyticsTimelineStep": {
+        "properties": {
+          "group_id": {
+            "type": "string",
+            "title": "Group Id"
+          },
+          "sop_step_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Sop Step Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "start_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start Ms"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duration Ms"
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "shared",
+              "optional",
+              "path_specific"
+            ],
+            "title": "Classification"
+          },
+          "timing_source": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "estimated",
+              "unavailable"
+            ],
+            "title": "Timing Source"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "group_id",
+          "sop_step_id",
+          "label",
+          "start_ms",
+          "duration_ms",
+          "classification",
+          "timing_source"
+        ],
+        "title": "AnalyticsTimelineStep"
       },
       "AuthSession": {
         "properties": {
@@ -4177,6 +5120,163 @@
         "title": "SOPDecisionBranch",
         "description": "A conditional path within a step (\"if X, then Y\"). Branches are authored\nby the SOP generator from observed decision points in the evidence."
       },
+      "SOPLibraryItem": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1.0",
+            "title": "Schema Version",
+            "default": "1.0"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Tenant Id"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "source_session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Source Session Id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version",
+            "default": 1
+          },
+          "status": {
+            "$ref": "#/components/schemas/SOPStatus",
+            "default": "draft"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Title"
+          },
+          "document": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/SOPStep"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Steps"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
+          "workflow_name": {
+            "type": "string",
+            "title": "Workflow Name"
+          },
+          "recording_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Id"
+          },
+          "recording_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Reference"
+          },
+          "recorded_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By"
+          },
+          "recorded_by_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By Email"
+          },
+          "recording_created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Created At"
+          },
+          "session_duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Session Duration Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "source_session_id",
+          "title",
+          "steps",
+          "workflow_name",
+          "session_duration_ms"
+        ],
+        "title": "SOPLibraryItem",
+        "description": "SOP plus recording context needed by the tenant-wide library.\n\nDetail/export APIs continue to use the core ``SOP`` schema. Keeping this\nenrichment specific to the library avoids making recording metadata part\nof the SOP document itself."
+      },
       "SOPStatus": {
         "type": "string",
         "enum": [
@@ -4251,6 +5351,18 @@
               }
             ],
             "title": "Estimated Time Ms"
+          },
+          "observed_duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Duration Ms"
           },
           "decision_branches": {
             "items": {

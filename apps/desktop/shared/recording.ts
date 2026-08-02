@@ -185,6 +185,124 @@ export interface BackendWorkflowRecording {
   completed_at: string | null
 }
 
+export type AnalyticsRunStatus =
+  | 'queued'
+  | 'embedding'
+  | 'aligning'
+  | 'calculating'
+  | 'summarizing'
+  | 'completed'
+  | 'summary_failed'
+  | 'failed'
+
+export type AnalyticsRetryTarget = 'summary' | 'full_run'
+
+export interface BackendAnalyticsEligibleRecording {
+  recording_id: string
+  session_id: string
+  reference: string | null
+  recorded_by: string | null
+  recorded_by_email: string | null
+  duration_ms: number
+  sop_id: string
+  sop_version: number
+  sop_title: string
+  step_count: number
+  approved_sop_created_at: string
+}
+
+export interface BackendAnalyticsRunInput {
+  position: number
+  recording_id: string
+  session_id: string
+  sop_id: string
+  sop_version: number
+  sop_content_hash: string
+  recording_reference: string | null
+  recorded_by: string | null
+  recorded_by_email: string | null
+  duration_ms: number
+}
+
+export interface BackendAnalyticsRecordingMetric {
+  recording_id: string
+  label: string
+  rank: number
+  total_duration_ms: number
+  step_count: number
+  path_signature: string
+}
+
+export interface BackendAnalyticsTimelineStep {
+  group_id: string
+  sop_step_id: string
+  label: string
+  start_ms: number
+  duration_ms: number
+  classification: 'shared' | 'optional' | 'path_specific'
+  timing_source: 'observed' | 'estimated' | 'unavailable'
+}
+
+export interface BackendAnalyticsPathTimeline {
+  recording_id: string
+  label: string
+  total_duration_ms: number
+  unallocated_duration_ms: number
+  steps: BackendAnalyticsTimelineStep[]
+}
+
+export interface BackendAnalyticsStepComparison {
+  group_id: string
+  label: string
+  sample_count: number
+  fastest_duration_ms: number | null
+  average_duration_ms: number
+  fastest_path_has_step: boolean
+}
+
+export interface BackendAnalyticsResult {
+  overview: {
+    recording_count: number
+    distinct_path_count: number
+    fastest_recording_id: string
+    fastest_duration_ms: number
+    average_duration_ms: number
+    potential_time_saved_ms: number
+    shared_step_count: number
+    optional_step_count: number
+    path_specific_step_count: number
+    timing_coverage: number
+  }
+  completion_ranking: BackendAnalyticsRecordingMetric[]
+  path_timelines: BackendAnalyticsPathTimeline[]
+  fastest_vs_average: BackendAnalyticsStepComparison[]
+  alignment_notes: string[]
+}
+
+export interface BackendAnalyticsRun {
+  tenant_id: string
+  id: string
+  workflow_id: string
+  workflow_name: string
+  version: number
+  mode: 'recording_comparison'
+  status: AnalyticsRunStatus
+  input_count: number
+  embedding_model: string
+  algorithm_version: string
+  inputs: BackendAnalyticsRunInput[]
+  result: BackendAnalyticsResult | null
+  executive_summary: string[] | null
+  failure_stage: string | null
+  error_message: string | null
+  created_by: string | null
+  supersedes_run_id: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  updated_at: string
+}
+
 /** Save destination chosen after capture. ``workflowName`` is also kept as the
  * local display label when ``workflowId`` points at an existing workflow. */
 export interface SaveRecordingPayload {
@@ -266,6 +384,7 @@ export interface BackendSOPStep {
   warning: string | null
   screenshot_reference: string | null
   estimated_time_ms: number | null
+  observed_duration_ms: number | null
   decision_branches: SopDecisionBranch[]
 }
 
@@ -279,6 +398,17 @@ export interface BackendSOP {
   document: string | null
   steps: BackendSOPStep[]
   created_at: string
+}
+
+export interface BackendSOPLibraryItem extends BackendSOP {
+  workflow_id: string | null
+  workflow_name: string
+  recording_id: string | null
+  recording_reference: string | null
+  recorded_by: string | null
+  recorded_by_email: string | null
+  recording_created_at: string | null
+  session_duration_ms: number
 }
 
 export interface BackendDashboardSummary {
@@ -404,6 +534,19 @@ export interface RecordingApi {
   listWorkflows: (query?: string) => Promise<BackendWorkflow[]>
   getWorkflow: (workflowId: string) => Promise<BackendWorkflow>
   listWorkflowRecordings: (workflowId: string) => Promise<BackendWorkflowRecording[]>
+  listAnalyticsEligibleRecordings: (
+    workflowId: string
+  ) => Promise<BackendAnalyticsEligibleRecording[]>
+  listAnalyticsRuns: (workflowId: string) => Promise<BackendAnalyticsRun[]>
+  createAnalyticsRun: (
+    workflowId: string,
+    recordingIds: string[]
+  ) => Promise<BackendAnalyticsRun>
+  getAnalyticsRun: (runId: string) => Promise<BackendAnalyticsRun>
+  retryAnalyticsRun: (
+    runId: string,
+    target: AnalyticsRetryTarget
+  ) => Promise<BackendAnalyticsRun>
   deleteSession: (sessionId: string) => Promise<void>
   retry: (sessionId: string, target: RecordingRetryTarget) => Promise<void>
   getSession: (backendSessionId: string) => Promise<BackendWorkflowSession>
@@ -414,7 +557,7 @@ export interface RecordingApi {
     mediaUrl?: string | null
   ) => Promise<ArrayBuffer>
   getSessionSops: (backendSessionId: string) => Promise<BackendSOP[]>
-  listSops: () => Promise<BackendSOP[]>
+  listSops: () => Promise<BackendSOPLibraryItem[]>
   approveSop: (sopId: string, approved: boolean) => Promise<BackendSOP>
   getDashboardSummary: () => Promise<BackendDashboardSummary>
   search: (query: string) => Promise<BackendSearchResponse>
@@ -457,6 +600,11 @@ export const recordingIpc = {
   listWorkflows: 'recording:list-workflows',
   getWorkflow: 'recording:get-workflow',
   listWorkflowRecordings: 'recording:list-workflow-recordings',
+  listAnalyticsEligibleRecordings: 'recording:list-analytics-eligible-recordings',
+  listAnalyticsRuns: 'recording:list-analytics-runs',
+  createAnalyticsRun: 'recording:create-analytics-run',
+  getAnalyticsRun: 'recording:get-analytics-run',
+  retryAnalyticsRun: 'recording:retry-analytics-run',
   deleteSession: 'recording:delete-session',
   retry: 'recording:retry',
   getSession: 'recording:get-session',

@@ -25,6 +25,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from worktrace_api.analytics_provider import AnalyticsProvider
 from worktrace_api.auth import (
     AuthenticationError,
     EmailAlreadyRegisteredError,
@@ -33,6 +34,7 @@ from worktrace_api.auth import (
     log_out,
     sign_up,
 )
+from worktrace_api.core.celery_app import service_status
 from worktrace_api.database import create_tables
 from worktrace_api.media_tokens import (
     MediaTokenError,
@@ -47,7 +49,12 @@ from worktrace_api.schemas import (
     SOP,
     SOP_LIMIT_FIELDS,
     Account,
-    AnalyticsSummary,
+    AnalyticsEligibleRecording,
+    AnalyticsRetryRequest,
+    AnalyticsRetryTarget,
+    AnalyticsRun,
+    AnalyticsRunCreate,
+    AnalyticsRunStatus,
     AuthSession,
     ChunkContentType,
     ChunkReceipt,
@@ -77,6 +84,7 @@ from worktrace_api.schemas import (
     SearchResponse,
     SignUpRequest,
     SOPApproval,
+    SOPLibraryItem,
     SopLimitsSettings,
     SopLimitsSettingsUpdate,
     SOPStatus,
@@ -87,12 +95,13 @@ from worktrace_api.schemas import (
     WorkflowSession,
     WorkflowSessionCreate,
 )
-from worktrace_api.services import (
-    analyze_workflow,
-    classify_feedback,
-    external_ai_preview,
-)
+from worktrace_api.services import classify_feedback, external_ai_preview
 from worktrace_api.settings import get_settings
+from worktrace_api.tasks.analytics import (
+    process_workflow_analytics,
+    summarize_workflow_analytics,
+)
+from worktrace_api.workflow_analytics import ALGORITHM_VERSION
 
 
 @asynccontextmanager
@@ -228,8 +237,6 @@ def screenshot_evidence(
 
 @app.get("/health", tags=["system"])
 def health() -> dict[str, Any]:
-    from worktrace_api.core.celery_app import service_status
-
     return {
         "status": "ok",
         "environment": settings.env,
@@ -464,6 +471,169 @@ def list_workflow_recordings(
     if not workflow:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
     return repo.list_recordings_for_workflow(workflow_id)
+
+
+@app.get(
+    "/workflows/{workflow_id}/analytics/eligible-recordings",
+    response_model=list[AnalyticsEligibleRecording],
+    tags=["analytics"],
+)
+def list_analytics_eligible_recordings(
+    workflow_id: UUID,
+    repo: Repository = Depends(repository),
+) -> list[AnalyticsEligibleRecording]:
+    if not repo.get_workflow(workflow_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+    return repo.list_analytics_eligible_recordings(workflow_id)
+
+
+@app.post(
+    "/workflows/{workflow_id}/analytics-runs",
+    response_model=AnalyticsRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["analytics"],
+)
+def create_analytics_run(
+    workflow_id: UUID,
+    payload: AnalyticsRunCreate,
+    auth: AuthContext = Depends(authenticated_account),
+    repo: Repository = Depends(repository),
+) -> AnalyticsRun:
+    if service_status(settings.redis_url).get("worker") != "up":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Analytics worker is unavailable. Start Redis and the Celery "
+                "worker, then retry."
+            ),
+        )
+    provider_settings = repo.get_llm_provider_secret()
+    provider = AnalyticsProvider(
+        settings,
+        base_url=provider_settings.base_url if provider_settings else None,
+        chat_model=provider_settings.model if provider_settings else None,
+        api_key=provider_settings.api_key if provider_settings else None,
+    )
+    try:
+        run = repo.create_analytics_run(
+            workflow_id,
+            payload.recording_ids,
+            created_by=auth.account.user_id,
+            embedding_model=provider.embedding_model,
+            algorithm_version=ALGORITHM_VERSION,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    try:
+        process_workflow_analytics.delay(str(run.id), str(repo.tenant_id))
+    except Exception as exc:
+        repo.set_analytics_run_status(
+            run.id,
+            AnalyticsRunStatus.FAILED,
+            failure_stage="dispatch",
+            error_message="The analytics job could not be queued.",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The analytics job could not be queued. Try again shortly.",
+        ) from exc
+    return run
+
+
+@app.get(
+    "/workflows/{workflow_id}/analytics-runs",
+    response_model=list[AnalyticsRun],
+    tags=["analytics"],
+)
+def list_analytics_runs(
+    workflow_id: UUID,
+    limit: int = Query(default=25, ge=1, le=100),
+    repo: Repository = Depends(repository),
+) -> list[AnalyticsRun]:
+    if not repo.get_workflow(workflow_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+    return repo.list_analytics_runs(workflow_id, limit=limit)
+
+
+@app.get(
+    "/analytics-runs/{run_id}",
+    response_model=AnalyticsRun,
+    tags=["analytics"],
+)
+def get_analytics_run(
+    run_id: UUID,
+    repo: Repository = Depends(repository),
+) -> AnalyticsRun:
+    run = repo.get_analytics_run(run_id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analytics run not found")
+    return run
+
+
+@app.post(
+    "/analytics-runs/{run_id}/retry",
+    response_model=AnalyticsRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["analytics"],
+)
+def retry_analytics_run(
+    run_id: UUID,
+    payload: AnalyticsRetryRequest,
+    repo: Repository = Depends(repository),
+) -> AnalyticsRun:
+    run = repo.get_analytics_run(run_id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analytics run not found")
+    active_statuses = {
+        AnalyticsRunStatus.QUEUED,
+        AnalyticsRunStatus.EMBEDDING,
+        AnalyticsRunStatus.ALIGNING,
+        AnalyticsRunStatus.CALCULATING,
+        AnalyticsRunStatus.SUMMARIZING,
+    }
+    if run.status in active_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Analytics processing is already active",
+        )
+    if service_status(settings.redis_url).get("worker") != "up":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Analytics worker is unavailable. Start Redis and the Celery "
+                "worker, then retry."
+            ),
+        )
+    if payload.target == AnalyticsRetryTarget.SUMMARY and run.result is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Analytics metrics are unavailable; retry the full run",
+        )
+    retry = repo.prepare_analytics_retry(
+        run_id,
+        preserve_result=payload.target == AnalyticsRetryTarget.SUMMARY,
+    )
+    try:
+        task = (
+            summarize_workflow_analytics
+            if payload.target == AnalyticsRetryTarget.SUMMARY
+            else process_workflow_analytics
+        )
+        task.delay(str(run_id), str(repo.tenant_id))
+    except Exception as exc:
+        repo.set_analytics_run_status(
+            run_id,
+            AnalyticsRunStatus.FAILED,
+            failure_stage="dispatch",
+            error_message="The analytics retry could not be queued.",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The analytics retry could not be queued. Try again shortly.",
+        ) from exc
+    return retry
 
 
 @app.put(
@@ -1057,14 +1227,14 @@ def set_external_ai_approval(
     return approved
 
 
-@app.get("/sops", response_model=list[SOP], tags=["sops"])
+@app.get("/sops", response_model=list[SOPLibraryItem], tags=["sops"])
 def list_sops(
     status_filter: SOPStatus | None = Query(default=None, alias="status"),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     repo: Repository = Depends(repository),
-) -> list[SOP]:
-    return repo.list_sops(
+) -> list[SOPLibraryItem]:
+    return repo.list_sop_library(
         status_filter.value if status_filter else None, limit, offset
     )
 
@@ -1146,15 +1316,3 @@ def export_session(session_id: UUID, repo: Repository = Depends(repository)) -> 
 @app.get("/dashboard/summary", response_model=DashboardSummary, tags=["analytics"])
 def dashboard_summary(repo: Repository = Depends(repository)) -> DashboardSummary:
     return repo.dashboard_summary()
-
-
-@app.get("/analytics/{workflow_name}", response_model=AnalyticsSummary, tags=["analytics"])
-def workflow_analytics(
-    workflow_name: str,
-    reference_session_id: UUID | None = None,
-    repo: Repository = Depends(repository),
-) -> AnalyticsSummary:
-    sessions = repo.list_sessions(workflow_name, limit=500)
-    if not sessions:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
-    return analyze_workflow(repo.tenant_id, workflow_name, sessions, reference_session_id)

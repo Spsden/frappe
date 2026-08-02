@@ -9,9 +9,9 @@ import { useConnection } from './features/connection/useConnection'
 import { ThemeProvider } from './features/theme/ThemeContext'
 import { DashboardPage } from './pages/DashboardPage'
 import { AuthPage } from './pages/AuthPage'
+import { AnalyticsPage } from './pages/AnalyticsPage'
 import { AudioRecorderPage } from './pages/AudioRecorderPage'
 import { ImageViewerPage } from './pages/ImageViewerPage'
-import { PlaceholderPage } from './pages/PlaceholderPage'
 import { RecordingControlsPage } from './pages/RecordingControlsPage'
 import { SessionsPage } from './pages/SessionsPage'
 import { SessionDetailPage } from './pages/SessionDetailPage'
@@ -123,11 +123,7 @@ function ConnectedApp() {
 
           <Route
             path="/analytics"
-            element={
-              <PlaceholderPage
-                description="Compare workflow paths and identify process friction."
-              />
-            }
+            element={<AnalyticsPage />}
           />
 
           <Route

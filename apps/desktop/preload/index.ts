@@ -13,11 +13,15 @@ import {
 import {
   recordingIpc,
   type AnnotationInput,
+  type AnalyticsRetryTarget,
+  type BackendAnalyticsEligibleRecording,
+  type BackendAnalyticsRun,
   type AudioRecorderApi,
   type BackendDashboardSummary,
   type BackendScreenshotEvidence,
   type BackendSearchResponse,
   type BackendSOP,
+  type BackendSOPLibraryItem,
   type BackendWorkflow,
   type BackendWorkflowRecording,
   type RecordingOptions,
@@ -113,6 +117,33 @@ contextBridge.exposeInMainWorld('api', {
         recordingIpc.listWorkflowRecordings,
         workflowId
       ) as Promise<BackendWorkflowRecording[]>,
+    listAnalyticsEligibleRecordings: (workflowId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.listAnalyticsEligibleRecordings,
+        workflowId
+      ) as Promise<BackendAnalyticsEligibleRecording[]>,
+    listAnalyticsRuns: (workflowId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.listAnalyticsRuns,
+        workflowId
+      ) as Promise<BackendAnalyticsRun[]>,
+    createAnalyticsRun: (workflowId: string, recordingIds: string[]) =>
+      ipcRenderer.invoke(
+        recordingIpc.createAnalyticsRun,
+        workflowId,
+        recordingIds
+      ) as Promise<BackendAnalyticsRun>,
+    getAnalyticsRun: (runId: string) =>
+      ipcRenderer.invoke(
+        recordingIpc.getAnalyticsRun,
+        runId
+      ) as Promise<BackendAnalyticsRun>,
+    retryAnalyticsRun: (runId: string, target: AnalyticsRetryTarget) =>
+      ipcRenderer.invoke(
+        recordingIpc.retryAnalyticsRun,
+        runId,
+        target
+      ) as Promise<BackendAnalyticsRun>,
     deleteSession: (sessionId: string) => ipcRenderer.invoke(recordingIpc.deleteSession, sessionId),
     retry: (sessionId: string, target: RecordingRetryTarget) =>
       ipcRenderer.invoke(recordingIpc.retry, sessionId, target),
@@ -139,7 +170,8 @@ contextBridge.exposeInMainWorld('api', {
         recordingIpc.getSessionSops,
         backendSessionId
       ) as Promise<BackendSOP[]>,
-    listSops: () => ipcRenderer.invoke(recordingIpc.listSops) as Promise<BackendSOP[]>,
+    listSops: () =>
+      ipcRenderer.invoke(recordingIpc.listSops) as Promise<BackendSOPLibraryItem[]>,
     approveSop: (sopId: string, approved: boolean) =>
       ipcRenderer.invoke(recordingIpc.approveSop, sopId, approved) as Promise<BackendSOP>,
     getDashboardSummary: () =>

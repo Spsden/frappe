@@ -31,7 +31,9 @@ x-api-env: &api-env
 
 services:
   postgres:
-    image: postgres:17-alpine
+    # Pin pgvector with Postgres so the analytics migration can create the
+    # vector extension on every developer machine and deployment.
+    image: pgvector/pgvector:0.8.2-pg17
     environment:
       <<: *db-env
     ports:

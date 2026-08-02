@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -16,12 +17,29 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column, sessionmaker
 from sqlalchemy.pool import NullPool
+from sqlalchemy.types import TypeDecorator
 
 from worktrace_api.settings import get_settings
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class EmbeddingVector(TypeDecorator):
+    """Use pgvector in production while keeping the SQLite test suite portable."""
+
+    impl = JSON
+    cache_ok = True
+
+    def __init__(self, dimensions: int = 1536):
+        super().__init__()
+        self.dimensions = dimensions
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(Vector(self.dimensions))
+        return dialect.type_descriptor(JSON())
 
 
 class TenantRecord:
@@ -179,6 +197,98 @@ class SOPRecord(TenantRecord, Base):
     title: Mapped[str] = mapped_column(String(200))
     document: Mapped[str | None] = mapped_column(Text, nullable=True)
     steps: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class AnalyticsRunRecord(TenantRecord, Base):
+    __tablename__ = "analytics_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "workflow_id", "version", name="uq_analytics_run_version"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflows.id", ondelete="CASCADE"), index=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    mode: Mapped[str] = mapped_column(String(40), index=True)
+    status: Mapped[str] = mapped_column(String(40), index=True)
+    input_count: Mapped[int] = mapped_column(Integer)
+    embedding_model: Mapped[str] = mapped_column(String(200))
+    algorithm_version: Mapped[str] = mapped_column(String(50))
+    result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    executive_summary: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    failure_stage: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    supersedes_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("analytics_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class AnalyticsRunInputRecord(TenantRecord, Base):
+    __tablename__ = "analytics_run_inputs"
+    __table_args__ = (
+        UniqueConstraint("run_id", "position", name="uq_analytics_input_position"),
+        UniqueConstraint("run_id", "recording_id", name="uq_analytics_input_recording"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("analytics_runs.id", ondelete="CASCADE"), index=True
+    )
+    position: Mapped[int] = mapped_column(Integer)
+    recording_id: Mapped[str] = mapped_column(String(36), index=True)
+    session_id: Mapped[str] = mapped_column(String(36), index=True)
+    sop_id: Mapped[str] = mapped_column(String(36), index=True)
+    sop_version: Mapped[int] = mapped_column(Integer)
+    sop_content_hash: Mapped[str] = mapped_column(String(64))
+    sop_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON)
+    recording_reference: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    recorded_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    recorded_by_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class SOPStepEmbeddingRecord(TenantRecord, Base):
+    __tablename__ = "sop_step_embeddings"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "sop_id",
+            "sop_step_id",
+            "model",
+            "content_hash",
+            name="uq_sop_step_embedding_content",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    sop_id: Mapped[str] = mapped_column(
+        ForeignKey("sops.id", ondelete="CASCADE"), index=True
+    )
+    sop_step_id: Mapped[str] = mapped_column(String(36), index=True)
+    model: Mapped[str] = mapped_column(String(200))
+    dimensions: Mapped[int] = mapped_column(Integer)
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    embedding: Mapped[list[float]] = mapped_column(EmbeddingVector(1536))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

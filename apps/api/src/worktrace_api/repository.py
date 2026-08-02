@@ -1,4 +1,6 @@
-from collections.abc import Generator
+import hashlib
+import json
+from collections.abc import Generator, Sequence
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -9,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from worktrace_api.database import (
     AIApprovalRecord,
+    AnalyticsRunInputRecord,
+    AnalyticsRunRecord,
     FeedbackRecord,
     LLMProviderSettingsRecord,
     RecordingChunkRecord,
@@ -17,6 +21,7 @@ from worktrace_api.database import (
     SessionLocal,
     SopLimitsSettingsRecord,
     SOPRecord,
+    SOPStepEmbeddingRecord,
     UserRecord,
     WorkflowRecord,
     WorkflowSessionRecord,
@@ -24,6 +29,12 @@ from worktrace_api.database import (
 from worktrace_api.schemas import (
     SOP,
     SOP_LIMIT_FIELDS,
+    AnalyticsEligibleRecording,
+    AnalyticsResult,
+    AnalyticsRun,
+    AnalyticsRunInput,
+    AnalyticsRunMode,
+    AnalyticsRunStatus,
     CaptureSource,
     ChunkContentType,
     ChunkReceipt,
@@ -38,6 +49,7 @@ from worktrace_api.schemas import (
     SearchResponse,
     SearchResult,
     SearchResultKind,
+    SOPLibraryItem,
     SopLimitsSettings,
     SopLimitsSettingsUpdate,
     SOPStatus,
@@ -254,6 +266,437 @@ class Repository:
             .order_by(RecordingRecord.created_at.desc())
         ).all()
         return [self._workflow_recording_from_row(row) for row in rows]
+
+    def list_analytics_eligible_recordings(
+        self, workflow_id: UUID
+    ) -> list[AnalyticsEligibleRecording]:
+        """Return one row per recording using its latest approved SOP.
+
+        A newer draft does not displace an older approval. This is deliberate:
+        analytics only changes after the regenerated SOP is explicitly approved.
+        """
+        latest_approved = (
+            select(
+                SOPRecord.source_session_id.label("session_id"),
+                func.max(SOPRecord.version).label("sop_version"),
+            )
+            .where(
+                SOPRecord.tenant_id == str(self.tenant_id),
+                SOPRecord.status == SOPStatus.APPROVED.value,
+            )
+            .group_by(SOPRecord.source_session_id)
+            .subquery()
+        )
+        rows = self.db.execute(
+            select(
+                RecordingRecord,
+                WorkflowSessionRecord.duration_ms,
+                SOPRecord,
+                UserRecord.email.label("recorded_by_email"),
+            )
+            .join(
+                WorkflowSessionRecord,
+                WorkflowSessionRecord.id == RecordingRecord.session_id,
+            )
+            .join(
+                latest_approved,
+                latest_approved.c.session_id == WorkflowSessionRecord.id,
+            )
+            .join(
+                SOPRecord,
+                (SOPRecord.source_session_id == latest_approved.c.session_id)
+                & (SOPRecord.version == latest_approved.c.sop_version)
+                & (SOPRecord.tenant_id == str(self.tenant_id)),
+            )
+            .outerjoin(UserRecord, UserRecord.id == RecordingRecord.recorded_by)
+            .where(
+                RecordingRecord.tenant_id == str(self.tenant_id),
+                RecordingRecord.workflow_id == str(workflow_id),
+            )
+            .order_by(RecordingRecord.created_at.desc())
+        ).all()
+        return [
+            AnalyticsEligibleRecording(
+                recording_id=row.RecordingRecord.id,
+                session_id=row.RecordingRecord.session_id,
+                reference=row.RecordingRecord.reference,
+                recorded_by=row.RecordingRecord.recorded_by,
+                recorded_by_email=row.recorded_by_email,
+                duration_ms=row.duration_ms,
+                sop_id=row.SOPRecord.id,
+                sop_version=row.SOPRecord.version,
+                sop_title=row.SOPRecord.title,
+                step_count=len(row.SOPRecord.steps or []),
+                approved_sop_created_at=row.SOPRecord.created_at,
+            )
+            for row in rows
+        ]
+
+    def create_analytics_run(
+        self,
+        workflow_id: UUID,
+        recording_ids: Sequence[UUID],
+        *,
+        created_by: UUID | None,
+        embedding_model: str,
+        algorithm_version: str,
+    ) -> AnalyticsRun:
+        if not 2 <= len(recording_ids) <= 5:
+            raise ValueError("Select between 2 and 5 recordings")
+        if len(set(recording_ids)) != len(recording_ids):
+            raise ValueError("Each recording can only be selected once")
+
+        workflow = self.db.scalar(
+            tenant_query(WorkflowRecord, self.tenant_id)
+            .where(WorkflowRecord.id == str(workflow_id))
+            .with_for_update()
+        )
+        if not workflow:
+            raise LookupError("Workflow not found")
+
+        eligible = {
+            item.recording_id: item
+            for item in self.list_analytics_eligible_recordings(workflow_id)
+        }
+        missing = [recording_id for recording_id in recording_ids if recording_id not in eligible]
+        if missing:
+            raise ValueError(
+                "Every selected recording must belong to this workflow and have an approved SOP"
+            )
+
+        latest_run = self.db.scalar(
+            tenant_query(AnalyticsRunRecord, self.tenant_id)
+            .where(AnalyticsRunRecord.workflow_id == str(workflow_id))
+            .order_by(AnalyticsRunRecord.version.desc())
+            .limit(1)
+        )
+        version = (latest_run.version + 1) if latest_run else 1
+        now = datetime.now(UTC)
+        run = AnalyticsRunRecord(
+            id=str(uuid4()),
+            tenant_id=str(self.tenant_id),
+            workflow_id=str(workflow_id),
+            version=version,
+            mode=AnalyticsRunMode.RECORDING_COMPARISON.value,
+            status=AnalyticsRunStatus.QUEUED.value,
+            input_count=len(recording_ids),
+            embedding_model=embedding_model,
+            algorithm_version=algorithm_version,
+            created_by=str(created_by) if created_by else None,
+            supersedes_run_id=latest_run.id if latest_run else None,
+            created_at=now,
+            updated_at=now,
+        )
+        self.db.add(run)
+        self.db.flush()
+
+        for position, recording_id in enumerate(recording_ids, start=1):
+            item = eligible[recording_id]
+            sop_record = self.db.scalar(
+                tenant_query(SOPRecord, self.tenant_id).where(
+                    SOPRecord.id == str(item.sop_id)
+                )
+            )
+            if not sop_record:  # Defensive: eligibility and snapshot share one transaction.
+                raise ValueError("An approved SOP changed while analytics was being created")
+            sop = self._sop_from_record(sop_record)
+            snapshot = sop.model_dump(mode="json")
+            content = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
+            self.db.add(
+                AnalyticsRunInputRecord(
+                    id=str(uuid4()),
+                    tenant_id=str(self.tenant_id),
+                    run_id=run.id,
+                    position=position,
+                    recording_id=str(recording_id),
+                    session_id=str(item.session_id),
+                    sop_id=str(item.sop_id),
+                    sop_version=item.sop_version,
+                    sop_content_hash=hashlib.sha256(content.encode()).hexdigest(),
+                    sop_snapshot=snapshot,
+                    recording_reference=item.reference,
+                    recorded_by=str(item.recorded_by) if item.recorded_by else None,
+                    recorded_by_email=item.recorded_by_email,
+                    duration_ms=item.duration_ms,
+                    created_at=now,
+                )
+            )
+        self.db.commit()
+        created = self.get_analytics_run(UUID(run.id))
+        if not created:
+            raise RuntimeError("Analytics run was saved but could not be reloaded")
+        return created
+
+    def get_analytics_run(self, run_id: UUID) -> AnalyticsRun | None:
+        record = self.db.scalar(
+            tenant_query(AnalyticsRunRecord, self.tenant_id).where(
+                AnalyticsRunRecord.id == str(run_id)
+            )
+        )
+        if not record:
+            return None
+        workflow = self.db.scalar(
+            tenant_query(WorkflowRecord, self.tenant_id).where(
+                WorkflowRecord.id == record.workflow_id
+            )
+        )
+        if not workflow:
+            return None
+        inputs = self.db.scalars(
+            tenant_query(AnalyticsRunInputRecord, self.tenant_id)
+            .where(AnalyticsRunInputRecord.run_id == record.id)
+            .order_by(AnalyticsRunInputRecord.position)
+        ).all()
+        return self._analytics_run_from_records(record, workflow.name, inputs)
+
+    def list_analytics_runs(self, workflow_id: UUID, limit: int = 25) -> list[AnalyticsRun]:
+        runs = self.db.scalars(
+            tenant_query(AnalyticsRunRecord, self.tenant_id)
+            .where(AnalyticsRunRecord.workflow_id == str(workflow_id))
+            .order_by(AnalyticsRunRecord.version.desc())
+            .limit(limit)
+        ).all()
+        if not runs:
+            return []
+        workflow = self.db.scalar(
+            tenant_query(WorkflowRecord, self.tenant_id).where(
+                WorkflowRecord.id == str(workflow_id)
+            )
+        )
+        if not workflow:
+            return []
+        run_ids = [record.id for record in runs]
+        inputs = self.db.scalars(
+            tenant_query(AnalyticsRunInputRecord, self.tenant_id)
+            .where(AnalyticsRunInputRecord.run_id.in_(run_ids))
+            .order_by(AnalyticsRunInputRecord.run_id, AnalyticsRunInputRecord.position)
+        ).all()
+        inputs_by_run: dict[str, list[AnalyticsRunInputRecord]] = {
+            run_id: [] for run_id in run_ids
+        }
+        for item in inputs:
+            inputs_by_run[item.run_id].append(item)
+        return [
+            self._analytics_run_from_records(record, workflow.name, inputs_by_run[record.id])
+            for record in runs
+        ]
+
+    def get_analytics_input_snapshots(self, run_id: UUID) -> list[dict[str, Any]]:
+        run = self.db.scalar(
+            tenant_query(AnalyticsRunRecord, self.tenant_id).where(
+                AnalyticsRunRecord.id == str(run_id)
+            )
+        )
+        if not run:
+            raise LookupError("Analytics run not found")
+        inputs = self.db.scalars(
+            tenant_query(AnalyticsRunInputRecord, self.tenant_id)
+            .where(AnalyticsRunInputRecord.run_id == str(run_id))
+            .order_by(AnalyticsRunInputRecord.position)
+        ).all()
+        return [
+            {
+                "position": item.position,
+                "recording_id": item.recording_id,
+                "duration_ms": item.duration_ms,
+                "reference": item.recording_reference,
+                "recorded_by_email": item.recorded_by_email,
+                "sop": item.sop_snapshot,
+            }
+            for item in inputs
+        ]
+
+    def set_analytics_run_status(
+        self,
+        run_id: UUID,
+        status: AnalyticsRunStatus,
+        *,
+        failure_stage: str | None = None,
+        error_message: str | None = None,
+    ) -> bool:
+        record = self.db.scalar(
+            tenant_query(AnalyticsRunRecord, self.tenant_id).where(
+                AnalyticsRunRecord.id == str(run_id)
+            )
+        )
+        if not record:
+            return False
+        now = datetime.now(UTC)
+        record.status = status.value
+        record.failure_stage = failure_stage
+        record.error_message = error_message
+        record.updated_at = now
+        if status == AnalyticsRunStatus.EMBEDDING and record.started_at is None:
+            record.started_at = now
+        if status in {
+            AnalyticsRunStatus.COMPLETED,
+            AnalyticsRunStatus.SUMMARY_FAILED,
+            AnalyticsRunStatus.FAILED,
+        }:
+            record.completed_at = now
+        else:
+            record.completed_at = None
+        self.db.commit()
+        return True
+
+    def prepare_analytics_retry(self, run_id: UUID, *, preserve_result: bool) -> AnalyticsRun:
+        record = self.db.scalar(
+            tenant_query(AnalyticsRunRecord, self.tenant_id).where(
+                AnalyticsRunRecord.id == str(run_id)
+            )
+        )
+        if not record:
+            raise LookupError("Analytics run not found")
+        record.status = AnalyticsRunStatus.QUEUED.value
+        record.failure_stage = None
+        record.error_message = None
+        record.executive_summary = None
+        record.completed_at = None
+        record.updated_at = datetime.now(UTC)
+        if not preserve_result:
+            record.result_json = None
+            record.started_at = None
+        self.db.commit()
+        run = self.get_analytics_run(run_id)
+        if not run:
+            raise RuntimeError("Analytics retry was saved but could not be reloaded")
+        return run
+
+    def save_analytics_result(
+        self,
+        run_id: UUID,
+        result: AnalyticsResult,
+        executive_summary: list[str] | None,
+        status: AnalyticsRunStatus,
+        *,
+        error_message: str | None = None,
+    ) -> AnalyticsRun:
+        record = self.db.scalar(
+            tenant_query(AnalyticsRunRecord, self.tenant_id).where(
+                AnalyticsRunRecord.id == str(run_id)
+            )
+        )
+        if not record:
+            raise LookupError("Analytics run not found")
+        now = datetime.now(UTC)
+        record.result_json = result.model_dump(mode="json")
+        record.executive_summary = executive_summary
+        record.status = status.value
+        record.failure_stage = "summary" if status == AnalyticsRunStatus.SUMMARY_FAILED else None
+        record.error_message = error_message
+        record.completed_at = (
+            now
+            if status
+            in {
+                AnalyticsRunStatus.COMPLETED,
+                AnalyticsRunStatus.SUMMARY_FAILED,
+                AnalyticsRunStatus.FAILED,
+            }
+            else None
+        )
+        record.updated_at = now
+        self.db.commit()
+        saved = self.get_analytics_run(run_id)
+        if not saved:
+            raise RuntimeError("Analytics result was saved but could not be reloaded")
+        return saved
+
+    def get_step_embeddings(
+        self, sop_id: UUID, model: str, content_hashes: Sequence[str]
+    ) -> dict[str, list[float]]:
+        if not content_hashes:
+            return {}
+        records = self.db.scalars(
+            tenant_query(SOPStepEmbeddingRecord, self.tenant_id).where(
+                SOPStepEmbeddingRecord.sop_id == str(sop_id),
+                SOPStepEmbeddingRecord.model == model,
+                SOPStepEmbeddingRecord.content_hash.in_(content_hashes),
+            )
+        ).all()
+        return {record.content_hash: list(record.embedding) for record in records}
+
+    def save_step_embeddings(
+        self,
+        entries: Sequence[tuple[UUID, UUID, str, str, list[float]]],
+    ) -> None:
+        """Cache a batch while tolerating a concurrent worker caching the same step."""
+        for sop_id, sop_step_id, model, content_hash, embedding in entries:
+            try:
+                with self.db.begin_nested():
+                    self.db.add(
+                        SOPStepEmbeddingRecord(
+                            id=str(uuid4()),
+                            tenant_id=str(self.tenant_id),
+                            sop_id=str(sop_id),
+                            sop_step_id=str(sop_step_id),
+                            model=model,
+                            dimensions=len(embedding),
+                            content_hash=content_hash,
+                            embedding=embedding,
+                        )
+                    )
+                    self.db.flush()
+            except IntegrityError:
+                # The unique content key makes this an idempotent cache write.
+                continue
+        self.db.commit()
+
+    def get_analytics_result(self, run_id: UUID) -> AnalyticsResult | None:
+        record = self.db.scalar(
+            tenant_query(AnalyticsRunRecord, self.tenant_id).where(
+                AnalyticsRunRecord.id == str(run_id)
+            )
+        )
+        if not record or not record.result_json:
+            return None
+        return AnalyticsResult.model_validate(record.result_json)
+
+    @staticmethod
+    def _analytics_run_from_records(
+        record: AnalyticsRunRecord,
+        workflow_name: str,
+        inputs: Sequence[AnalyticsRunInputRecord],
+    ) -> AnalyticsRun:
+        return AnalyticsRun.model_validate(
+            {
+                "schema_version": "1.0",
+                "tenant_id": record.tenant_id,
+                "id": record.id,
+                "workflow_id": record.workflow_id,
+                "workflow_name": workflow_name,
+                "version": record.version,
+                "mode": record.mode,
+                "status": record.status,
+                "input_count": record.input_count,
+                "embedding_model": record.embedding_model,
+                "algorithm_version": record.algorithm_version,
+                "inputs": [
+                    AnalyticsRunInput(
+                        position=item.position,
+                        recording_id=item.recording_id,
+                        session_id=item.session_id,
+                        sop_id=item.sop_id,
+                        sop_version=item.sop_version,
+                        sop_content_hash=item.sop_content_hash,
+                        recording_reference=item.recording_reference,
+                        recorded_by=item.recorded_by,
+                        recorded_by_email=item.recorded_by_email,
+                        duration_ms=item.duration_ms,
+                    )
+                    for item in inputs
+                ],
+                "result": record.result_json,
+                "executive_summary": record.executive_summary,
+                "failure_stage": record.failure_stage,
+                "error_message": record.error_message,
+                "created_by": record.created_by,
+                "supersedes_run_id": record.supersedes_run_id,
+                "created_at": record.created_at,
+                "started_at": record.started_at,
+                "completed_at": record.completed_at,
+                "updated_at": record.updated_at,
+            }
+        )
 
     def create_workflow_and_recording(
         self,
@@ -1030,6 +1473,67 @@ class Repository:
             query = query.limit(limit)
         records = self.db.scalars(query).all()
         return [self._sop_from_record(record) for record in records]
+
+    def list_sop_library(
+        self,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[SOPLibraryItem]:
+        """Load library cards with workflow/recording context in one query."""
+        query = (
+            select(
+                SOPRecord,
+                WorkflowSessionRecord.workflow_name.label("session_workflow_name"),
+                WorkflowSessionRecord.duration_ms.label("session_duration_ms"),
+                RecordingRecord.workflow_id.label("workflow_id"),
+                RecordingRecord.id.label("recording_id"),
+                RecordingRecord.reference.label("recording_reference"),
+                RecordingRecord.recorded_by.label("recorded_by"),
+                RecordingRecord.created_at.label("recording_created_at"),
+                WorkflowRecord.name.label("workflow_name"),
+                UserRecord.email.label("recorded_by_email"),
+            )
+            .join(
+                WorkflowSessionRecord,
+                (WorkflowSessionRecord.id == SOPRecord.source_session_id)
+                & (WorkflowSessionRecord.tenant_id == str(self.tenant_id)),
+            )
+            .outerjoin(
+                RecordingRecord,
+                (RecordingRecord.id == WorkflowSessionRecord.recording_id)
+                & (RecordingRecord.tenant_id == str(self.tenant_id)),
+            )
+            .outerjoin(
+                WorkflowRecord,
+                (WorkflowRecord.id == RecordingRecord.workflow_id)
+                & (WorkflowRecord.tenant_id == str(self.tenant_id)),
+            )
+            .outerjoin(
+                UserRecord,
+                (UserRecord.id == RecordingRecord.recorded_by)
+                & (UserRecord.tenant_id == str(self.tenant_id)),
+            )
+            .where(SOPRecord.tenant_id == str(self.tenant_id))
+        )
+        if status:
+            query = query.where(SOPRecord.status == status)
+        query = query.order_by(SOPRecord.created_at.desc()).offset(offset).limit(limit)
+
+        return [
+            SOPLibraryItem(
+                **self._sop_from_record(row.SOPRecord).model_dump(),
+                workflow_id=row.workflow_id,
+                workflow_name=row.workflow_name or row.session_workflow_name,
+                recording_id=row.recording_id,
+                recording_reference=row.recording_reference,
+                recorded_by=row.recorded_by,
+                recorded_by_email=row.recorded_by_email,
+                recording_created_at=row.recording_created_at,
+                session_duration_ms=row.session_duration_ms,
+            )
+            for row in self.db.execute(query).all()
+        ]
 
     def search(self, query: str, limit: int = 20) -> SearchResponse:
         """Tenant-scoped substring search across SOPs and workflow sessions.

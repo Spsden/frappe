@@ -255,6 +255,7 @@ def test_generated_to_sop_renumbers_and_maps_screenshots():
     assert sop.steps[0].screenshot_reference == bundle.steps[0].screenshot_id
     # Ground-truth duration overrides the model's guess for step 1.
     assert sop.steps[0].estimated_time_ms == 1500
+    assert sop.steps[0].observed_duration_ms == 1500
     assert sop.steps[0].decision_branches[0].action == "Require manager approval"
 
 

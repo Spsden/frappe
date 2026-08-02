@@ -13,13 +13,15 @@ covering the cross-session library view backed by the same ``SOPRecord`` rows.
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from conftest import TEST_TENANT_ID
+from conftest import TEST_TENANT_ID, TEST_USER_ID
 from fastapi.testclient import TestClient
 
 from worktrace_api.database import (
+    RecordingRecord,
     SessionLocal,
     SOPRecord,
     TenantAccountRecord,
+    WorkflowRecord,
     WorkflowSessionRecord,
 )
 from worktrace_api.main import app
@@ -215,6 +217,93 @@ def test_get_sops_endpoint_returns_all_for_tenant():
     assert response.status_code == 200
     titles = {item["title"] for item in response.json()}
     assert titles == {"Approved SOP", "Draft SOP"}
+
+
+def test_get_sops_endpoint_includes_recording_context():
+    db = SessionLocal()
+    now = datetime.now(UTC)
+    workflow_id = str(uuid4())
+    recording_id = str(uuid4())
+    session_id = str(uuid4())
+    db.add(
+        WorkflowRecord(
+            id=workflow_id,
+            tenant_id=TENANT,
+            name="Expense approval",
+            description=None,
+            created_by=TEST_USER_ID,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.flush()
+    db.add(
+        RecordingRecord(
+            id=recording_id,
+            tenant_id=TENANT,
+            session_id=None,
+            workflow_id=workflow_id,
+            source_type="desktop",
+            workflow_name="Expense approval",
+            reference="Sydney finance team",
+            recorded_by=TEST_USER_ID,
+            status="completed",
+            expected_chunk_count=1,
+            uploaded_chunk_count=1,
+            uploaded_bytes=1024,
+            has_audio=False,
+            manual_mode=False,
+            custom_sop_instruction=None,
+            error_message=None,
+            created_at=now,
+            completed_at=now,
+        )
+    )
+    db.flush()
+    db.add(
+        WorkflowSessionRecord(
+            id=session_id,
+            tenant_id=TENANT,
+            recording_id=recording_id,
+            source_type="desktop",
+            workflow_name="Expense approval",
+            status="completed",
+            typed_text_consent=True,
+            consent_actor="Test Operator",
+            consent_statement_version="2026-06",
+            consented_at=now,
+            external_ai_approved=False,
+            duration_ms=42_000,
+            transcript=None,
+            events=[],
+            created_at=now,
+        )
+    )
+    db.flush()
+    db.add(
+        _make_sop_record(
+            session_id=session_id,
+            status="approved",
+            title="Approve an expense",
+            created_at=now,
+        )
+    )
+    db.commit()
+    db.close()
+
+    with TestClient(app) as client:
+        response = client.get("/sops", headers=AUTH_HEADERS)
+
+    assert response.status_code == 200
+    [item] = response.json()
+    assert item["workflow_id"] == workflow_id
+    assert item["workflow_name"] == "Expense approval"
+    assert item["recording_id"] == recording_id
+    assert item["recording_reference"] == "Sydney finance team"
+    assert item["recorded_by"] == TEST_USER_ID
+    assert item["recorded_by_email"] == "owner@example.test"
+    assert item["recording_created_at"] is not None
+    assert item["session_duration_ms"] == 42_000
 
 
 def test_get_sops_endpoint_supports_status_filter():

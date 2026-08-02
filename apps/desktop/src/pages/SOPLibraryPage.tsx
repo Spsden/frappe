@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { BackendSOP } from '../../shared/recording'
+import type {
+  BackendSOP,
+  BackendSOPLibraryItem
+} from '../../shared/recording'
 import { useTheme } from '../features/theme/ThemeContext'
 import { mapWithConcurrency } from '../utils/async'
 import { triggerSopPdfExport } from '../utils/sopPdf'
@@ -23,6 +26,30 @@ function formatDate(value: string) {
     hour: '2-digit',
     minute: '2-digit'
   }).format(new Date(value))
+}
+
+function formatDuration(durationMs: number) {
+  const totalSeconds = Math.max(
+    0,
+    Math.round(durationMs / 1000)
+  )
+  const minutes = Math.floor(
+    totalSeconds / 60
+  )
+  const seconds = totalSeconds % 60
+
+  return minutes > 0
+    ? `${minutes}m ${seconds}s`
+    : `${seconds}s`
+}
+
+function recordingReference(
+  sop: BackendSOPLibraryItem
+) {
+  return (
+    sop.recording_reference?.trim() ||
+    'Unlabelled recording'
+  )
 }
 
 function formatStatus(status: BackendSOP['status']) {
@@ -61,7 +88,7 @@ function statusTone(
 }
 
 function sopMatchesFilter(
-  sop: BackendSOP,
+  sop: BackendSOPLibraryItem,
   filter: SopFilter
 ) {
   if (
@@ -79,7 +106,7 @@ export function SOPLibraryPage() {
   const isDark = theme === 'dark'
 
   const [sops, setSops] =
-    useState<BackendSOP[]>([])
+    useState<BackendSOPLibraryItem[]>([])
 
   const [selectedId, setSelectedId] =
     useState<string | null>(null)
@@ -123,6 +150,36 @@ export function SOPLibraryPage() {
       ),
     [filter, sops]
   )
+
+  const workflowGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        id: string
+        name: string
+        sops: BackendSOPLibraryItem[]
+      }
+    >()
+
+    for (const sop of visibleSops) {
+      const id =
+        sop.workflow_id ??
+        `session:${sop.source_session_id}`
+      const current = groups.get(id)
+
+      if (current) {
+        current.sops.push(sop)
+      } else {
+        groups.set(id, {
+          id,
+          name: sop.workflow_name,
+          sops: [sop]
+        })
+      }
+    }
+
+    return [...groups.values()]
+  }, [visibleSops])
 
   const selectedSop =
     visibleSops.find(
@@ -333,7 +390,7 @@ export function SOPLibraryPage() {
       setSops((current) =>
         current.map((sop) =>
           sop.id === updated.id
-            ? updated
+            ? { ...sop, ...updated }
             : sop
         )
       )
@@ -481,75 +538,127 @@ export function SOPLibraryPage() {
                 No SOPs found.
               </p>
             ) : (
-              visibleSops.map((sop) => (
-                <button
-                  key={sop.id}
-                  type="button"
-                  onClick={() =>
-                    setSelectedId(sop.id)
-                  }
-                  className={[
-                    isDark
-                      ? 'w-full rounded-xl border p-4 text-left transition'
-                      : 'w-full rounded-xl border p-4 text-left transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2',
-                    selectedSop?.id ===
-                    sop.id
-                      ? isDark
-                        ? 'border-emerald-400/30 bg-emerald-400/[0.08]'
-                        : 'border-purple-300 bg-purple-50 shadow-[0_8px_22px_rgba(166,106,216,0.1)]'
-                      : isDark
-                        ? 'border-white/10 bg-white/[0.025] hover:border-white/20 hover:bg-white/[0.05]'
-                        : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-purple-200 hover:bg-purple-50/50 hover:shadow-sm'
-                  ].join(' ')}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <p
-                      className={[
-                        'min-w-0 truncate text-sm font-black',
-                        isDark
-                          ? 'text-white'
-                          : 'text-slate-800'
-                      ].join(' ')}
-                    >
-                      {sop.title}
-                    </p>
-
-                    <span
-                      className={[
-                        'shrink-0 rounded-full border',
-                        isDark
-                          ? 'px-2 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em]'
-                          : 'px-2.5 py-1 text-[10px] font-bold',
-                        statusTone(
-                          sop.status,
-                          isDark
-                        )
-                      ].join(' ')}
-                    >
-                      {isDark
-                        ? sop.status
-                        : formatStatus(
-                            sop.status
-                          )}
-                    </span>
-                  </div>
-
-                  <p
-                    className={
-                      isDark
-                        ? 'mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-white/35'
-                        : 'mt-2 text-[10px] font-medium text-slate-400'
-                    }
+              workflowGroups.map(
+                (group) => (
+                  <section
+                    key={group.id}
+                    className="space-y-2 pb-2"
                   >
-                    v{sop.version} ·{' '}
-                    {formatDate(
-                      sop.created_at
-                    )}{' '}
-                    · {sop.steps.length}{' '}
-                    steps
-                  </p>
-                </button>
-              ))
+                    <div className="flex items-center justify-between gap-3 px-1 pt-2">
+                      <p
+                        className={
+                          isDark
+                            ? 'min-w-0 truncate font-mono text-[10px] font-black uppercase tracking-[0.17em] text-white/45'
+                            : 'min-w-0 truncate text-[10px] font-black uppercase tracking-[0.16em] text-slate-500'
+                        }
+                      >
+                        {group.name}
+                      </p>
+
+                      <span
+                        className={
+                          isDark
+                            ? 'shrink-0 font-mono text-[9px] text-white/25'
+                            : 'shrink-0 text-[10px] font-semibold text-slate-400'
+                        }
+                      >
+                        {group.sops.length}{' '}
+                        {group.sops.length === 1
+                          ? 'SOP'
+                          : 'SOPs'}
+                      </span>
+                    </div>
+
+                    {group.sops.map(
+                      (sop) => (
+                        <button
+                          key={sop.id}
+                          type="button"
+                          onClick={() =>
+                            setSelectedId(
+                              sop.id
+                            )
+                          }
+                          className={[
+                            isDark
+                              ? 'w-full rounded-xl border p-4 text-left transition'
+                              : 'w-full rounded-xl border p-4 text-left transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2',
+                            selectedSop?.id ===
+                            sop.id
+                              ? isDark
+                                ? 'border-emerald-400/30 bg-emerald-400/[0.08]'
+                                : 'border-purple-300 bg-purple-50 shadow-[0_8px_22px_rgba(166,106,216,0.1)]'
+                              : isDark
+                                ? 'border-white/10 bg-white/[0.025] hover:border-white/20 hover:bg-white/[0.05]'
+                                : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-purple-200 hover:bg-purple-50/50 hover:shadow-sm'
+                          ].join(' ')}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <p
+                              className={[
+                                'min-w-0 truncate text-sm font-black',
+                                isDark
+                                  ? 'text-white'
+                                  : 'text-slate-800'
+                              ].join(' ')}
+                            >
+                              {recordingReference(
+                                sop
+                              )}
+                            </p>
+
+                            <span
+                              className={[
+                                'shrink-0 rounded-full border',
+                                isDark
+                                  ? 'px-2 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.12em]'
+                                  : 'px-2.5 py-1 text-[10px] font-bold',
+                                statusTone(
+                                  sop.status,
+                                  isDark
+                                )
+                              ].join(' ')}
+                            >
+                              {isDark
+                                ? sop.status
+                                : formatStatus(
+                                    sop.status
+                                  )}
+                            </span>
+                          </div>
+
+                          <p
+                            className={
+                              isDark
+                                ? 'mt-2 truncate text-xs text-white/50'
+                                : 'mt-2 truncate text-xs font-medium text-slate-500'
+                            }
+                          >
+                            {sop.recorded_by_email ??
+                              'Recorder unavailable'}
+                          </p>
+
+                          <p
+                            className={
+                              isDark
+                                ? 'mt-2 font-mono text-[9px] uppercase tracking-[0.14em] text-white/30'
+                                : 'mt-2 text-[10px] font-medium text-slate-400'
+                            }
+                          >
+                            SOP v{sop.version} ·{' '}
+                            {sop.steps.length}{' '}
+                            steps ·{' '}
+                            {formatDate(
+                              sop.recording_created_at ??
+                                sop.created_at
+                            )}
+                          </p>
+                        </button>
+                      )
+                    )}
+                  </section>
+                )
+              )
             )}
           </div>
         </aside>
@@ -660,8 +769,21 @@ export function SOPLibraryPage() {
                         : 'text-slate-900'
                     ].join(' ')}
                   >
-                    {selectedSop.title}
+                    {selectedSop.workflow_name}
                   </h3>
+
+                  {selectedSop.title !==
+                    selectedSop.workflow_name && (
+                    <p
+                      className={
+                        isDark
+                          ? 'mt-2 text-sm font-semibold text-white/60'
+                          : 'mt-2 text-sm font-semibold text-slate-600'
+                      }
+                    >
+                      {selectedSop.title}
+                    </p>
+                  )}
 
                   <p
                     className={
@@ -797,6 +919,73 @@ export function SOPLibraryPage() {
                   </button>
                 </div>
               </div>
+
+              <section
+                className={
+                  isDark
+                    ? 'grid gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-2 xl:grid-cols-4'
+                    : 'grid gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-200 sm:grid-cols-2 xl:grid-cols-4'
+                }
+              >
+                {[
+                  {
+                    label: 'Recording reference',
+                    value:
+                      recordingReference(
+                        selectedSop
+                      )
+                  },
+                  {
+                    label: 'Recorded by',
+                    value:
+                      selectedSop.recorded_by_email ??
+                      'Recorder unavailable'
+                  },
+                  {
+                    label: 'Recorded',
+                    value: formatDate(
+                      selectedSop.recording_created_at ??
+                        selectedSop.created_at
+                    )
+                  },
+                  {
+                    label: 'Duration',
+                    value: formatDuration(
+                      selectedSop.session_duration_ms
+                    )
+                  }
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className={
+                      isDark
+                        ? 'min-w-0 bg-[#0d0d0d] px-4 py-3'
+                        : 'min-w-0 bg-slate-50 px-4 py-3'
+                    }
+                  >
+                    <p
+                      className={
+                        isDark
+                          ? 'font-mono text-[9px] font-bold uppercase tracking-[0.16em] text-white/30'
+                          : 'text-[9px] font-black uppercase tracking-[0.15em] text-slate-400'
+                      }
+                    >
+                      {item.label}
+                    </p>
+
+                    <p
+                      className={
+                        isDark
+                          ? 'mt-1.5 truncate text-sm font-bold text-white/75'
+                          : 'mt-1.5 truncate text-sm font-bold text-slate-700'
+                      }
+                      title={item.value}
+                    >
+                      {item.value}
+                    </p>
+                  </div>
+                ))}
+              </section>
 
               {/* Overview */}
 

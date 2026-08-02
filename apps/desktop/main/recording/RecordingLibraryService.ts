@@ -2,11 +2,15 @@ import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises
 import { join } from 'node:path'
 import type {
   AnnotationInput,
+  AnalyticsRetryTarget,
+  BackendAnalyticsEligibleRecording,
+  BackendAnalyticsRun,
   BackendDashboardSummary,
   BackendScreenshotEvidence,
   BackendRecordingStatusResponse,
   BackendSearchResponse,
   BackendSOP,
+  BackendSOPLibraryItem,
   BackendWorkflow,
   BackendWorkflowRecording,
   BackendWorkflowSession,
@@ -22,6 +26,7 @@ export class RecordingLibraryService {
   private listSessionsRequest: Promise<RecordedSessionSummary[]> | null = null
   private readonly workflowListRequests = new Map<string, Promise<BackendWorkflow[]>>()
   private readonly sessionRequests = new Map<string, Promise<BackendWorkflowSession>>()
+  private readonly analyticsRunRequests = new Map<string, Promise<BackendAnalyticsRun>>()
 
   constructor(
     private readonly recordingsPath: string,
@@ -134,6 +139,44 @@ export class RecordingLibraryService {
     return this.apiClient.listWorkflowRecordings(workflowId)
   }
 
+  async listAnalyticsEligibleRecordings(
+    workflowId: string
+  ): Promise<BackendAnalyticsEligibleRecording[]> {
+    return this.apiClient.listAnalyticsEligibleRecordings(workflowId)
+  }
+
+  async listAnalyticsRuns(workflowId: string): Promise<BackendAnalyticsRun[]> {
+    return this.apiClient.listAnalyticsRuns(workflowId)
+  }
+
+  async createAnalyticsRun(
+    workflowId: string,
+    recordingIds: string[]
+  ): Promise<BackendAnalyticsRun> {
+    return this.apiClient.createAnalyticsRun(workflowId, recordingIds)
+  }
+
+  async getAnalyticsRun(runId: string): Promise<BackendAnalyticsRun> {
+    const existing = this.analyticsRunRequests.get(runId)
+    if (existing) return existing
+    const request = this.apiClient.getAnalyticsRun(runId)
+    this.analyticsRunRequests.set(runId, request)
+    try {
+      return await request
+    } finally {
+      if (this.analyticsRunRequests.get(runId) === request) {
+        this.analyticsRunRequests.delete(runId)
+      }
+    }
+  }
+
+  async retryAnalyticsRun(
+    runId: string,
+    target: AnalyticsRetryTarget
+  ): Promise<BackendAnalyticsRun> {
+    return this.apiClient.retryAnalyticsRun(runId, target)
+  }
+
   private async loadSessions(): Promise<RecordedSessionSummary[]> {
     const directories = await this.readSessionDirectories()
     const recordingIds = (
@@ -222,7 +265,7 @@ export class RecordingLibraryService {
     return this.apiClient.getSessionSops(backendSessionId)
   }
 
-  async listSops(): Promise<BackendSOP[]> {
+  async listSops(): Promise<BackendSOPLibraryItem[]> {
     return this.apiClient.listSops()
   }
 
