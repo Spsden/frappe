@@ -16,3 +16,4 @@ apps/desktop/native/ax_inspector/ax_inspector
 .env
 .env.*
 !.env.example
+apps/desktop/release
