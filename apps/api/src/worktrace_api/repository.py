@@ -356,8 +356,6 @@ class Repository:
         never reachable here because eligibility is built on the approved-SOP
         join scoped to this tenant.
         """
-        chosen = self._resolve_analytics_inputs(workflow_id, mode, recording_ids)
-
         workflow = self.db.scalar(
             tenant_query(WorkflowRecord, self.tenant_id)
             .where(WorkflowRecord.id == str(workflow_id))
@@ -365,6 +363,8 @@ class Repository:
         )
         if not workflow:
             raise LookupError("Workflow not found")
+
+        chosen = self._resolve_analytics_inputs(workflow_id, mode, recording_ids)
 
         latest_run = self.db.scalar(
             tenant_query(AnalyticsRunRecord, self.tenant_id)
