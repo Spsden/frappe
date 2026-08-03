@@ -103,7 +103,9 @@ sops
 - id PK
 - tenant_id
 - source_session_id FK -> workflow_sessions.id
+- parent_sop_id nullable FK -> sops.id    # approved SOP cloned into a new draft
 - version
+- revision                              # optimistic-concurrency revision
 - status
 - title
 - document TEXT nullable        # optional supporting narrative (purpose/overview)
@@ -111,7 +113,73 @@ sops
                                #   screenshot_reference, estimated_time_ms,
                                #   decision_branches[{condition,action}]
 - created_at
+- updated_at
+- edited_by nullable FK -> users.id
 - unique: tenant_id + source_session_id + version
+
+sop_revisions
+- id PK
+- tenant_id FK -> tenants.id
+- sop_id FK -> sops.id
+- revision
+- snapshot_json                 # immutable title/document/steps/status snapshot
+- edited_by nullable FK -> users.id
+- change_summary nullable
+- created_at
+- unique: tenant_id + sop_id + revision
+
+analytics_runs
+- id PK
+- tenant_id FK -> tenants.id
+- workflow_id FK -> workflows.id
+- version
+- mode                          # selected_comparison | workforce
+- status                        # queued through completed/failed stages
+- input_count
+- embedding_model
+- algorithm_version
+- result_json nullable          # deterministic charts, clusters, friction and heatmap
+- executive_summary nullable
+- failure_stage nullable
+- error_message nullable
+- created_by nullable FK -> users.id
+- supersedes_run_id nullable FK -> analytics_runs.id
+- created_at
+- started_at nullable
+- completed_at nullable
+- updated_at
+- unique: tenant_id + workflow_id + version
+
+analytics_run_inputs
+- id PK
+- tenant_id FK -> tenants.id
+- run_id FK -> analytics_runs.id
+- position
+- recording_id
+- session_id
+- sop_id
+- sop_version
+- sop_content_hash
+- sop_snapshot                  # immutable input used by this analytics version
+- recording_reference nullable
+- recorded_by nullable
+- recorded_by_email nullable
+- duration_ms
+- created_at
+- unique: run_id + position
+- unique: run_id + recording_id
+
+sop_step_embeddings
+- id PK
+- tenant_id FK -> tenants.id
+- sop_id FK -> sops.id
+- sop_step_id
+- model
+- dimensions
+- content_hash
+- embedding vector(1536)        # pgvector in PostgreSQL, JSON adapter in SQLite tests
+- created_at
+- unique: tenant_id + sop_id + sop_step_id + model + content_hash
 
 feedback
 - id PK
