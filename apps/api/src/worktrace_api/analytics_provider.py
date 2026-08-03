@@ -76,16 +76,7 @@ class AnalyticsProvider:
 
     def summarize(self, workflow_name: str, result: AnalyticsResult) -> list[str]:
         client = self._client()
-        aggregate = {
-            "workflow_name": workflow_name,
-            "overview": result.overview.model_dump(mode="json"),
-            "completion_ranking": [
-                item.model_dump(mode="json") for item in result.completion_ranking
-            ],
-            "fastest_vs_average": [
-                item.model_dump(mode="json") for item in result.fastest_vs_average
-            ],
-        }
+        aggregate = _summary_aggregate(workflow_name, result)
         try:
             response = client.chat.completions.create(
                 model=self.chat_model,
@@ -142,3 +133,45 @@ class AnalyticsProvider:
         if "openrouter.ai" in self.base_url and "/" not in configured:
             return f"openai/{configured}"
         return configured
+
+
+def _summary_aggregate(workflow_name: str, result: AnalyticsResult) -> dict[str, Any]:
+    """Return useful aggregates without employee labels, emails or recording IDs."""
+    aggregate: dict[str, Any] = {
+        "workflow_name": workflow_name,
+        "overview": result.overview.model_dump(mode="json", exclude={"fastest_recording_id"}),
+        "completion_ranking": [
+            item.model_dump(
+                mode="json",
+                include={"rank", "total_duration_ms", "step_count", "path_signature"},
+            )
+            for item in result.completion_ranking
+        ],
+        "fastest_vs_average": [
+            item.model_dump(mode="json") for item in result.fastest_vs_average
+        ],
+    }
+    if result.workforce:
+        aggregate["workforce"] = {
+            "overview": result.workforce.overview.model_dump(mode="json"),
+            "clusters": [
+                cluster.model_dump(
+                    mode="json",
+                    include={
+                        "cluster_id",
+                        "label",
+                        "recording_count",
+                        "average_duration_ms",
+                        "average_step_count",
+                        "path_signature",
+                    },
+                )
+                for cluster in result.workforce.clusters
+            ],
+            "population_friction": [
+                metric.model_dump(mode="json")
+                for metric in result.workforce.friction
+                if metric.cluster_id is None
+            ],
+        }
+    return aggregate

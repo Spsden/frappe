@@ -56,6 +56,7 @@ from worktrace_api.schemas import (
     AnalyticsRetryTarget,
     AnalyticsRun,
     AnalyticsRunCreate,
+    AnalyticsRunMode,
     AnalyticsRunStatus,
     AuthSession,
     ChunkContentType,
@@ -107,6 +108,7 @@ from worktrace_api.tasks.analytics import (
 )
 from worktrace_api.tasks.redaction import redact_recording_screenshots
 from worktrace_api.workflow_analytics import ALGORITHM_VERSION
+from worktrace_api.workforce_clustering import WORKFORCE_ALGORITHM_VERSION
 
 
 @asynccontextmanager
@@ -626,7 +628,11 @@ def create_analytics_run(
             recording_ids=payload.recording_ids,
             created_by=auth.account.user_id,
             embedding_model=provider.embedding_model,
-            algorithm_version=ALGORITHM_VERSION,
+            algorithm_version=(
+                WORKFORCE_ALGORITHM_VERSION
+                if payload.mode == AnalyticsRunMode.WORKFORCE
+                else ALGORITHM_VERSION
+            ),
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -696,6 +702,8 @@ def retry_analytics_run(
         AnalyticsRunStatus.QUEUED,
         AnalyticsRunStatus.EMBEDDING,
         AnalyticsRunStatus.ALIGNING,
+        AnalyticsRunStatus.CLUSTERING,
+        AnalyticsRunStatus.SCORING_FRICTION,
         AnalyticsRunStatus.CALCULATING,
         AnalyticsRunStatus.SUMMARIZING,
     }
