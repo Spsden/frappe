@@ -33,7 +33,8 @@ jobs:
             libnss3-dev \
             libasound2-dev \
             libxss1 \
-            libsecret-1-dev
+            libsecret-1-dev \
+            libxt-dev
 
       - name: Install desktop dependencies
         working-directory: ./apps/desktop
