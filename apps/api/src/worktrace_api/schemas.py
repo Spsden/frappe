@@ -352,6 +352,8 @@ class AnalyticsRunStatus(StrEnum):
     QUEUED = "queued"
     EMBEDDING = "embedding"
     ALIGNING = "aligning"
+    CLUSTERING = "clustering"
+    SCORING_FRICTION = "scoring_friction"
     CALCULATING = "calculating"
     SUMMARIZING = "summarizing"
     COMPLETED = "completed"
@@ -463,7 +465,7 @@ class AnalyticsStepComparison(StrictModel):
 
 
 class AnalyticsComparisonOverview(StrictModel):
-    recording_count: int = Field(ge=2, le=5)
+    recording_count: int = Field(ge=2, le=WORKFORCE_MAX_RECORDINGS)
     distinct_path_count: int = Field(ge=1)
     fastest_recording_id: UUID
     fastest_duration_ms: int = Field(ge=0)
@@ -475,12 +477,75 @@ class AnalyticsComparisonOverview(StrictModel):
     timing_coverage: float = Field(ge=0, le=1)
 
 
+class AnalyticsClusterMember(StrictModel):
+    recording_id: UUID
+    label: str
+    total_duration_ms: int = Field(ge=0)
+
+
+class AnalyticsClusterSummary(StrictModel):
+    cluster_id: str
+    label: str
+    recording_count: int = Field(ge=2)
+    average_duration_ms: int = Field(ge=0)
+    average_step_count: float = Field(ge=0)
+    representative_recording_id: UUID
+    path_signature: str
+    members: list[AnalyticsClusterMember] = Field(min_length=2)
+
+
+class AnalyticsFrictionMetric(StrictModel):
+    group_id: str
+    label: str
+    cluster_id: str | None = None
+    sample_count: int = Field(ge=0)
+    population_count: int = Field(ge=1)
+    mean_duration_ms: int | None = Field(default=None, ge=0)
+    median_duration_ms: int | None = Field(default=None, ge=0)
+    standard_deviation_ms: int | None = Field(default=None, ge=0)
+    coefficient_of_variation: float | None = Field(default=None, ge=0)
+    presence_frequency: float = Field(ge=0, le=1)
+    optional_frequency: float = Field(ge=0, le=1)
+    friction_score: int | None = Field(default=None, ge=0, le=100)
+    confidence: Literal["insufficient", "low", "medium", "high"]
+
+
+class AnalyticsHeatmapCell(StrictModel):
+    group_id: str
+    cluster_id: str
+    present: bool
+    sample_count: int = Field(ge=0)
+    mean_duration_ms: int | None = Field(default=None, ge=0)
+    standard_deviation_ms: int | None = Field(default=None, ge=0)
+    friction_score: int | None = Field(default=None, ge=0, le=100)
+    confidence: Literal["insufficient", "low", "medium", "high"]
+
+
+class AnalyticsWorkforceOverview(StrictModel):
+    recording_count: int = Field(ge=WORKFORCE_MIN_RECORDINGS, le=WORKFORCE_MAX_RECORDINGS)
+    selected_k: int = Field(ge=1, le=4)
+    silhouette_score: float | None = Field(default=None, ge=-1, le=1)
+    cluster_quality: Literal["strong", "moderate", "weak", "insufficient_separation"]
+
+
+class AnalyticsWorkforceResult(StrictModel):
+    overview: AnalyticsWorkforceOverview
+    clusters: list[AnalyticsClusterSummary] = Field(min_length=1, max_length=4)
+    friction: list[AnalyticsFrictionMetric]
+    heatmap: list[AnalyticsHeatmapCell]
+
+
 class AnalyticsResult(StrictModel):
     overview: AnalyticsComparisonOverview
-    completion_ranking: list[AnalyticsRecordingMetric] = Field(min_length=2, max_length=5)
-    path_timelines: list[AnalyticsPathTimeline] = Field(min_length=2, max_length=5)
+    completion_ranking: list[AnalyticsRecordingMetric] = Field(
+        min_length=2, max_length=WORKFORCE_MAX_RECORDINGS
+    )
+    path_timelines: list[AnalyticsPathTimeline] = Field(
+        min_length=2, max_length=WORKFORCE_MAX_RECORDINGS
+    )
     fastest_vs_average: list[AnalyticsStepComparison]
     alignment_notes: list[str] = Field(default_factory=list, max_length=20)
+    workforce: AnalyticsWorkforceResult | None = None
 
 
 class AnalyticsRun(StrictModel):
