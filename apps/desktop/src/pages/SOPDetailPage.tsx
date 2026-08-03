@@ -16,6 +16,7 @@ import {
 import { useTheme } from '../features/theme/ThemeContext'
 import { mapWithConcurrency } from '../utils/async'
 import { triggerSopPdfExport } from '../utils/sopPdf'
+import { SOPEditor } from '../features/sops/SOPEditor'
 
 // ─── SOP Screenshot tile ──────────────────────────────────────────────────────
 interface StepImageProps {
@@ -77,6 +78,7 @@ function sopsSignature(sops: BackendSOP[]): string {
         sop.id,
         sop.source_session_id,
         sop.version,
+        sop.revision,
         sop.status,
         sop.steps.length,
         sop.steps
@@ -471,6 +473,24 @@ export function SOPDetailPage() {
   ] = useState(false)
 
   const [
+    isCreatingDraft,
+    setIsCreatingDraft
+  ] = useState(false)
+
+  const [
+    isEditingSop,
+    setIsEditingSop
+  ] = useState(false)
+
+  const [
+    screenshotOptions,
+    setScreenshotOptions
+  ] = useState<Array<{
+    id: string
+    sequence: number
+  }>>([])
+
+  const [
     activeSopIndex,
     setActiveSopIndex
   ] = useState(0)
@@ -687,6 +707,9 @@ export function SOPDetailPage() {
             : item
         )
       )
+      if (approved) {
+        setIsEditingSop(false)
+      }
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -698,6 +721,62 @@ export function SOPDetailPage() {
     } finally {
       setIsApprovingSop(false)
     }
+  }
+
+  const createEditableDraft = async (
+    sop: BackendSOP
+  ) => {
+    setIsCreatingDraft(true)
+    setError(null)
+
+    try {
+      const draft =
+        await window.api.recording.createSopDraft(
+          sop.id
+        )
+
+      setSops((current) => {
+        const next = [
+          ...current.filter(
+            (item) => item.id !== draft.id
+          ),
+          draft
+        ].sort(
+          (left, right) =>
+            left.version - right.version
+        )
+
+        setActiveSopIndex(
+          next.findIndex(
+            (item) => item.id === draft.id
+          )
+        )
+        return next
+      })
+      setActiveStepIndex(0)
+      setIsEditingSop(true)
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not create an editable draft.'
+      )
+    } finally {
+      setIsCreatingDraft(false)
+    }
+  }
+
+  const handleSopSaved = (
+    updated: BackendSOP
+  ) => {
+    setSops((current) =>
+      current.map((item) =>
+        item.id === updated.id
+          ? updated
+          : item
+      )
+    )
+    setError(null)
   }
 
   const sessionId =
@@ -745,6 +824,7 @@ export function SOPDetailPage() {
   useEffect(() => {
     if (!sessionId || !displaySop) {
       setImageUrls({})
+      setScreenshotOptions([])
       setImagesLoading(false)
       return
     }
@@ -765,14 +845,6 @@ export function SOPDetailPage() {
       )
     ]
 
-    if (
-      screenshotIds.length === 0
-    ) {
-      setImageUrls({})
-      setImagesLoading(false)
-      return
-    }
-
     let cancelled = false
     const createdUrls: string[] = []
 
@@ -789,6 +861,15 @@ export function SOPDetailPage() {
           await window.api.recording.getSessionScreenshots(
             sessionId
           )
+
+        if (!cancelled) {
+          setScreenshotOptions(
+            evidence.map((item) => ({
+              id: item.id,
+              sequence: item.sequence
+            }))
+          )
+        }
 
         const mediaUrls = new Map(
           evidence.map((item) => [
@@ -1000,6 +1081,10 @@ export function SOPDetailPage() {
                         setActiveStepIndex(
                           0
                         )
+
+                        setIsEditingSop(
+                          false
+                        )
                       }}
                       className={[
                         'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-black uppercase tracking-[0.1em] transition',
@@ -1024,49 +1109,71 @@ export function SOPDetailPage() {
                 )}
               </div>
             )}
+            {displaySop?.status ===
+              'draft' && (
+              <button
+                type="button"
+                onClick={() =>
+                  setIsEditingSop(
+                    (current) => !current
+                  )
+                }
+                className={
+                  isDark
+                    ? 'rounded-xl border border-sky-300/20 bg-sky-300/[0.06] px-4 py-2 text-xs font-black uppercase tracking-[0.1em] text-sky-100 transition hover:bg-sky-300/10'
+                    : 'rounded-xl border border-purple-200 bg-purple-50 px-5 py-2.5 text-sm font-bold text-purple-700 transition hover:bg-purple-100'
+                }
+              >
+                {isEditingSop
+                  ? 'Close editor'
+                  : 'Edit SOP'}
+              </button>
+            )}
+            {displaySop?.status ===
+              'approved' && (
+              <button
+                type="button"
+                disabled={isCreatingDraft}
+                onClick={() =>
+                  void createEditableDraft(
+                    displaySop
+                  )
+                }
+                className={
+                  isDark
+                    ? 'rounded-xl border border-sky-300/20 bg-sky-300/[0.06] px-4 py-2 text-xs font-black uppercase tracking-[0.1em] text-sky-100 transition hover:bg-sky-300/10 disabled:opacity-40'
+                    : 'rounded-xl border border-purple-200 bg-purple-50 px-5 py-2.5 text-sm font-bold text-purple-700 transition hover:bg-purple-100 disabled:opacity-40'
+                }
+              >
+                {isCreatingDraft
+                  ? 'Creating…'
+                  : 'New draft'}
+              </button>
+            )}
             {displaySop &&
-              displaySop.status !==
-                'archived' && (
+              displaySop.status ===
+                'draft' && (
                 <button
                   type="button"
-                  title={
-                    displaySop.status ===
-                    'approved'
-                      ? 'Move SOP back to draft'
-                      : 'Approve SOP'
-                  }
+                  title="Approve SOP"
                   disabled={isApprovingSop}
                   onClick={() =>
                     void setSopApproval(
                       displaySop,
-                      displaySop.status !==
-                        'approved'
+                      true
                     )
                   }
                   className={
-                    displaySop.status ===
-                    'approved'
-                      ? isDark
-                        ? 'flex items-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-black uppercase tracking-[0.1em] text-white/60 transition hover:border-amber-300/30 hover:bg-amber-300/10 hover:text-amber-100 disabled:cursor-wait disabled:opacity-50'
-                        : 'flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-5 py-2.5 text-sm font-bold text-amber-700 transition hover:bg-amber-100 disabled:cursor-wait disabled:opacity-50'
-                      : isDark
-                        ? 'flex items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-xs font-black uppercase tracking-[0.1em] text-emerald-100 transition hover:border-emerald-300/40 hover:bg-emerald-300/16 disabled:cursor-wait disabled:opacity-50'
-                        : 'flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700 shadow-[0_8px_20px_rgba(16,185,129,0.12)] transition hover:-translate-y-0.5 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-50'
+                    isDark
+                      ? 'flex items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-xs font-black uppercase tracking-[0.1em] text-emerald-100 transition hover:border-emerald-300/40 hover:bg-emerald-300/16 disabled:cursor-wait disabled:opacity-50'
+                      : 'flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700 shadow-[0_8px_20px_rgba(16,185,129,0.12)] transition hover:-translate-y-0.5 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-50'
                   }
                 >
-                  <span>
-                    {displaySop.status ===
-                    'approved'
-                      ? '↩'
-                      : '✓'}
-                  </span>
+                  <span>✓</span>
 
                   {isApprovingSop
                     ? 'Saving'
-                    : displaySop.status ===
-                        'approved'
-                      ? 'Move to draft'
-                      : 'Approve SOP'}
+                    : 'Approve SOP'}
                 </button>
               )}
             {displaySop?.status ===
@@ -1201,6 +1308,25 @@ export function SOPDetailPage() {
           )}
 
           {displaySop && (
+            isEditingSop &&
+            displaySop.status ===
+              'draft' ? (
+              <SOPEditor
+                sop={displaySop}
+                screenshots={
+                  screenshotOptions
+                }
+                dark={isDark}
+                onSaved={
+                  handleSopSaved
+                }
+                onClose={() =>
+                  setIsEditingSop(
+                    false
+                  )
+                }
+              />
+            ) : (
             <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
               <aside className="min-h-0 space-y-2 overflow-y-auto pr-1">
                 <p
@@ -1519,6 +1645,7 @@ export function SOPDetailPage() {
                 )}
               </section>
             </div>
+            )
           )}
         </div>
       </div>
