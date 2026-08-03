@@ -3704,7 +3704,7 @@
           },
           "input_count": {
             "type": "integer",
-            "maximum": 5.0,
+            "maximum": 50.0,
             "minimum": 2.0,
             "title": "Input Count"
           },
@@ -3721,7 +3721,7 @@
               "$ref": "#/components/schemas/AnalyticsRunInput"
             },
             "type": "array",
-            "maxItems": 5,
+            "maxItems": 50,
             "minItems": 2,
             "title": "Inputs"
           },
@@ -3853,6 +3853,9 @@
       },
       "AnalyticsRunCreate": {
         "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/AnalyticsRunMode"
+          },
           "recording_ids": {
             "items": {
               "type": "string",
@@ -3860,20 +3863,16 @@
             },
             "type": "array",
             "maxItems": 5,
-            "minItems": 2,
             "title": "Recording Ids"
-          },
-          "mode": {
-            "$ref": "#/components/schemas/AnalyticsRunMode",
-            "default": "recording_comparison"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "recording_ids"
+          "mode"
         ],
-        "title": "AnalyticsRunCreate"
+        "title": "AnalyticsRunCreate",
+        "description": "Create payload for a workflow analytics run.\n\nTwo mutually exclusive modes keep run semantics unambiguous:\n\n* ``selected_comparison`` \u2014 the original mode. Requires 2-5 explicit,\n  unique ``recording_ids`` that already have an approved SOP.\n* ``workforce`` \u2014 population overview. The server resolves every eligible\n  recording for the workflow, so ``recording_ids`` must be empty."
       },
       "AnalyticsRunInput": {
         "properties": {
@@ -3963,7 +3962,8 @@
       "AnalyticsRunMode": {
         "type": "string",
         "enum": [
-          "recording_comparison"
+          "selected_comparison",
+          "workforce"
         ],
         "title": "AnalyticsRunMode"
       },

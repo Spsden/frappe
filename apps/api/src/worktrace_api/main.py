@@ -622,7 +622,8 @@ def create_analytics_run(
     try:
         run = repo.create_analytics_run(
             workflow_id,
-            payload.recording_ids,
+            mode=payload.mode,
+            recording_ids=payload.recording_ids,
             created_by=auth.account.user_id,
             embedding_model=provider.embedding_model,
             algorithm_version=ALGORITHM_VERSION,

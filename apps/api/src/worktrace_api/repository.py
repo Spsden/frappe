@@ -30,6 +30,8 @@ from worktrace_api.database import (
 from worktrace_api.schemas import (
     SOP,
     SOP_LIMIT_FIELDS,
+    WORKFORCE_MAX_RECORDINGS,
+    WORKFORCE_MIN_RECORDINGS,
     AnalyticsEligibleRecording,
     AnalyticsResult,
     AnalyticsRun,
@@ -338,16 +340,23 @@ class Repository:
     def create_analytics_run(
         self,
         workflow_id: UUID,
-        recording_ids: Sequence[UUID],
         *,
+        mode: AnalyticsRunMode,
         created_by: UUID | None,
         embedding_model: str,
         algorithm_version: str,
+        recording_ids: Sequence[UUID] = (),
     ) -> AnalyticsRun:
-        if not 2 <= len(recording_ids) <= 5:
-            raise ValueError("Select between 2 and 5 recordings")
-        if len(set(recording_ids)) != len(recording_ids):
-            raise ValueError("Each recording can only be selected once")
+        """Create a queued analytics run and freeze its immutable inputs.
+
+        ``selected_comparison`` keeps the original 2-5 manual selection.
+        ``workforce`` resolves every eligible recording for the workflow
+        server-side (latest approved SOP per session, tenant-scoped), enforcing
+        the min/max workforce bounds. Drafts and other tenants' recordings are
+        never reachable here because eligibility is built on the approved-SOP
+        join scoped to this tenant.
+        """
+        chosen = self._resolve_analytics_inputs(workflow_id, mode, recording_ids)
 
         workflow = self.db.scalar(
             tenant_query(WorkflowRecord, self.tenant_id)
@@ -356,16 +365,6 @@ class Repository:
         )
         if not workflow:
             raise LookupError("Workflow not found")
-
-        eligible = {
-            item.recording_id: item
-            for item in self.list_analytics_eligible_recordings(workflow_id)
-        }
-        missing = [recording_id for recording_id in recording_ids if recording_id not in eligible]
-        if missing:
-            raise ValueError(
-                "Every selected recording must belong to this workflow and have an approved SOP"
-            )
 
         latest_run = self.db.scalar(
             tenant_query(AnalyticsRunRecord, self.tenant_id)
@@ -380,9 +379,9 @@ class Repository:
             tenant_id=str(self.tenant_id),
             workflow_id=str(workflow_id),
             version=version,
-            mode=AnalyticsRunMode.RECORDING_COMPARISON.value,
+            mode=mode.value,
             status=AnalyticsRunStatus.QUEUED.value,
-            input_count=len(recording_ids),
+            input_count=len(chosen),
             embedding_model=embedding_model,
             algorithm_version=algorithm_version,
             created_by=str(created_by) if created_by else None,
@@ -392,15 +391,85 @@ class Repository:
         )
         self.db.add(run)
         self.db.flush()
+        self._write_analytics_run_inputs(run.id, chosen, now)
+        self.db.commit()
+        created = self.get_analytics_run(UUID(run.id))
+        if not created:
+            raise RuntimeError("Analytics run was saved but could not be reloaded")
+        return created
 
-        for position, recording_id in enumerate(recording_ids, start=1):
-            item = eligible[recording_id]
-            sop_record = self.db.scalar(
-                tenant_query(SOPRecord, self.tenant_id).where(
-                    SOPRecord.id == str(item.sop_id)
-                )
+    def _resolve_analytics_inputs(
+        self,
+        workflow_id: UUID,
+        mode: AnalyticsRunMode,
+        recording_ids: Sequence[UUID],
+    ) -> list[AnalyticsEligibleRecording]:
+        """Resolve the ordered, tenant-scoped eligible set for a run.
+
+        Raises ``ValueError`` for client-correctable problems (wrong selection,
+        workforce below minimum) and ``LookupError`` when the workflow itself is
+        missing. Workforce caps at ``WORKFORCE_MAX_RECORDINGS``; the eligibility
+        ordering (newest recording first) makes that cap deterministic.
+        """
+        if mode == AnalyticsRunMode.WORKFORCE and recording_ids:
+            raise ValueError("Workforce mode does not accept explicit recording IDs")
+
+        eligible = self.list_analytics_eligible_recordings(workflow_id)
+        if not eligible:
+            # Distinguish "no workflow" from "no eligible recordings". The route
+            # checks workflow existence separately; reaching here with an empty
+            # eligible set is a client-correctable state.
+            raise ValueError(
+                "No recordings in this workflow are ready for analysis yet"
             )
-            if not sop_record:  # Defensive: eligibility and snapshot share one transaction.
+
+        if mode == AnalyticsRunMode.WORKFORCE:
+            if len(eligible) < WORKFORCE_MIN_RECORDINGS:
+                raise ValueError(
+                    f"Workforce analytics needs at least {WORKFORCE_MIN_RECORDINGS} "
+                    f"eligible recordings (found {len(eligible)}). Selected "
+                    "comparison is still available."
+                )
+            return eligible[:WORKFORCE_MAX_RECORDINGS]
+
+        ids = list(recording_ids)
+        if not 2 <= len(ids) <= 5:
+            raise ValueError("Select between 2 and 5 recordings")
+        if len(set(ids)) != len(ids):
+            raise ValueError("Each recording can only be selected once")
+        eligible_by_id = {item.recording_id: item for item in eligible}
+        missing = [recording_id for recording_id in ids if recording_id not in eligible_by_id]
+        if missing:
+            raise ValueError(
+                "Every selected recording must belong to this workflow and have an approved SOP"
+            )
+        return [eligible_by_id[recording_id] for recording_id in ids]
+
+    def _write_analytics_run_inputs(
+        self,
+        run_id: str,
+        chosen: Sequence[AnalyticsEligibleRecording],
+        now: datetime,
+    ) -> None:
+        """Freeze one immutable SOP snapshot per chosen recording.
+
+        Snapshots are loaded in a single tenant-scoped query (no N+1) so a
+        50-recording workforce run stays cheap. Each input stores the full SOP
+        JSON plus a content hash so retries and the worker never need to refetch
+        or recompute the approved content.
+        """
+        sop_ids = [str(item.sop_id) for item in chosen]
+        sop_records = {
+            record.id: record
+            for record in self.db.scalars(
+                tenant_query(SOPRecord, self.tenant_id).where(SOPRecord.id.in_(sop_ids))
+            ).all()
+        }
+        for position, item in enumerate(chosen, start=1):
+            sop_record = sop_records.get(str(item.sop_id))
+            if not sop_record:
+                # Eligibility and snapshot share one transaction, so this only
+                # happens if an approval changed underneath us.
                 raise ValueError("An approved SOP changed while analytics was being created")
             sop = self._sop_from_record(sop_record)
             snapshot = sop.model_dump(mode="json")
@@ -409,9 +478,9 @@ class Repository:
                 AnalyticsRunInputRecord(
                     id=str(uuid4()),
                     tenant_id=str(self.tenant_id),
-                    run_id=run.id,
+                    run_id=run_id,
                     position=position,
-                    recording_id=str(recording_id),
+                    recording_id=str(item.recording_id),
                     session_id=str(item.session_id),
                     sop_id=str(item.sop_id),
                     sop_version=item.sop_version,
@@ -424,11 +493,6 @@ class Repository:
                     created_at=now,
                 )
             )
-        self.db.commit()
-        created = self.get_analytics_run(UUID(run.id))
-        if not created:
-            raise RuntimeError("Analytics run was saved but could not be reloaded")
-        return created
 
     def get_analytics_run(self, run_id: UUID) -> AnalyticsRun | None:
         record = self.db.scalar(

@@ -7,6 +7,7 @@ from worktrace_api.analytics_processing import WorkflowAnalyticsProcessor
 from worktrace_api.analytics_provider import AnalyticsProviderError
 from worktrace_api.database import SessionLocal
 from worktrace_api.repository import Repository
+from worktrace_api.schemas import AnalyticsRunMode
 
 TENANT_ID = UUID(TEST_TENANT_ID)
 USER_ID = UUID(TEST_USER_ID)
@@ -51,7 +52,8 @@ def _run(repo):
     )
     return repo.create_analytics_run(
         workflow.id,
-        [first_id, second_id],
+        mode=AnalyticsRunMode.SELECTED_COMPARISON,
+        recording_ids=[first_id, second_id],
         created_by=USER_ID,
         embedding_model="test-embedding-model",
         algorithm_version="test-v1",
@@ -76,7 +78,8 @@ def test_processor_caches_embeddings_and_completes_run():
         # so the step vectors should come entirely from the cache.
         rerun = repo.create_analytics_run(
             run.workflow_id,
-            [item.recording_id for item in run.inputs],
+            mode=AnalyticsRunMode.SELECTED_COMPARISON,
+            recording_ids=[item.recording_id for item in run.inputs],
             created_by=USER_ID,
             embedding_model=provider.embedding_model,
             algorithm_version="test-v1",

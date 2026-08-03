@@ -336,7 +336,16 @@ class ReferenceSelection(StrictModel):
 
 
 class AnalyticsRunMode(StrEnum):
-    RECORDING_COMPARISON = "recording_comparison"
+    # Manually selected 2-5 approved recordings (the original comparison mode).
+    SELECTED_COMPARISON = "selected_comparison"
+    # Population-level overview using every eligible recording for a workflow.
+    WORKFORCE = "workforce"
+
+
+# Workforce eligibility bounds. Selected comparison keeps its own 2-5 bound on
+# the create payload; these govern the server-resolved workforce set.
+WORKFORCE_MIN_RECORDINGS = 6
+WORKFORCE_MAX_RECORDINGS = 50
 
 
 class AnalyticsRunStatus(StrEnum):
@@ -356,8 +365,18 @@ class AnalyticsRetryTarget(StrEnum):
 
 
 class AnalyticsRunCreate(StrictModel):
-    recording_ids: list[UUID] = Field(min_length=2, max_length=5)
-    mode: AnalyticsRunMode = AnalyticsRunMode.RECORDING_COMPARISON
+    """Create payload for a workflow analytics run.
+
+    Two mutually exclusive modes keep run semantics unambiguous:
+
+    * ``selected_comparison`` — the original mode. Requires 2-5 explicit,
+      unique ``recording_ids`` that already have an approved SOP.
+    * ``workforce`` — population overview. The server resolves every eligible
+      recording for the workflow, so ``recording_ids`` must be empty.
+    """
+
+    mode: AnalyticsRunMode
+    recording_ids: list[UUID] = Field(default_factory=list, max_length=5)
 
     @field_validator("recording_ids")
     @classmethod
@@ -365,6 +384,15 @@ class AnalyticsRunCreate(StrictModel):
         if len(set(value)) != len(value):
             raise ValueError("Each recording can only be selected once")
         return value
+
+    @model_validator(mode="after")
+    def validate_mode_payload(self) -> "AnalyticsRunCreate":
+        if self.mode == AnalyticsRunMode.SELECTED_COMPARISON:
+            if not 2 <= len(self.recording_ids) <= 5:
+                raise ValueError("Selected comparison requires between 2 and 5 recordings")
+        elif self.mode == AnalyticsRunMode.WORKFORCE and self.recording_ids:
+            raise ValueError("Workforce mode does not accept explicit recording IDs")
+        return self
 
 
 class AnalyticsRetryRequest(StrictModel):
@@ -464,10 +492,11 @@ class AnalyticsRun(StrictModel):
     version: int = Field(ge=1)
     mode: AnalyticsRunMode
     status: AnalyticsRunStatus
-    input_count: int = Field(ge=2, le=5)
+    # Selected comparison caps at 5; workforce caps at WORKFORCE_MAX_RECORDINGS.
+    input_count: int = Field(ge=2, le=WORKFORCE_MAX_RECORDINGS)
     embedding_model: str
     algorithm_version: str
-    inputs: list[AnalyticsRunInput] = Field(min_length=2, max_length=5)
+    inputs: list[AnalyticsRunInput] = Field(min_length=2, max_length=WORKFORCE_MAX_RECORDINGS)
     result: AnalyticsResult | None = None
     executive_summary: list[str] | None = Field(default=None, min_length=3, max_length=3)
     failure_stage: str | None = None

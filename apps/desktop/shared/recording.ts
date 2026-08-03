@@ -293,7 +293,7 @@ export interface BackendAnalyticsRun {
   workflow_id: string
   workflow_name: string
   version: number
-  mode: 'recording_comparison'
+  mode: 'selected_comparison' | 'workforce'
   status: AnalyticsRunStatus
   input_count: number
   embedding_model: string
