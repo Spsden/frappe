@@ -20,11 +20,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# tesseract-ocr: system binary required by pytesseract for OCR extraction
-# (worktrace_api/ocr.py, worktrace_api/tasks/ocr_extraction.py).
-# RUN apt-get update && \
-#     apt-get install -y --no-install-recommends tesseract-ocr && \
-#     rm -rf /var/lib/apt/lists/*
+# OpenCV is pulled by RapidOCR. The slim Python base omits its Linux runtime
+# libraries, so importing cv2 fails unless these are installed explicitly.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      libgl1 \
+      libglib2.0-0 \
+      libxcb1 && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy only what's needed to install the package, then install it editable so
 # the bind-mounted ./src stays live for `uvicorn --reload` in dev.

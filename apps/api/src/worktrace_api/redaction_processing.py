@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from uuid import UUID
 
@@ -11,6 +12,8 @@ from worktrace_api.redaction import PrivacyRedactor
 from worktrace_api.repository import Repository
 from worktrace_api.schemas import Screenshot, WorkflowSession
 from worktrace_api.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 
 def _atomic_write(storage: ChunkStorage, storage_key: str, payload: bytes) -> None:
@@ -123,6 +126,13 @@ class RecordingRedactionProcessor:
                     annotated_storage_key=annotated_key,
                 )
             except Exception:
+                # Screenshot IDs are safe operational metadata. Never include
+                # OCR text or image bytes in this log entry.
+                logger.exception(
+                    "Redaction failed for screenshot %s in run %s",
+                    screenshot.id,
+                    run_id,
+                )
                 self.repo.finish_screenshot_redaction(
                     run_id,
                     screenshot.id,

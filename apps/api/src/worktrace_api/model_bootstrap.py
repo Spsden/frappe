@@ -6,6 +6,7 @@ import logging
 import time
 
 from worktrace_api.redaction import (
+    load_ocr_engine,
     load_pii_classifier,
     mark_redaction_model_ready,
     redaction_model_ready,
@@ -17,6 +18,11 @@ logger = logging.getLogger(__name__)
 
 def warm_redaction_model(attempts: int = 3) -> None:
     settings = get_settings()
+    # Import and initialize RapidOCR here so a broken OpenCV runtime prevents
+    # the vision worker from advertising redaction as available.
+    load_ocr_engine()
+    logger.info("Redaction OCR engine is ready")
+
     if redaction_model_ready(settings.redaction_model):
         logger.info("Redaction model is already cached: %s", settings.redaction_model)
         return
