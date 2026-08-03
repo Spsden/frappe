@@ -278,6 +278,8 @@ class SOP(StrictModel):
     id: UUID = Field(default_factory=uuid4)
     source_session_id: UUID
     version: int = Field(default=1, ge=1)
+    revision: int = Field(default=1, ge=1)
+    parent_sop_id: UUID | None = None
     status: SOPStatus = SOPStatus.DRAFT
     title: str = Field(max_length=200)
     # Optional supporting narrative (purpose / overview / notes) produced by the
@@ -286,6 +288,27 @@ class SOP(StrictModel):
     document: str | None = Field(default=None, max_length=20_000)
     steps: list[SOPStep] = Field(min_length=1, max_length=500)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    edited_by: UUID | None = None
+
+
+class SOPUpdate(StrictModel):
+    expected_revision: int = Field(ge=1)
+    title: str = Field(min_length=1, max_length=200)
+    document: str | None = Field(default=None, max_length=20_000)
+    steps: list[SOPStep] = Field(min_length=1, max_length=500)
+    change_summary: str | None = Field(default=None, max_length=500)
+
+
+class SOPRevision(StrictModel):
+    id: UUID
+    tenant_id: UUID
+    sop_id: UUID
+    revision: int = Field(ge=1)
+    snapshot: dict[str, Any]
+    edited_by: UUID | None = None
+    change_summary: str | None = None
+    created_at: datetime
 
 
 class SOPLibraryItem(SOP):
@@ -336,13 +359,24 @@ class ReferenceSelection(StrictModel):
 
 
 class AnalyticsRunMode(StrEnum):
-    RECORDING_COMPARISON = "recording_comparison"
+    # Manually selected 2-5 approved recordings (the original comparison mode).
+    SELECTED_COMPARISON = "selected_comparison"
+    # Population-level overview using every eligible recording for a workflow.
+    WORKFORCE = "workforce"
+
+
+# Workforce eligibility bounds. Selected comparison keeps its own 2-5 bound on
+# the create payload; these govern the server-resolved workforce set.
+WORKFORCE_MIN_RECORDINGS = 6
+WORKFORCE_MAX_RECORDINGS = 50
 
 
 class AnalyticsRunStatus(StrEnum):
     QUEUED = "queued"
     EMBEDDING = "embedding"
     ALIGNING = "aligning"
+    CLUSTERING = "clustering"
+    SCORING_FRICTION = "scoring_friction"
     CALCULATING = "calculating"
     SUMMARIZING = "summarizing"
     COMPLETED = "completed"
@@ -356,8 +390,18 @@ class AnalyticsRetryTarget(StrEnum):
 
 
 class AnalyticsRunCreate(StrictModel):
-    recording_ids: list[UUID] = Field(min_length=2, max_length=5)
-    mode: AnalyticsRunMode = AnalyticsRunMode.RECORDING_COMPARISON
+    """Create payload for a workflow analytics run.
+
+    Two mutually exclusive modes keep run semantics unambiguous:
+
+    * ``selected_comparison`` — the original mode. Requires 2-5 explicit,
+      unique ``recording_ids`` that already have an approved SOP.
+    * ``workforce`` — population overview. The server resolves every eligible
+      recording for the workflow, so ``recording_ids`` must be empty.
+    """
+
+    mode: AnalyticsRunMode
+    recording_ids: list[UUID] = Field(default_factory=list, max_length=5)
 
     @field_validator("recording_ids")
     @classmethod
@@ -365,6 +409,15 @@ class AnalyticsRunCreate(StrictModel):
         if len(set(value)) != len(value):
             raise ValueError("Each recording can only be selected once")
         return value
+
+    @model_validator(mode="after")
+    def validate_mode_payload(self) -> "AnalyticsRunCreate":
+        if self.mode == AnalyticsRunMode.SELECTED_COMPARISON:
+            if not 2 <= len(self.recording_ids) <= 5:
+                raise ValueError("Selected comparison requires between 2 and 5 recordings")
+        elif self.mode == AnalyticsRunMode.WORKFORCE and self.recording_ids:
+            raise ValueError("Workforce mode does not accept explicit recording IDs")
+        return self
 
 
 class AnalyticsRetryRequest(StrictModel):
@@ -435,7 +488,7 @@ class AnalyticsStepComparison(StrictModel):
 
 
 class AnalyticsComparisonOverview(StrictModel):
-    recording_count: int = Field(ge=2, le=5)
+    recording_count: int = Field(ge=2, le=WORKFORCE_MAX_RECORDINGS)
     distinct_path_count: int = Field(ge=1)
     fastest_recording_id: UUID
     fastest_duration_ms: int = Field(ge=0)
@@ -447,12 +500,75 @@ class AnalyticsComparisonOverview(StrictModel):
     timing_coverage: float = Field(ge=0, le=1)
 
 
+class AnalyticsClusterMember(StrictModel):
+    recording_id: UUID
+    label: str
+    total_duration_ms: int = Field(ge=0)
+
+
+class AnalyticsClusterSummary(StrictModel):
+    cluster_id: str
+    label: str
+    recording_count: int = Field(ge=2)
+    average_duration_ms: int = Field(ge=0)
+    average_step_count: float = Field(ge=0)
+    representative_recording_id: UUID
+    path_signature: str
+    members: list[AnalyticsClusterMember] = Field(min_length=2)
+
+
+class AnalyticsFrictionMetric(StrictModel):
+    group_id: str
+    label: str
+    cluster_id: str | None = None
+    sample_count: int = Field(ge=0)
+    population_count: int = Field(ge=1)
+    mean_duration_ms: int | None = Field(default=None, ge=0)
+    median_duration_ms: int | None = Field(default=None, ge=0)
+    standard_deviation_ms: int | None = Field(default=None, ge=0)
+    coefficient_of_variation: float | None = Field(default=None, ge=0)
+    presence_frequency: float = Field(ge=0, le=1)
+    optional_frequency: float = Field(ge=0, le=1)
+    friction_score: int | None = Field(default=None, ge=0, le=100)
+    confidence: Literal["insufficient", "low", "medium", "high"]
+
+
+class AnalyticsHeatmapCell(StrictModel):
+    group_id: str
+    cluster_id: str
+    present: bool
+    sample_count: int = Field(ge=0)
+    mean_duration_ms: int | None = Field(default=None, ge=0)
+    standard_deviation_ms: int | None = Field(default=None, ge=0)
+    friction_score: int | None = Field(default=None, ge=0, le=100)
+    confidence: Literal["insufficient", "low", "medium", "high"]
+
+
+class AnalyticsWorkforceOverview(StrictModel):
+    recording_count: int = Field(ge=WORKFORCE_MIN_RECORDINGS, le=WORKFORCE_MAX_RECORDINGS)
+    selected_k: int = Field(ge=1, le=4)
+    silhouette_score: float | None = Field(default=None, ge=-1, le=1)
+    cluster_quality: Literal["strong", "moderate", "weak", "insufficient_separation"]
+
+
+class AnalyticsWorkforceResult(StrictModel):
+    overview: AnalyticsWorkforceOverview
+    clusters: list[AnalyticsClusterSummary] = Field(min_length=1, max_length=4)
+    friction: list[AnalyticsFrictionMetric]
+    heatmap: list[AnalyticsHeatmapCell]
+
+
 class AnalyticsResult(StrictModel):
     overview: AnalyticsComparisonOverview
-    completion_ranking: list[AnalyticsRecordingMetric] = Field(min_length=2, max_length=5)
-    path_timelines: list[AnalyticsPathTimeline] = Field(min_length=2, max_length=5)
+    completion_ranking: list[AnalyticsRecordingMetric] = Field(
+        min_length=2, max_length=WORKFORCE_MAX_RECORDINGS
+    )
+    path_timelines: list[AnalyticsPathTimeline] = Field(
+        min_length=2, max_length=WORKFORCE_MAX_RECORDINGS
+    )
     fastest_vs_average: list[AnalyticsStepComparison]
     alignment_notes: list[str] = Field(default_factory=list, max_length=20)
+    workforce: AnalyticsWorkforceResult | None = None
 
 
 class AnalyticsRun(StrictModel):
@@ -464,10 +580,11 @@ class AnalyticsRun(StrictModel):
     version: int = Field(ge=1)
     mode: AnalyticsRunMode
     status: AnalyticsRunStatus
-    input_count: int = Field(ge=2, le=5)
+    # Selected comparison caps at 5; workforce caps at WORKFORCE_MAX_RECORDINGS.
+    input_count: int = Field(ge=2, le=WORKFORCE_MAX_RECORDINGS)
     embedding_model: str
     algorithm_version: str
-    inputs: list[AnalyticsRunInput] = Field(min_length=2, max_length=5)
+    inputs: list[AnalyticsRunInput] = Field(min_length=2, max_length=WORKFORCE_MAX_RECORDINGS)
     result: AnalyticsResult | None = None
     executive_summary: list[str] | None = Field(default=None, min_length=3, max_length=3)
     failure_stage: str | None = None

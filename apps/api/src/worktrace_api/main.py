@@ -46,7 +46,12 @@ from worktrace_api.privacy import sanitize_session
 from worktrace_api.processing import RecordingProcessor
 from worktrace_api.recordings import ChunkStorage
 from worktrace_api.redaction import redaction_model_ready
-from worktrace_api.repository import Repository, get_db
+from worktrace_api.repository import (
+    Repository,
+    SOPConflictError,
+    SOPValidationError,
+    get_db,
+)
 from worktrace_api.schemas import (
     SOP,
     SOP_LIMIT_FIELDS,
@@ -56,6 +61,7 @@ from worktrace_api.schemas import (
     AnalyticsRetryTarget,
     AnalyticsRun,
     AnalyticsRunCreate,
+    AnalyticsRunMode,
     AnalyticsRunStatus,
     AuthSession,
     ChunkContentType,
@@ -91,7 +97,9 @@ from worktrace_api.schemas import (
     SOPLibraryItem,
     SopLimitsSettings,
     SopLimitsSettingsUpdate,
+    SOPRevision,
     SOPStatus,
+    SOPUpdate,
     TargetBounds,
     Workflow,
     WorkflowCreate,
@@ -107,6 +115,7 @@ from worktrace_api.tasks.analytics import (
 )
 from worktrace_api.tasks.redaction import redact_recording_screenshots
 from worktrace_api.workflow_analytics import ALGORITHM_VERSION
+from worktrace_api.workforce_clustering import WORKFORCE_ALGORITHM_VERSION
 
 
 @asynccontextmanager
@@ -622,10 +631,15 @@ def create_analytics_run(
     try:
         run = repo.create_analytics_run(
             workflow_id,
-            payload.recording_ids,
+            mode=payload.mode,
+            recording_ids=payload.recording_ids,
             created_by=auth.account.user_id,
             embedding_model=provider.embedding_model,
-            algorithm_version=ALGORITHM_VERSION,
+            algorithm_version=(
+                WORKFORCE_ALGORITHM_VERSION
+                if payload.mode == AnalyticsRunMode.WORKFORCE
+                else ALGORITHM_VERSION
+            ),
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -695,6 +709,8 @@ def retry_analytics_run(
         AnalyticsRunStatus.QUEUED,
         AnalyticsRunStatus.EMBEDDING,
         AnalyticsRunStatus.ALIGNING,
+        AnalyticsRunStatus.CLUSTERING,
+        AnalyticsRunStatus.SCORING_FRICTION,
         AnalyticsRunStatus.CALCULATING,
         AnalyticsRunStatus.SUMMARIZING,
     }
@@ -1426,6 +1442,54 @@ def get_sop(sop_id: UUID, repo: Repository = Depends(repository)) -> SOP:
     return sop
 
 
+@app.patch("/sops/{sop_id}", response_model=SOP, tags=["sops"])
+def update_sop(
+    sop_id: UUID,
+    payload: SOPUpdate,
+    auth: AuthContext = Depends(authenticated_account),
+    repo: Repository = Depends(repository),
+) -> SOP:
+    try:
+        return repo.update_sop(sop_id, payload, auth.account.user_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except SOPConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except SOPValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+
+@app.get("/sops/{sop_id}/revisions", response_model=list[SOPRevision], tags=["sops"])
+def list_sop_revisions(
+    sop_id: UUID, repo: Repository = Depends(repository)
+) -> list[SOPRevision]:
+    try:
+        return repo.list_sop_revisions(sop_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@app.post(
+    "/sops/{sop_id}/new-draft",
+    response_model=SOP,
+    status_code=status.HTTP_201_CREATED,
+    tags=["sops"],
+)
+def create_sop_draft(
+    sop_id: UUID,
+    auth: AuthContext = Depends(authenticated_account),
+    repo: Repository = Depends(repository),
+) -> SOP:
+    try:
+        return repo.create_editable_sop_draft(sop_id, auth.account.user_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except SOPConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
 @app.get("/walkthroughs/{sop_id}", response_model=SOP, tags=["walkthroughs"])
 def get_walkthrough(sop_id: UUID, repo: Repository = Depends(repository)) -> SOP:
     sop = repo.get_sop(sop_id)
@@ -1456,8 +1520,20 @@ def search(
 
 
 @app.post("/sops/{sop_id}/approval", response_model=SOP, tags=["sops"])
-def approve_sop(sop_id: UUID, payload: SOPApproval, repo: Repository = Depends(repository)) -> SOP:
-    sop = repo.set_sop_status(sop_id, SOPStatus.APPROVED if payload.approved else SOPStatus.DRAFT)
+def approve_sop(
+    sop_id: UUID,
+    payload: SOPApproval,
+    auth: AuthContext = Depends(authenticated_account),
+    repo: Repository = Depends(repository),
+) -> SOP:
+    try:
+        sop = repo.set_sop_status(
+            sop_id,
+            SOPStatus.APPROVED if payload.approved else SOPStatus.DRAFT,
+            auth.account.user_id,
+        )
+    except SOPConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if not sop:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SOP not found")
     return sop

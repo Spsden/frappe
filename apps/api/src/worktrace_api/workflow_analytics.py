@@ -89,6 +89,21 @@ class _AlignmentGroup:
         return min(counts, key=lambda value: (-counts[value], labels.index(value)))
 
 
+@dataclass(frozen=True)
+class WorkflowAnalysis:
+    """Reusable aligned evidence for comparison and population analytics.
+
+    The public result schemas deliberately contain only chart-ready values.
+    This internal context retains the aligned vectors and timing observations
+    needed by deterministic clustering and friction scoring.
+    """
+
+    recordings: tuple[_PreparedRecording, ...]
+    groups: tuple[_AlignmentGroup, ...]
+    classifications: tuple[Literal["shared", "optional", "path_specific"], ...]
+    group_ids: tuple[str, ...]
+
+
 def step_documents(input_snapshots: list[dict[str, Any]]) -> list[StepDocument]:
     documents: list[StepDocument] = []
     for item in input_snapshots:
@@ -113,11 +128,45 @@ def build_comparison(
     embeddings: dict[tuple[UUID, UUID, str], list[float]],
 ) -> AnalyticsResult:
     """Build chart-ready metrics from 2–5 immutable analytics inputs."""
-    if not 2 <= len(input_snapshots) <= 5:
-        raise ValueError("Workflow comparison requires between 2 and 5 recordings")
+    analysis = prepare_workflow_analysis(
+        input_snapshots,
+        embeddings,
+        minimum_recordings=2,
+        maximum_recordings=5,
+    )
+    return build_comparison_from_analysis(analysis)
+
+
+def prepare_workflow_analysis(
+    input_snapshots: list[dict[str, Any]],
+    embeddings: dict[tuple[UUID, UUID, str], list[float]],
+    *,
+    minimum_recordings: int,
+    maximum_recordings: int,
+) -> WorkflowAnalysis:
+    """Validate, prepare and align one immutable collection of recordings."""
+    if not minimum_recordings <= len(input_snapshots) <= maximum_recordings:
+        raise ValueError(
+            "Workflow analysis requires between "
+            f"{minimum_recordings} and {maximum_recordings} recordings"
+        )
     prepared = _prepare_recordings(input_snapshots, embeddings)
     groups = _progressive_alignment(prepared)
     classifications = _classify_groups(groups, len(prepared))
+    return WorkflowAnalysis(
+        recordings=tuple(prepared),
+        groups=tuple(groups),
+        classifications=tuple(classifications),
+        group_ids=tuple(f"step-{index:03d}" for index in range(1, len(groups) + 1)),
+    )
+
+
+def build_comparison_from_analysis(analysis: WorkflowAnalysis) -> AnalyticsResult:
+    """Build the shared comparison result without repeating alignment work."""
+    prepared = analysis.recordings
+    groups = analysis.groups
+    classifications = analysis.classifications
+    group_ids = analysis.group_ids
 
     fastest_index = min(
         range(len(prepared)), key=lambda index: (prepared[index].duration_ms, index)
@@ -126,7 +175,6 @@ def build_comparison(
     ranked = sorted(
         enumerate(prepared), key=lambda item: (item[1].duration_ms, item[0])
     )
-    group_ids = [f"step-{index:03d}" for index in range(1, len(groups) + 1)]
     signatures = {
         tuple(group_ids[index] for index, group in enumerate(groups) if run_index in group.members)
         for run_index in range(len(prepared))
@@ -171,7 +219,7 @@ def build_comparison(
     average_duration = round(mean(recording.duration_ms for recording in prepared))
 
     notes = [
-        "Steps are aligned within this comparison by semantic similarity and sequence order.",
+        "Steps are aligned by semantic similarity and sequence order.",
         (
             "Unmatched steps remain visible as optional or path-specific work; "
             "they are not treated as errors."

@@ -22,6 +22,7 @@ from worktrace_api.database import (
     SessionLocal,
     SopLimitsSettingsRecord,
     SOPRecord,
+    SOPRevisionRecord,
     SOPStepEmbeddingRecord,
     UserRecord,
     WorkflowRecord,
@@ -30,6 +31,8 @@ from worktrace_api.database import (
 from worktrace_api.schemas import (
     SOP,
     SOP_LIMIT_FIELDS,
+    WORKFORCE_MAX_RECORDINGS,
+    WORKFORCE_MIN_RECORDINGS,
     AnalyticsEligibleRecording,
     AnalyticsResult,
     AnalyticsRun,
@@ -55,7 +58,10 @@ from worktrace_api.schemas import (
     SOPLibraryItem,
     SopLimitsSettings,
     SopLimitsSettingsUpdate,
+    SOPRevision,
     SOPStatus,
+    SOPStep,
+    SOPUpdate,
     TranscriptSegment,
     Workflow,
     WorkflowRecording,
@@ -89,6 +95,14 @@ READY_RECORDING_STATUSES = [
     RecordingStatus.READY_FOR_REVIEW.value,
     RecordingStatus.COMPLETED.value,
 ]
+
+
+class SOPConflictError(ValueError):
+    """The requested SOP transition conflicts with its current state."""
+
+
+class SOPValidationError(ValueError):
+    """The proposed SOP content is structurally invalid."""
 
 
 class Repository:
@@ -338,17 +352,22 @@ class Repository:
     def create_analytics_run(
         self,
         workflow_id: UUID,
-        recording_ids: Sequence[UUID],
         *,
+        mode: AnalyticsRunMode,
         created_by: UUID | None,
         embedding_model: str,
         algorithm_version: str,
+        recording_ids: Sequence[UUID] = (),
     ) -> AnalyticsRun:
-        if not 2 <= len(recording_ids) <= 5:
-            raise ValueError("Select between 2 and 5 recordings")
-        if len(set(recording_ids)) != len(recording_ids):
-            raise ValueError("Each recording can only be selected once")
+        """Create a queued analytics run and freeze its immutable inputs.
 
+        ``selected_comparison`` keeps the original 2-5 manual selection.
+        ``workforce`` resolves every eligible recording for the workflow
+        server-side (latest approved SOP per session, tenant-scoped), enforcing
+        the min/max workforce bounds. Drafts and other tenants' recordings are
+        never reachable here because eligibility is built on the approved-SOP
+        join scoped to this tenant.
+        """
         workflow = self.db.scalar(
             tenant_query(WorkflowRecord, self.tenant_id)
             .where(WorkflowRecord.id == str(workflow_id))
@@ -357,15 +376,7 @@ class Repository:
         if not workflow:
             raise LookupError("Workflow not found")
 
-        eligible = {
-            item.recording_id: item
-            for item in self.list_analytics_eligible_recordings(workflow_id)
-        }
-        missing = [recording_id for recording_id in recording_ids if recording_id not in eligible]
-        if missing:
-            raise ValueError(
-                "Every selected recording must belong to this workflow and have an approved SOP"
-            )
+        chosen = self._resolve_analytics_inputs(workflow_id, mode, recording_ids)
 
         latest_run = self.db.scalar(
             tenant_query(AnalyticsRunRecord, self.tenant_id)
@@ -380,9 +391,9 @@ class Repository:
             tenant_id=str(self.tenant_id),
             workflow_id=str(workflow_id),
             version=version,
-            mode=AnalyticsRunMode.RECORDING_COMPARISON.value,
+            mode=mode.value,
             status=AnalyticsRunStatus.QUEUED.value,
-            input_count=len(recording_ids),
+            input_count=len(chosen),
             embedding_model=embedding_model,
             algorithm_version=algorithm_version,
             created_by=str(created_by) if created_by else None,
@@ -392,15 +403,85 @@ class Repository:
         )
         self.db.add(run)
         self.db.flush()
+        self._write_analytics_run_inputs(run.id, chosen, now)
+        self.db.commit()
+        created = self.get_analytics_run(UUID(run.id))
+        if not created:
+            raise RuntimeError("Analytics run was saved but could not be reloaded")
+        return created
 
-        for position, recording_id in enumerate(recording_ids, start=1):
-            item = eligible[recording_id]
-            sop_record = self.db.scalar(
-                tenant_query(SOPRecord, self.tenant_id).where(
-                    SOPRecord.id == str(item.sop_id)
-                )
+    def _resolve_analytics_inputs(
+        self,
+        workflow_id: UUID,
+        mode: AnalyticsRunMode,
+        recording_ids: Sequence[UUID],
+    ) -> list[AnalyticsEligibleRecording]:
+        """Resolve the ordered, tenant-scoped eligible set for a run.
+
+        Raises ``ValueError`` for client-correctable problems (wrong selection,
+        workforce below minimum) and ``LookupError`` when the workflow itself is
+        missing. Workforce caps at ``WORKFORCE_MAX_RECORDINGS``; the eligibility
+        ordering (newest recording first) makes that cap deterministic.
+        """
+        if mode == AnalyticsRunMode.WORKFORCE and recording_ids:
+            raise ValueError("Workforce mode does not accept explicit recording IDs")
+
+        eligible = self.list_analytics_eligible_recordings(workflow_id)
+        if not eligible:
+            # Distinguish "no workflow" from "no eligible recordings". The route
+            # checks workflow existence separately; reaching here with an empty
+            # eligible set is a client-correctable state.
+            raise ValueError(
+                "No recordings in this workflow are ready for analysis yet"
             )
-            if not sop_record:  # Defensive: eligibility and snapshot share one transaction.
+
+        if mode == AnalyticsRunMode.WORKFORCE:
+            if len(eligible) < WORKFORCE_MIN_RECORDINGS:
+                raise ValueError(
+                    f"Workforce analytics needs at least {WORKFORCE_MIN_RECORDINGS} "
+                    f"eligible recordings (found {len(eligible)}). Selected "
+                    "comparison is still available."
+                )
+            return eligible[:WORKFORCE_MAX_RECORDINGS]
+
+        ids = list(recording_ids)
+        if not 2 <= len(ids) <= 5:
+            raise ValueError("Select between 2 and 5 recordings")
+        if len(set(ids)) != len(ids):
+            raise ValueError("Each recording can only be selected once")
+        eligible_by_id = {item.recording_id: item for item in eligible}
+        missing = [recording_id for recording_id in ids if recording_id not in eligible_by_id]
+        if missing:
+            raise ValueError(
+                "Every selected recording must belong to this workflow and have an approved SOP"
+            )
+        return [eligible_by_id[recording_id] for recording_id in ids]
+
+    def _write_analytics_run_inputs(
+        self,
+        run_id: str,
+        chosen: Sequence[AnalyticsEligibleRecording],
+        now: datetime,
+    ) -> None:
+        """Freeze one immutable SOP snapshot per chosen recording.
+
+        Snapshots are loaded in a single tenant-scoped query (no N+1) so a
+        50-recording workforce run stays cheap. Each input stores the full SOP
+        JSON plus a content hash so retries and the worker never need to refetch
+        or recompute the approved content.
+        """
+        sop_ids = [str(item.sop_id) for item in chosen]
+        sop_records = {
+            record.id: record
+            for record in self.db.scalars(
+                tenant_query(SOPRecord, self.tenant_id).where(SOPRecord.id.in_(sop_ids))
+            ).all()
+        }
+        for position, item in enumerate(chosen, start=1):
+            sop_record = sop_records.get(str(item.sop_id))
+            if not sop_record:
+                # Eligibility and snapshot share one transaction, so this only
+                # happens if an approval changed underneath us.
                 raise ValueError("An approved SOP changed while analytics was being created")
             sop = self._sop_from_record(sop_record)
             snapshot = sop.model_dump(mode="json")
@@ -409,9 +490,9 @@ class Repository:
                 AnalyticsRunInputRecord(
                     id=str(uuid4()),
                     tenant_id=str(self.tenant_id),
-                    run_id=run.id,
+                    run_id=run_id,
                     position=position,
-                    recording_id=str(recording_id),
+                    recording_id=str(item.recording_id),
                     session_id=str(item.session_id),
                     sop_id=str(item.sop_id),
                     sop_version=item.sop_version,
@@ -424,11 +505,6 @@ class Repository:
                     created_at=now,
                 )
             )
-        self.db.commit()
-        created = self.get_analytics_run(UUID(run.id))
-        if not created:
-            raise RuntimeError("Analytics run was saved but could not be reloaded")
-        return created
 
     def get_analytics_run(self, run_id: UUID) -> AnalyticsRun | None:
         record = self.db.scalar(
@@ -1563,14 +1639,20 @@ class Repository:
             id=str(sop.id),
             tenant_id=str(sop.tenant_id),
             source_session_id=str(sop.source_session_id),
+            parent_sop_id=str(sop.parent_sop_id) if sop.parent_sop_id else None,
             version=sop.version,
+            revision=sop.revision,
             status=sop.status,
             title=sop.title,
             document=sop.document,
             steps=[step.model_dump(mode="json") for step in sop.steps],
             created_at=sop.created_at,
+            updated_at=sop.updated_at,
+            edited_by=str(sop.edited_by) if sop.edited_by else None,
         )
         self.db.add(record)
+        self.db.flush()
+        self._add_sop_revision(record, None, sop.edited_by)
         self.db.commit()
         return sop
 
@@ -1618,14 +1700,22 @@ class Repository:
                     id=str(saved.id),
                     tenant_id=str(saved.tenant_id),
                     source_session_id=str(saved.source_session_id),
+                    parent_sop_id=(
+                        str(saved.parent_sop_id) if saved.parent_sop_id else None
+                    ),
                     version=saved.version,
+                    revision=saved.revision,
                     status=saved.status,
                     title=saved.title,
                     document=saved.document,
                     steps=[step.model_dump(mode="json") for step in saved.steps],
                     created_at=saved.created_at,
+                    updated_at=saved.updated_at,
+                    edited_by=str(saved.edited_by) if saved.edited_by else None,
                 )
                 self.db.add(record)
+                self.db.flush()
+                self._add_sop_revision(record, "Generated SOP draft", saved.edited_by)
                 self.db.commit()
                 return saved
             except IntegrityError as exc:
@@ -1638,6 +1728,174 @@ class Repository:
             tenant_query(SOPRecord, self.tenant_id).where(SOPRecord.id == str(sop_id))
         )
         return self._sop_from_record(record) if record else None
+
+    def update_sop(self, sop_id: UUID, payload: SOPUpdate, edited_by: UUID | None) -> SOP:
+        record = self.db.scalar(
+            tenant_query(SOPRecord, self.tenant_id)
+            .where(SOPRecord.id == str(sop_id))
+            .with_for_update()
+        )
+        if not record:
+            raise LookupError("SOP not found")
+        if record.status != SOPStatus.DRAFT.value:
+            raise SOPConflictError("Only draft SOPs can be edited")
+        if record.revision != payload.expected_revision:
+            raise SOPConflictError(
+                f"SOP changed since it was opened (current revision {record.revision})"
+            )
+        self._validate_sop_steps(record.source_session_id, payload.steps)
+        self._add_sop_revision(
+            record,
+            "Original generated draft",
+            UUID(record.edited_by) if record.edited_by else None,
+        )
+
+        now = datetime.now(UTC)
+        record.title = payload.title.strip()
+        record.document = payload.document.strip() if payload.document else None
+        record.steps = [step.model_dump(mode="json") for step in payload.steps]
+        record.revision += 1
+        record.updated_at = now
+        record.edited_by = str(edited_by) if edited_by else None
+        self.db.flush()
+        self._add_sop_revision(record, payload.change_summary, edited_by)
+        self.db.commit()
+        return self._sop_from_record(record)
+
+    def create_editable_sop_draft(
+        self, sop_id: UUID, edited_by: UUID | None
+    ) -> SOP:
+        source = self.db.scalar(
+            tenant_query(SOPRecord, self.tenant_id)
+            .where(SOPRecord.id == str(sop_id))
+            .with_for_update()
+        )
+        if not source:
+            raise LookupError("SOP not found")
+        if source.status != SOPStatus.APPROVED.value:
+            raise SOPConflictError("Only an approved SOP needs a new editable draft")
+
+        existing = self.db.scalar(
+            tenant_query(SOPRecord, self.tenant_id).where(
+                SOPRecord.source_session_id == source.source_session_id,
+                SOPRecord.status == SOPStatus.DRAFT.value,
+            )
+        )
+        if existing:
+            return self._sop_from_record(existing)
+
+        next_version = (
+            self.db.scalar(
+                select(func.max(SOPRecord.version)).where(
+                    SOPRecord.tenant_id == str(self.tenant_id),
+                    SOPRecord.source_session_id == source.source_session_id,
+                )
+            )
+            or 0
+        ) + 1
+        now = datetime.now(UTC)
+        steps = [
+            SOPStep.model_validate(step).model_copy(
+                update={"id": uuid4(), "position": index}
+            )
+            for index, step in enumerate(self._normalize_sop_steps(source.steps), start=1)
+        ]
+        draft = SOPRecord(
+            id=str(uuid4()),
+            tenant_id=str(self.tenant_id),
+            source_session_id=source.source_session_id,
+            parent_sop_id=source.id,
+            version=next_version,
+            revision=1,
+            status=SOPStatus.DRAFT.value,
+            title=source.title,
+            document=source.document,
+            steps=[step.model_dump(mode="json") for step in steps],
+            created_at=now,
+            updated_at=now,
+            edited_by=str(edited_by) if edited_by else None,
+        )
+        self.db.add(draft)
+        self.db.flush()
+        self._add_sop_revision(draft, f"Drafted from approved SOP v{source.version}", edited_by)
+        self.db.commit()
+        return self._sop_from_record(draft)
+
+    def list_sop_revisions(self, sop_id: UUID) -> list[SOPRevision]:
+        if not self.get_sop(sop_id):
+            raise LookupError("SOP not found")
+        records = self.db.scalars(
+            tenant_query(SOPRevisionRecord, self.tenant_id)
+            .where(SOPRevisionRecord.sop_id == str(sop_id))
+            .order_by(SOPRevisionRecord.revision.desc())
+        ).all()
+        return [
+            SOPRevision(
+                id=record.id,
+                tenant_id=record.tenant_id,
+                sop_id=record.sop_id,
+                revision=record.revision,
+                snapshot=record.snapshot_json,
+                edited_by=record.edited_by,
+                change_summary=record.change_summary,
+                created_at=record.created_at,
+            )
+            for record in records
+        ]
+
+    def _validate_sop_steps(self, session_id: str, steps: list[SOPStep]) -> None:
+        if [step.position for step in steps] != list(range(1, len(steps) + 1)):
+            raise SOPValidationError("SOP step positions must be contiguous and start at 1")
+        if len({step.id for step in steps}) != len(steps):
+            raise SOPValidationError("SOP step IDs must be unique")
+        screenshot_ids = {
+            str(step.screenshot_reference)
+            for step in steps
+            if step.screenshot_reference is not None
+        }
+        if not screenshot_ids:
+            return
+        valid_ids = set(
+            self.db.scalars(
+                select(ScreenshotRecord.id).where(
+                    ScreenshotRecord.tenant_id == str(self.tenant_id),
+                    ScreenshotRecord.session_id == session_id,
+                    ScreenshotRecord.id.in_(screenshot_ids),
+                )
+            ).all()
+        )
+        if valid_ids != screenshot_ids:
+            raise SOPValidationError(
+                "Every screenshot reference must belong to the SOP session"
+            )
+
+    def _add_sop_revision(
+        self,
+        record: SOPRecord,
+        change_summary: str | None,
+        edited_by: UUID | None,
+    ) -> None:
+        existing = self.db.scalar(
+            tenant_query(SOPRevisionRecord, self.tenant_id).where(
+                SOPRevisionRecord.sop_id == record.id,
+                SOPRevisionRecord.revision == record.revision,
+            )
+        )
+        if existing:
+            return
+        snapshot = self._sop_from_record(record).model_dump(mode="json")
+        self.db.add(
+            SOPRevisionRecord(
+                id=str(uuid4()),
+                tenant_id=str(self.tenant_id),
+                sop_id=record.id,
+                revision=record.revision,
+                snapshot_json=snapshot,
+                edited_by=str(edited_by) if edited_by else None,
+                change_summary=change_summary.strip() if change_summary else None,
+                created_at=datetime.now(UTC),
+            )
+        )
 
     def list_sops_for_session(self, session_id: UUID) -> list[SOP]:
         records = self.db.scalars(
@@ -1845,13 +2103,31 @@ class Repository:
             return f"{record.status} \u00b7 {int(seconds)}s"
         return record.status or "session"
 
-    def set_sop_status(self, sop_id: UUID, status: str) -> SOP | None:
+    def set_sop_status(
+        self, sop_id: UUID, status: str, edited_by: UUID | None = None
+    ) -> SOP | None:
         record = self.db.scalar(
-            tenant_query(SOPRecord, self.tenant_id).where(SOPRecord.id == str(sop_id))
+            tenant_query(SOPRecord, self.tenant_id)
+            .where(SOPRecord.id == str(sop_id))
+            .with_for_update()
         )
         if not record:
             return None
+        if record.status == SOPStatus.APPROVED.value and status != SOPStatus.APPROVED.value:
+            raise SOPConflictError(
+                "Approved SOPs are immutable; create a new draft to make changes"
+            )
+        if status == record.status:
+            return self._sop_from_record(record)
+        if status != SOPStatus.APPROVED.value or record.status != SOPStatus.DRAFT.value:
+            raise SOPConflictError("Only a draft SOP can be approved")
+        self._add_sop_revision(record, None, UUID(record.edited_by) if record.edited_by else None)
         record.status = status
+        record.revision += 1
+        record.updated_at = datetime.now(UTC)
+        record.edited_by = str(edited_by) if edited_by else None
+        self.db.flush()
+        self._add_sop_revision(record, "Approved for use", edited_by)
         self.db.commit()
         return self._sop_from_record(record)
 
@@ -2064,11 +2340,15 @@ class Repository:
                 "id": record.id,
                 "source_session_id": record.source_session_id,
                 "version": record.version,
+                "revision": getattr(record, "revision", 1),
+                "parent_sop_id": getattr(record, "parent_sop_id", None),
                 "status": record.status,
                 "title": record.title,
                 "document": getattr(record, "document", None),
                 "steps": Repository._normalize_sop_steps(record.steps),
                 "created_at": record.created_at,
+                "updated_at": getattr(record, "updated_at", record.created_at),
+                "edited_by": getattr(record, "edited_by", None),
             }
         )
 

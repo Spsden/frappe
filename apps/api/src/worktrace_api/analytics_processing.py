@@ -12,10 +12,30 @@ from worktrace_api.analytics_provider import (
     AnalyticsProviderUnavailable,
 )
 from worktrace_api.repository import Repository
-from worktrace_api.schemas import AnalyticsResult, AnalyticsRun, AnalyticsRunStatus
-from worktrace_api.workflow_analytics import build_comparison, step_documents
+from worktrace_api.schemas import (
+    WORKFORCE_MAX_RECORDINGS,
+    WORKFORCE_MIN_RECORDINGS,
+    AnalyticsResult,
+    AnalyticsRun,
+    AnalyticsRunMode,
+    AnalyticsRunStatus,
+)
+from worktrace_api.workflow_analytics import (
+    build_comparison,
+    build_comparison_from_analysis,
+    prepare_workflow_analysis,
+    step_documents,
+)
+from worktrace_api.workforce_clustering import cluster_workforce, score_workforce_friction
 
 logger = logging.getLogger(__name__)
+
+
+class _AnalyticsStageFailure(Exception):
+    def __init__(self, stage: str, original: Exception):
+        super().__init__(stage)
+        self.stage = stage
+        self.original = original
 
 
 class AnalyticsProviderProtocol(Protocol):
@@ -34,17 +54,23 @@ class WorkflowAnalyticsProcessor:
     def process(self, run_id: UUID) -> AnalyticsRun:
         run = self._require_run(run_id)
         snapshots = self.repo.get_analytics_input_snapshots(run_id)
+        stage = "embedding"
         try:
             self.repo.set_analytics_run_status(run_id, AnalyticsRunStatus.EMBEDDING)
             embeddings = self._embeddings(snapshots)
         except Exception as exc:
             logger.exception("Analytics embedding failed for run %s", run_id)
-            self._fail(run_id, "embedding", exc)
+            self._fail(run_id, stage, exc)
             raise
 
         try:
+            stage = "alignment"
             self.repo.set_analytics_run_status(run_id, AnalyticsRunStatus.ALIGNING)
-            result = build_comparison(snapshots, embeddings)
+            if run.mode == AnalyticsRunMode.WORKFORCE:
+                result = self._workforce_result(run_id, snapshots, embeddings)
+            else:
+                result = build_comparison(snapshots, embeddings)
+            stage = "calculation"
             self.repo.set_analytics_run_status(run_id, AnalyticsRunStatus.CALCULATING)
             self.repo.save_analytics_result(
                 run_id,
@@ -54,10 +80,39 @@ class WorkflowAnalyticsProcessor:
             )
         except Exception as exc:
             logger.exception("Analytics calculation failed for run %s", run_id)
-            self._fail(run_id, "alignment", exc)
+            failure_stage = exc.stage if isinstance(exc, _AnalyticsStageFailure) else stage
+            original = exc.original if isinstance(exc, _AnalyticsStageFailure) else exc
+            self._fail(run_id, failure_stage, original)
+            if isinstance(exc, _AnalyticsStageFailure):
+                raise original from exc
             raise
 
         return self._summarize(run_id, run.workflow_name, result)
+
+    def _workforce_result(
+        self,
+        run_id: UUID,
+        snapshots: list[dict],
+        embeddings: dict[tuple[UUID, UUID, str], list[float]],
+    ) -> AnalyticsResult:
+        analysis = prepare_workflow_analysis(
+            snapshots,
+            embeddings,
+            minimum_recordings=WORKFORCE_MIN_RECORDINGS,
+            maximum_recordings=WORKFORCE_MAX_RECORDINGS,
+        )
+        self.repo.set_analytics_run_status(run_id, AnalyticsRunStatus.CLUSTERING)
+        try:
+            clusters = cluster_workforce(analysis)
+        except Exception as exc:
+            raise _AnalyticsStageFailure("clustering", exc) from exc
+        self.repo.set_analytics_run_status(run_id, AnalyticsRunStatus.SCORING_FRICTION)
+        try:
+            workforce = score_workforce_friction(analysis, clusters)
+        except Exception as exc:
+            raise _AnalyticsStageFailure("friction", exc) from exc
+        comparison = build_comparison_from_analysis(analysis)
+        return comparison.model_copy(update={"workforce": workforce})
 
     def retry_summary(self, run_id: UUID) -> AnalyticsRun:
         run = self._require_run(run_id)

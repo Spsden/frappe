@@ -8,6 +8,7 @@ from worktrace_api.database import SessionLocal
 from worktrace_api.repository import Repository
 from worktrace_api.schemas import (
     SOP,
+    AnalyticsRunMode,
     AnalyticsRunStatus,
     CaptureSource,
     EventType,
@@ -150,14 +151,16 @@ def test_analytics_runs_snapshot_inputs_and_increment_versions():
 
         first = repo.create_analytics_run(
             workflow.id,
-            [first_id, second_id],
+            mode=AnalyticsRunMode.SELECTED_COMPARISON,
+            recording_ids=[first_id, second_id],
             created_by=USER_ID,
             embedding_model="text-embedding-3-small",
             algorithm_version="1.0",
         )
         second = repo.create_analytics_run(
             workflow.id,
-            [second_id, first_id],
+            mode=AnalyticsRunMode.SELECTED_COMPARISON,
+            recording_ids=[second_id, first_id],
             created_by=USER_ID,
             embedding_model="text-embedding-3-small",
             algorithm_version="1.0",
@@ -196,7 +199,8 @@ def test_analytics_run_rejects_unapproved_or_foreign_recordings():
         with pytest.raises(ValueError, match="approved SOP"):
             repo.create_analytics_run(
                 workflow.id,
-                [approved_id, draft_id],
+                mode=AnalyticsRunMode.SELECTED_COMPARISON,
+                recording_ids=[approved_id, draft_id],
                 created_by=USER_ID,
                 embedding_model="text-embedding-3-small",
                 algorithm_version="1.0",
@@ -234,7 +238,7 @@ def test_analytics_run_api_queues_lists_and_retries(client, monkeypatch):
     response = client.post(
         f"/workflows/{workflow.id}/analytics-runs",
         headers=auth_headers(),
-        json={"recording_ids": [str(first_id), str(second_id)]},
+        json={"mode": "selected_comparison", "recording_ids": [str(first_id), str(second_id)]},
     )
     assert response.status_code == 202
     run = response.json()
