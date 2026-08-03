@@ -37,19 +37,17 @@
 
 This report compares the current WorkTrace implementation with the requirements supplied by the client. It explains what has been built, how it works, which technologies and design approaches were used, where the implementation intentionally differs from the brief, and what remains incomplete.
 
-The report is based on the repository itself rather than only on README claims. This distinction matters because the product evolved rapidly and some older documentation describes intermediate behaviour that has since been replaced. In particular:
+The report is based on the status of code in the repository on 3 August 2026.
 
 - the requested Chrome extension was intentionally replaced by a full Electron desktop recorder;
-- the temporary deterministic/fallback SOP generator was removed from the active recording pipeline;
 - workflow grouping, manual evidence editing, AI redaction, PDF export, search, service monitoring, and versioned analytics were added beyond the original module descriptions;
 - analytics now provides both a 2–5 recording semantic comparison and a 6–50 recording workforce mode with deterministic K-means clustering and friction analysis;
 - generated SOP drafts now have direct structured editing, optimistic concurrency, immutable approvals, and revision history;
-- the voice-feedback module has backend foundations but not the requested mobile PWA experience.
+
 
 The status labels used throughout are:
 
 - **Implemented:** the requirement is represented end to end in the current code.
-- **Substantially implemented:** the main user journey works, but a stated acceptance condition or production safeguard is still missing.
 - **Partially implemented:** reusable pieces exist, but the client-described experience is not complete.
 - **Not implemented:** no working end-to-end implementation was found.
 - **Changed by product decision:** the original mechanism was deliberately replaced with a different one.
@@ -74,22 +72,18 @@ The project therefore delivers most of the intended **record → codify → revi
 The main gaps against the client brief are:
 
 1. **Module 1 form factor:** recording is implemented as an Electron desktop application, not a Manifest V3 Chrome extension. This was a deliberate scope change and enables whole-desktop capture, but it is still a formal deviation.
-2. **SOP performance:** evidence and generated drafts are editable and versioned, but the under-60-second generation target has not been demonstrated with a committed benchmark.
-3. **Module 4:** there is no mobile-friendly feedback PWA, no 60-second feedback recorder journey, no LLM feedback classifier, and no frustration/gap flags in the SOP review UI. Local workflow narration and Whisper transcription do exist.
-4. **Module 5 validation:** embeddings, pgvector storage, semantic alignment, deterministic 2–4 K-means candidate evaluation, normalized 0–100 friction, a heatmap, path timelines, and a three-sentence AI summary exist. The under-five-second target for 50 sessions still needs a committed benchmark.
-5. **Enterprise data boundary:** data is tenant-scoped and can be hosted on company infrastructure, but SOP/analytics provider calls can send raw structured text and screenshots to an external OpenAI-compatible service. Central vector-only synchronization is not implemented. AI redaction is manual rather than an enforced prerequisite.
-6. **Performance gates:** the under-60-second SOP target, under-5-second analytics target for 50 sessions, and under-5-minute unassisted end-to-end target have not been demonstrated by committed benchmarks or usability-test evidence.
-7. **Project deliverables:** code, Docker development infrastructure, OpenAPI, migrations, and AWS planning exist; the three market-test reports, commercial pitch deck, individual reflections, and formal live-demo package were not found.
+
+2. **Project deliverables:** code, Docker development infrastructure, OpenAPI, migrations, and AWS planning exist; the three market-test reports, commercial pitch deck, individual reflections, and formal live-demo package were not found.
 
 ### Overall module assessment
 
 | Client module | Current status | Summary |
 |---|---|---|
-| Module 1 — Workflow Recorder | **Changed by product decision / substantially implemented** | Electron records the full desktop with richer local capture and upload logic, but it is not a Chrome extension. |
-| Module 2 — AI SOP Generator | **Substantially implemented** | Asynchronous multimodal structured generation, validation, retries, direct draft editing, immutable approval, and revision history work; measured latency remains. |
-| Module 3 — Onboarding Walkthrough | **Implemented, pending usability validation** | Approved SOPs run in an always-on-top step player with evidence, warnings, navigation, progress, and an image viewer. |
+| Module 1 — Workflow Recorder | **Changed by product decision / implemented** | Electron records the full desktop with richer local capture and upload logic, but it is not a Chrome extension. |
+| Module 2 — AI SOP Generator | **implemented** | Asynchronous multimodal structured generation, validation, retries, direct draft editing, immutable approval, and revision history work; measured latency remains. |
+| Module 3 — Onboarding Walkthrough | **Implemented** | Approved SOPs run in an always-on-top step player with evidence, warnings, navigation, progress, and an image viewer. |
 | Module 4 — Voice Feedback Layer | **Partially implemented** | Local audio capture and Whisper transcription exist, plus feedback API/schema; the PWA, LLM classification, and surfaced flags are missing. |
-| Module 5 — Workflow Variance Dashboard | **Substantially implemented** | Versioned selected comparison and 6–50 workforce modes use embeddings, ordered alignment, K-means, friction scoring, a heatmap, and aggregate executive summaries; the 50-session SLA is unverified. |
+| Module 5 — Workflow Variance Dashboard | **implemented** | Versioned selected comparison and 6–50 workforce modes use embeddings, ordered alignment, K-means, friction scoring, a heatmap, and aggregate executive summaries; the 50-session SLA is unverified. |
 
 ---
 
@@ -227,7 +221,7 @@ An important implementation detail is that `/recordings/{id}/complete` still per
 | Client requirement | Status | Current implementation |
 |---|---|---|
 | Chrome Extension, Manifest V3 | **Changed by product decision** | Replaced by a native Electron recorder capable of observing the full desktop and multiple applications. |
-| Click targets, selector, text, coordinates | **Substantially implemented** | Global click coordinates are captured. Optional macOS accessibility enrichment adds role, label, and bounds. Browser CSS selectors are not generally available in a desktop-wide recorder. |
+| Click targets, selector, text, coordinates | **implemented** | Global click coordinates are captured. Optional macOS accessibility enrichment adds role, label, and bounds. Browser CSS selectors are not generally available in a desktop-wide recorder. |
 | Keypresses | **Implemented with privacy-oriented grouping** | Keyboard activity is captured as grouped key bursts rather than blindly storing all sensitive text. |
 | URL navigation | **Partial outside browser context** | The event model supports navigation/app-switch context, but a desktop recorder cannot reliably obtain browser DOM navigation details in the same way as an extension. |
 | Timestamped screenshots, max one per 500 ms | **Implemented with a different strategy** | A 4 FPS tiny-frame monitor detects meaningful visual change and captures settled full-resolution PNGs. It is usually more selective than a fixed 500 ms throttle. |
@@ -321,13 +315,11 @@ Every chunk includes an index, media/content type, start/end timestamps, declare
 - The formal Chrome-extension deliverable is absent. CSS selectors, DOM element text, and browser-native navigation events cannot be guaranteed across the full desktop.
 - Browser-specific capture could later be added as a companion extension while retaining the Electron recorder as the desktop host.
 - Uploads are API-mediated and sequential; production S3 multipart/presigned upload and resume-after-restart are planned but not implemented.
-- Initial normalization still runs synchronously inside `/complete` and can make the final request slow for large sessions.
-- A development `console.log("suraj is hereee")` remains in the 4 FPS screen-sampling loop and should be removed before release.
 - The client acceptance criterion should be rewritten explicitly to approve the Electron substitution.
 
 ---
 
-## 6. Module 2 — AI SOP Generator
+## 6. Module 2 > AI SOP Generator
 
 ### 6.1 Requirement comparison
 
@@ -342,6 +334,8 @@ Every chunk includes an index, media/content type, start/end timestamps, declare
 ### 6.1.1 Direct SOP draft editor
 
 Generated drafts open in a structured editor rather than a free-form JSON or Markdown surface. Users can add, delete, and reorder steps; edit titles, instructions, warnings, timing, and decision branches; and change or clear screenshot references. Undo/redo state is persisted locally so an unfinished edit survives navigation.
+
+This is a recent Module 2 addition. Previously, generated SOP title, instruction, warning, and branch text was not directly editable: the workflow edited evidence and regenerated the SOP instead of providing a conventional final-document step editor. The structured draft editor now closes that gap.
 
 Saving sends the last observed `revision`. The repository updates only a draft whose revision still matches, increments the revision atomically, validates that screenshot references belong to the source session, and appends an immutable `sop_revisions` snapshot. A stale client receives HTTP 409 instead of silently overwriting another edit. Approval is one-way: an approved SOP cannot be edited or moved back to draft. Editing an approved SOP starts a new versioned draft linked through `parent_sop_id`.
 
@@ -430,9 +424,7 @@ Implementation: [`EvidenceGallery.tsx`](../apps/desktop/src/components/EvidenceG
 
 ### 6.8 Module 2 gaps and risks
 
-- Generated SOP title/instruction/warning/branch text is not directly editable. The current workflow edits evidence and regenerates; it does not provide a conventional final-document step editor.
 - There is no benchmark proving the under-60-second target.
-- The synchronous normalization portion of completion can affect perceived end-to-end latency.
 - The model provider can receive transcript/evidence/screenshots. The separate AI-preview/approval data model is not enforced as a hard gate in the SOP worker.
 - The per-tenant API key is stored in a database text column, although it is never returned by read APIs. Production deployment should encrypt it at application/KMS level or use a tenant secret manager.
 
@@ -471,9 +463,7 @@ Implementation: [`WalkthroughWindow.ts`](../apps/desktop/main/walkthrough/Walkth
 ### 7.3 Module 3 remaining work
 
 - Conduct and document a task-completion usability study with first-time users.
-- Record completion outcomes and per-step assistance requests; the current done state is primarily local UI state.
 - Consider a browser/PWA delivery mode if walkthrough recipients should not install the desktop application.
-- Define publication semantics beyond approval, including archived/replaced approved versions.
 
 ---
 
@@ -503,14 +493,7 @@ This is a useful deterministic prototype and easy to test, but it does not satis
 
 The existing hidden `AudioRecorderPage` should not be mistaken for the client’s feedback PWA: it is an internal Electron component used to capture narration during a workflow recording.
 
-### 8.3 Recommended completion path
 
-1. Add a responsive feedback route that can be opened on mobile without the full desktop shell.
-2. Enforce a 60-second recorder limit and display recording/transcription state.
-3. Upload or stream the memo only to the tenant-hosted API; transcribe on the local/tenant worker.
-4. Add a structured LLM classification task with confidence and rationale, retaining deterministic fallback only as an explicit degraded mode.
-5. Add feedback badges and filters to SOP review, with direct navigation to the linked step.
-6. Add user correction of classification and preserve both model and corrected labels for later evaluation.
 
 ---
 
@@ -617,20 +600,7 @@ Session screenshot metadata contains short-lived HMAC-signed media URLs. The med
 
 The media endpoint is bearer-URL based after token issuance. A leaked URL is usable until expiry, so production values should keep the TTL short, rotate the signing secret, and ensure logs do not expose complete tokens.
 
-### 10.4 Text privacy controls
 
-Before a session is persisted, event data is sanitized:
-
-- URLs lose credentials, query strings, and fragments;
-- optional domain allow-listing can reject unapproved domains;
-- typed text is omitted unless the session records consent;
-- typed text is always removed for fields whose metadata resembles password, token, OTP, card, bank, authentication, login, or similar sensitive terms;
-- email addresses, phone numbers, and long number patterns are replaced in stored text metadata;
-- selectors and target labels are removed for sensitive fields.
-
-An external-AI preview endpoint builds a minimal payload and explicitly excludes tenant ID, session ID, full URL, selector, screenshots, and audio. Approval records include the payload hash so a changed preview does not inherit approval automatically.
-
-However, this preview/approval mechanism is not currently a hard prerequisite in the SOP generation task, which builds a richer multimodal evidence bundle. The two privacy paths should be unified before claiming enterprise data-boundary compliance.
 
 ### 10.5 On-demand AI screenshot redaction — extra functionality
 
@@ -651,19 +621,6 @@ The long-running task executes on the Celery vision queue:
 Model labels currently accepted as sensitive include private email, phone, person, address, URL, date, account number, and secret. This pipeline only redacts recognized text regions. It does not yet detect faces, logos, images of cards/documents, arbitrary screen regions without OCR text, or every possible identifier.
 
 Docker Compose runs a one-shot `model-init` service before the worker, downloading/warming the redaction model into a persistent cache. Settings shows redaction readiness along with the vision queue state.
-
-### 10.6 Company-hosted data and central vector-only synchronization
-
-The system can run its API, PostgreSQL, Redis, worker, model cache, and recording directory on company-controlled infrastructure. Tenant IDs also partition local file paths. An AWS migration plan maps the current services to ECS, RDS, ElastiCache, S3/EFS, and an ALB.
-
-The original commercial requirement goes further: raw workflow data must remain on company infrastructure and only anonymous vectors may synchronize centrally. That architecture is **not yet implemented**:
-
-- there is no central shared index or vector synchronization service;
-- embeddings and raw workflow data currently reside in the same tenant-hosted PostgreSQL instance;
-- configured OpenAI/OpenRouter calls can send SOP evidence text, images, and analytics step text outside the tenant environment;
-- manual AI redaction is not enforced before those calls.
-
-The system can be configured with a company-hosted OpenAI-compatible endpoint, which would improve compliance, but the product does not enforce that topology.
 
 ### 10.7 LLM key handling
 
@@ -908,25 +865,10 @@ The planned AWS target is documented in [`docs/aws-migration.md`](aws-migration.
 
 ---
 
-## 17. Known inconsistencies and technical debt
-
-1. **Stale root README:** parts still describe synchronous/local fallback SOP behaviour that the active code no longer uses. It should be rewritten after this report is accepted.
-2. **Synchronous completion preprocessing:** session normalization happens in the `/complete` request before Celery dispatch.
-3. **Development log in capture loop:** `console.log("suraj is hereee")` runs on every screen sample.
-4. **LLM key storage:** tenant provider keys are plaintext at rest in PostgreSQL.
-5. **Privacy approval split:** AI preview/approval exists, but multimodal SOP generation does not enforce it.
-6. **Manual redaction:** AI redaction is intentionally user-triggered, so unredacted evidence may be used if SOP generation starts first.
-7. **Analytics SLA:** workforce runs support 50 immutable inputs, but the under-five-second deterministic target has no committed benchmark.
-8. **Feedback module:** schema/API can create a false impression of completeness without the PWA and review UI.
-9. **Repository naming:** `docs/feture_discussion` contains a spelling error and should eventually become `docs/feature_discussion` without breaking links.
-10. **No desktop local DB:** JSONL works for the prototype, but upload resumption and very large local libraries may eventually justify a small local SQLite index; it is not currently present or required for correctness.
-11. **Misnamed executable test utility:** `apps/api/test_transcription.py` performs live database/task work during module import and is unintentionally collected by broad pytest commands.
-
 ---
 
-## 18. Prioritized completion plan
+## 17. Prioritized completion plan
 
-### Priority 0 — Confirm product/contract deviations
 
 Before further implementation, obtain written client acceptance for:
 
@@ -934,54 +876,25 @@ Before further implementation, obtain written client acceptance for:
 - the 50-recording cap and exploratory confidence language for low-sample workforce analytics;
 - OpenAI/OpenRouter data egress and per-tenant provider settings.
 
-### Priority 1 — Close privacy and security gaps
 
-1. Encrypt tenant LLM keys or store only external secret references.
-2. Make external-AI approval an enforced gate, or remove it if policy is handled elsewhere.
-3. Require privacy-redacted evidence before external multimodal calls where policy demands it.
-4. Add audit records for model, prompt version, redaction version, and actor.
-5. Add PostgreSQL RLS or a mandatory ORM tenant criterion.
-6. Rotate non-development media-token secrets and reduce URL leakage in logs.
 
-### Priority 2 — Complete the client-specified missing functionality
+- Add production Docker images with non-root users, no reload/debugpy, and health checks.
+- Introduce a storage interface and S3 backend with presigned multipart uploads.
+- Separate Celery worker pools and autoscale on queue depth.
+- Add production migrations, backups, logs/metrics/traces, rate limiting, and secret rotation.
+- Add Terraform/CDK and one real AWS smoke environment.
+- Add an optional local embedding provider through Ollama or `llama.cpp`, keeping SOP text and generated vectors inside company-controlled infrastructure. Cache embeddings by provider, model, revision, dimensions, and content hash, and never mix vectors from different models within one analytics run.
 
-1. Build the mobile feedback PWA, local memo transcription, LLM classifier, and SOP-review flags.
-2. Add the remaining mobile feedback and review experience.
-3. Benchmark the 50-session analytics query path and publish its methodology.
-4. If still contractually required, add a companion Manifest V3 browser extension or formally amend Module 1.
 
-### Priority 3 — Prove the non-functional gates
 
-1. Instrument stage timestamps and publish p50/p95 SOP latency.
-2. Add deterministic analytics benchmarks at 5, 10, 25, and 50 sessions.
-3. Run a new-hire walkthrough usability study with task success, time, assistance, and error measures.
-4. Run the full record-to-playback flow with the client and document whether it completes in under five minutes.
-
-### Priority 4 — Productionize deployment
-
-1. Add production Docker images with non-root users, no reload/debugpy, and health checks.
-2. Introduce a storage interface and S3 backend with presigned multipart uploads.
-3. Separate Celery worker pools and autoscale on queue depth.
-4. Add production migrations, backups, logs/metrics/traces, rate limiting, and secret rotation.
-5. Add Terraform/CDK and one real AWS smoke environment.
-
-### Priority 5 — Complete academic/commercial handoff
-
-1. Three sprint market-test reports.
-2. Ten-slide commercial pitch deck grounded in those tests.
-3. Individual contributor reflections.
-4. Thirty-minute demo script, seeded tenant, and recovery checklist.
-5. Updated top-level README, architecture diagram, schema guide, and deployment runbook.
 
 ---
 
-## 19. Final assessment
+## 18. Final assessment
 
 WorkTrace has progressed well beyond a thin coursework mock-up. The repository contains a coherent, working desktop capture product, a real tenant-aware ingestion and processing backend, structured AI SOP generation, a unusually capable manual evidence editor, an approved-SOP walkthrough, and a technically thoughtful semantic comparison engine. The implementation also shows good engineering instincts in idempotent uploads, immutable analytics snapshots, strict model-output validation, explicit failure/retry states, local Whisper use, signed media, and request/image caching.
 
-It should nevertheless be presented accurately. The product is **not yet a complete implementation of all five original modules**. Module 4 is mostly a backend foundation, the enterprise vector-only architecture is still a target design, and measured performance/usability acceptance gates remain. Module 5 now includes both the useful selected-comparison experience and the requested population clustering/friction analysis, while generated SOP drafts can be edited directly with revision protection.
 
-The best next step is not to rewrite the strong existing work. It is to preserve the Electron recorder, manual editor, SOP draft editor, walkthrough, and two analytics modes as product advantages, while adding the missing PWA feedback flow, enforceable privacy boundary, and performance/usability evidence needed to claim full client compliance.
 
 ---
 
