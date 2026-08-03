@@ -278,6 +278,8 @@ class SOP(StrictModel):
     id: UUID = Field(default_factory=uuid4)
     source_session_id: UUID
     version: int = Field(default=1, ge=1)
+    revision: int = Field(default=1, ge=1)
+    parent_sop_id: UUID | None = None
     status: SOPStatus = SOPStatus.DRAFT
     title: str = Field(max_length=200)
     # Optional supporting narrative (purpose / overview / notes) produced by the
@@ -286,6 +288,27 @@ class SOP(StrictModel):
     document: str | None = Field(default=None, max_length=20_000)
     steps: list[SOPStep] = Field(min_length=1, max_length=500)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    edited_by: UUID | None = None
+
+
+class SOPUpdate(StrictModel):
+    expected_revision: int = Field(ge=1)
+    title: str = Field(min_length=1, max_length=200)
+    document: str | None = Field(default=None, max_length=20_000)
+    steps: list[SOPStep] = Field(min_length=1, max_length=500)
+    change_summary: str | None = Field(default=None, max_length=500)
+
+
+class SOPRevision(StrictModel):
+    id: UUID
+    tenant_id: UUID
+    sop_id: UUID
+    revision: int = Field(ge=1)
+    snapshot: dict[str, Any]
+    edited_by: UUID | None = None
+    change_summary: str | None = None
+    created_at: datetime
 
 
 class SOPLibraryItem(SOP):

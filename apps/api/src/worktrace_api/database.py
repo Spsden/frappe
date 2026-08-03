@@ -192,11 +192,42 @@ class SOPRecord(TenantRecord, Base):
     source_session_id: Mapped[str] = mapped_column(
         ForeignKey("workflow_sessions.id", ondelete="CASCADE"), index=True
     )
+    parent_sop_id: Mapped[str | None] = mapped_column(
+        ForeignKey("sops.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     version: Mapped[int] = mapped_column(Integer)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(30), index=True)
     title: Mapped[str] = mapped_column(String(200))
     document: Mapped[str | None] = mapped_column(Text, nullable=True)
     steps: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    edited_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class SOPRevisionRecord(TenantRecord, Base):
+    __tablename__ = "sop_revisions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "sop_id", "revision", name="uq_sop_revision"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    sop_id: Mapped[str] = mapped_column(
+        ForeignKey("sops.id", ondelete="CASCADE"), index=True
+    )
+    revision: Mapped[int] = mapped_column(Integer)
+    snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    edited_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    change_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
