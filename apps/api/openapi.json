@@ -3350,11 +3350,94 @@
         ],
         "title": "AccountRole"
       },
+      "AnalyticsClusterMember": {
+        "properties": {
+          "recording_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Recording Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "total_duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Duration Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recording_id",
+          "label",
+          "total_duration_ms"
+        ],
+        "title": "AnalyticsClusterMember"
+      },
+      "AnalyticsClusterSummary": {
+        "properties": {
+          "cluster_id": {
+            "type": "string",
+            "title": "Cluster Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "recording_count": {
+            "type": "integer",
+            "minimum": 2.0,
+            "title": "Recording Count"
+          },
+          "average_duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Average Duration Ms"
+          },
+          "average_step_count": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Average Step Count"
+          },
+          "representative_recording_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Representative Recording Id"
+          },
+          "path_signature": {
+            "type": "string",
+            "title": "Path Signature"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsClusterMember"
+            },
+            "type": "array",
+            "minItems": 2,
+            "title": "Members"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "cluster_id",
+          "label",
+          "recording_count",
+          "average_duration_ms",
+          "average_step_count",
+          "representative_recording_id",
+          "path_signature",
+          "members"
+        ],
+        "title": "AnalyticsClusterSummary"
+      },
       "AnalyticsComparisonOverview": {
         "properties": {
           "recording_count": {
             "type": "integer",
-            "maximum": 5.0,
+            "maximum": 50.0,
             "minimum": 2.0,
             "title": "Recording Count"
           },
@@ -3511,6 +3594,212 @@
         ],
         "title": "AnalyticsEligibleRecording"
       },
+      "AnalyticsFrictionMetric": {
+        "properties": {
+          "group_id": {
+            "type": "string",
+            "title": "Group Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "cluster_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cluster Id"
+          },
+          "sample_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Sample Count"
+          },
+          "population_count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Population Count"
+          },
+          "mean_duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Duration Ms"
+          },
+          "median_duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Duration Ms"
+          },
+          "standard_deviation_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Deviation Ms"
+          },
+          "coefficient_of_variation": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coefficient Of Variation"
+          },
+          "presence_frequency": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Presence Frequency"
+          },
+          "optional_frequency": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Optional Frequency"
+          },
+          "friction_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Friction Score"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "insufficient",
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Confidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "group_id",
+          "label",
+          "sample_count",
+          "population_count",
+          "presence_frequency",
+          "optional_frequency",
+          "confidence"
+        ],
+        "title": "AnalyticsFrictionMetric"
+      },
+      "AnalyticsHeatmapCell": {
+        "properties": {
+          "group_id": {
+            "type": "string",
+            "title": "Group Id"
+          },
+          "cluster_id": {
+            "type": "string",
+            "title": "Cluster Id"
+          },
+          "present": {
+            "type": "boolean",
+            "title": "Present"
+          },
+          "sample_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Sample Count"
+          },
+          "mean_duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Duration Ms"
+          },
+          "standard_deviation_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Deviation Ms"
+          },
+          "friction_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Friction Score"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "insufficient",
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Confidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "group_id",
+          "cluster_id",
+          "present",
+          "sample_count",
+          "confidence"
+        ],
+        "title": "AnalyticsHeatmapCell"
+      },
       "AnalyticsPathTimeline": {
         "properties": {
           "recording_id": {
@@ -3604,7 +3893,7 @@
               "$ref": "#/components/schemas/AnalyticsRecordingMetric"
             },
             "type": "array",
-            "maxItems": 5,
+            "maxItems": 50,
             "minItems": 2,
             "title": "Completion Ranking"
           },
@@ -3613,7 +3902,7 @@
               "$ref": "#/components/schemas/AnalyticsPathTimeline"
             },
             "type": "array",
-            "maxItems": 5,
+            "maxItems": 50,
             "minItems": 2,
             "title": "Path Timelines"
           },
@@ -3631,6 +3920,16 @@
             "type": "array",
             "maxItems": 20,
             "title": "Alignment Notes"
+          },
+          "workforce": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalyticsWorkforceResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -3973,6 +4272,8 @@
           "queued",
           "embedding",
           "aligning",
+          "clustering",
+          "scoring_friction",
           "calculating",
           "summarizing",
           "completed",
@@ -4085,6 +4386,92 @@
           "timing_source"
         ],
         "title": "AnalyticsTimelineStep"
+      },
+      "AnalyticsWorkforceOverview": {
+        "properties": {
+          "recording_count": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 6.0,
+            "title": "Recording Count"
+          },
+          "selected_k": {
+            "type": "integer",
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Selected K"
+          },
+          "silhouette_score": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": -1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silhouette Score"
+          },
+          "cluster_quality": {
+            "type": "string",
+            "enum": [
+              "strong",
+              "moderate",
+              "weak",
+              "insufficient_separation"
+            ],
+            "title": "Cluster Quality"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recording_count",
+          "selected_k",
+          "cluster_quality"
+        ],
+        "title": "AnalyticsWorkforceOverview"
+      },
+      "AnalyticsWorkforceResult": {
+        "properties": {
+          "overview": {
+            "$ref": "#/components/schemas/AnalyticsWorkforceOverview"
+          },
+          "clusters": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsClusterSummary"
+            },
+            "type": "array",
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Clusters"
+          },
+          "friction": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsFrictionMetric"
+            },
+            "type": "array",
+            "title": "Friction"
+          },
+          "heatmap": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsHeatmapCell"
+            },
+            "type": "array",
+            "title": "Heatmap"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "overview",
+          "clusters",
+          "friction",
+          "heatmap"
+        ],
+        "title": "AnalyticsWorkforceResult"
       },
       "AuthSession": {
         "properties": {
