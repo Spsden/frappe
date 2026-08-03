@@ -11,16 +11,20 @@ import {
 } from 'recharts'
 import type {
   AnalyticsRetryTarget,
+  AnalyticsRunMode,
   AnalyticsRunStatus,
   BackendAnalyticsEligibleRecording,
   BackendAnalyticsRun,
-  BackendAnalyticsRunInput
+  BackendAnalyticsRunInput,
+  BackendAnalyticsWorkforceResult
 } from '../../../shared/recording'
 
 const activeStatuses = new Set<AnalyticsRunStatus>([
   'queued',
   'embedding',
   'aligning',
+  'clustering',
+  'scoring_friction',
   'calculating',
   'summarizing'
 ])
@@ -37,6 +41,14 @@ const stageCopy: Record<AnalyticsRunStatus, { label: string; detail: string }> =
   aligning: {
     label: 'Lining up the paths',
     detail: 'Shared, optional and path-specific steps are being mapped in order.'
+  },
+  clustering: {
+    label: 'Finding the common paths',
+    detail: 'Similar execution patterns are being grouped without ranking employees.'
+  },
+  scoring_friction: {
+    label: 'Measuring the rough spots',
+    detail: 'Observed step time and variation are being converted into comparable friction scores.'
   },
   calculating: {
     label: 'Measuring the difference',
@@ -84,7 +96,8 @@ function savedRunLabel(run: BackendAnalyticsRun) {
   const references = run.inputs.map(inputLabel)
   const visible = references.slice(0, 2).join(', ') || `${run.input_count} recordings`
   const remainder = references.length > 2 ? ` +${references.length - 2}` : ''
-  return `Version ${run.version} · ${visible}${remainder} · ${run.status.replaceAll('_', ' ')}`
+  const mode = run.mode === 'workforce' ? 'Workforce' : 'Selected'
+  return `Version ${run.version} · ${mode} · ${visible}${remainder} · ${run.status.replaceAll('_', ' ')}`
 }
 
 function Card({
@@ -129,6 +142,128 @@ function ProcessingCard({ run, dark }: { run: BackendAnalyticsRun; dark: boolean
           {copy.detail}
         </p>
       </div>
+    </Card>
+  )
+}
+
+function AnalysisModeChooser({
+  mode,
+  onChange,
+  eligibleCount,
+  dark
+}: {
+  mode: AnalyticsRunMode
+  onChange: (mode: AnalyticsRunMode) => void
+  eligibleCount: number
+  dark: boolean
+}) {
+  const options: Array<{
+    id: AnalyticsRunMode
+    eyebrow: string
+    title: string
+    detail: string
+  }> = [
+    {
+      id: 'selected_comparison',
+      eyebrow: 'Focused comparison',
+      title: 'Choose 2–5 recordings',
+      detail: 'Inspect a small set of approved paths side by side.'
+    },
+    {
+      id: 'workforce',
+      eyebrow: 'Population view',
+      title: 'Analyse every approved path',
+      detail: 'Find execution clusters and friction across 6–50 recordings.'
+    }
+  ]
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {options.map((option) => {
+        const active = mode === option.id
+        return (
+          <button
+            type="button"
+            key={option.id}
+            onClick={() => onChange(option.id)}
+            className={[
+              'rounded-2xl border p-5 text-left transition',
+              active
+                ? dark
+                  ? 'border-emerald-400/45 bg-emerald-400/10'
+                  : 'border-purple-300 bg-purple-50 shadow-sm'
+                : dark
+                  ? 'border-white/10 bg-[#0b0b0b] hover:border-white/20'
+                  : 'border-slate-200 bg-white hover:border-purple-200'
+            ].join(' ')}
+          >
+            <span className={dark ? 'font-mono text-[9px] font-bold uppercase tracking-[0.18em] text-white/35' : 'text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400'}>
+              {option.eyebrow}
+            </span>
+            <span className={dark ? 'mt-2 block text-base font-black text-white' : 'mt-2 block text-base font-bold text-slate-800'}>
+              {option.title}
+            </span>
+            <span className={dark ? 'mt-1 block text-xs leading-5 text-white/40' : 'mt-1 block text-xs leading-5 text-slate-500'}>
+              {option.detail}
+            </span>
+            {option.id === 'workforce' && (
+              <span className={dark ? 'mt-4 inline-flex rounded-full border border-white/10 px-2.5 py-1 font-mono text-[8px] uppercase tracking-[0.12em] text-white/40' : 'mt-4 inline-flex rounded-full border border-purple-100 bg-white px-2.5 py-1 text-[10px] font-bold text-purple-600'}>
+                {eligibleCount} eligible
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function WorkforceStarter({
+  eligibleCount,
+  generating,
+  onGenerate,
+  dark
+}: {
+  eligibleCount: number
+  generating: boolean
+  onGenerate: () => void
+  dark: boolean
+}) {
+  const ready = eligibleCount >= 6
+  const included = Math.min(eligibleCount, 50)
+  return (
+    <Card dark={dark} className={dark ? 'border-emerald-400/20 p-6' : 'border-purple-200 p-6'}>
+      <div className="flex flex-wrap items-center justify-between gap-5">
+        <div className="max-w-2xl">
+          <p className={dark ? 'font-mono text-[9px] font-bold uppercase tracking-[0.2em] text-emerald-300' : 'text-[10px] font-bold uppercase tracking-[0.12em] text-purple-600'}>
+            Workforce analytics
+          </p>
+          <h2 className={dark ? 'mt-2 text-xl font-black text-white' : 'mt-2 text-xl font-bold text-slate-800'}>
+            {ready ? `${included} approved recordings are ready` : `${eligibleCount} of 6 recordings ready`}
+          </h2>
+          <p className={dark ? 'mt-2 text-xs leading-5 text-white/40' : 'mt-2 text-xs leading-5 text-slate-500'}>
+            The latest approved SOP for each recording is frozen into this analysis. Up to the 50 newest eligible recordings are included.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onGenerate}
+          disabled={!ready || generating}
+          className={[
+            'rounded-xl px-5 py-3 text-xs font-black uppercase tracking-[0.12em] transition disabled:cursor-not-allowed disabled:opacity-35',
+            dark
+              ? 'bg-white text-black hover:bg-emerald-200'
+              : 'bg-purple-600 text-white shadow-sm hover:bg-purple-500'
+          ].join(' ')}
+        >
+          {generating ? 'Queuing…' : 'Generate workforce view'}
+        </button>
+      </div>
+      {!ready && (
+        <p className={dark ? 'mt-5 border-t border-white/10 pt-4 text-xs text-amber-200/65' : 'mt-5 border-t border-slate-100 pt-4 text-xs text-amber-700'}>
+          Approve SOPs for {6 - eligibleCount} more recording{6 - eligibleCount === 1 ? '' : 's'}, or use a selected comparison now.
+        </p>
+      )}
     </Card>
   )
 }
@@ -312,6 +447,156 @@ function RunInputs({ run, dark }: { run: BackendAnalyticsRun; dark: boolean }) {
   )
 }
 
+function WorkforceBreakdown({
+  workforce,
+  dark,
+  tooltipStyle,
+  textColour,
+  gridColour
+}: {
+  workforce: BackendAnalyticsWorkforceResult
+  dark: boolean
+  tooltipStyle: React.CSSProperties
+  textColour: string
+  gridColour: string
+}) {
+  const populationFriction = workforce.friction.filter((item) => item.cluster_id === null)
+  const hotspots = populationFriction
+    .filter((item) => item.friction_score !== null)
+    .sort((left, right) => (right.friction_score ?? 0) - (left.friction_score ?? 0))
+    .slice(0, 10)
+    .map((item) => ({
+      name: item.label,
+      friction: item.friction_score,
+      seconds: item.mean_duration_ms === null ? null : item.mean_duration_ms / 1000
+    }))
+  const heatmap = new Map(
+    workforce.heatmap.map((cell) => [`${cell.group_id}:${cell.cluster_id}`, cell])
+  )
+  const qualityCopy = workforce.overview.cluster_quality === 'insufficient_separation'
+    ? 'No reliable split'
+    : `${workforce.overview.cluster_quality} separation`
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
+        {workforce.clusters.map((cluster) => (
+          <Card key={cluster.cluster_id} dark={dark} className="p-5">
+            <div className="flex items-center justify-between gap-3">
+              <p className={dark ? 'font-mono text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-300' : 'text-[10px] font-bold uppercase tracking-[0.1em] text-purple-600'}>
+                {cluster.label}
+              </p>
+              <span className={dark ? 'rounded-full bg-white/[0.06] px-2 py-1 font-mono text-[8px] text-white/40' : 'rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500'}>
+                {cluster.recording_count} paths
+              </span>
+            </div>
+            <p className={dark ? 'mt-4 text-2xl font-black text-white' : 'mt-4 text-2xl font-bold text-slate-800'}>
+              {formatDuration(cluster.average_duration_ms)}
+            </p>
+            <p className={dark ? 'mt-1 text-[11px] text-white/35' : 'mt-1 text-[11px] text-slate-500'}>
+              Average completion · {cluster.average_step_count} steps
+            </p>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {cluster.members.slice(0, 3).map((member) => (
+                <span key={member.recording_id} className={dark ? 'max-w-full truncate rounded-md border border-white/10 px-2 py-1 text-[10px] text-white/40' : 'max-w-full truncate rounded-md border border-slate-200 px-2 py-1 text-[10px] text-slate-500'}>
+                  {member.label}
+                </span>
+              ))}
+              {cluster.members.length > 3 && (
+                <span className={dark ? 'rounded-md px-2 py-1 text-[10px] text-white/25' : 'rounded-md px-2 py-1 text-[10px] text-slate-400'}>
+                  +{cluster.members.length - 3}
+                </span>
+              )}
+            </div>
+          </Card>
+        ))}
+        <Card dark={dark} className="p-5">
+          <p className={dark ? 'font-mono text-[9px] font-bold uppercase tracking-[0.18em] text-white/35' : 'text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400'}>
+            Cluster confidence
+          </p>
+          <p className={dark ? 'mt-4 text-lg font-black text-white' : 'mt-4 text-lg font-bold text-slate-800'}>
+            {qualityCopy}
+          </p>
+          <p className={dark ? 'mt-2 text-[11px] leading-5 text-white/35' : 'mt-2 text-[11px] leading-5 text-slate-500'}>
+            {workforce.overview.silhouette_score === null
+              ? 'The recordings are more useful as one population than as artificial groups.'
+              : `Silhouette ${workforce.overview.silhouette_score.toFixed(2)} · ${workforce.overview.selected_k} stable groups.`}
+          </p>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card dark={dark} className="min-w-0 p-5">
+          <h3 className={dark ? 'text-base font-black text-white' : 'text-base font-bold text-slate-800'}>
+            Friction hotspots
+          </h3>
+          <p className={dark ? 'mt-1 text-xs text-white/35' : 'mt-1 text-xs text-slate-500'}>
+            Relative 0–100 score from observed duration and variation. Sparse timings stay unscored.
+          </p>
+          <div className="mt-5 h-72 min-w-0">
+            {hotspots.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={hotspots} layout="vertical" margin={{ left: 8, right: 20 }}>
+                  <CartesianGrid stroke={gridColour} horizontal={false} />
+                  <XAxis type="number" domain={[0, 100]} tick={{ fill: textColour, fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" width={110} tick={{ fill: textColour, fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value, name, item) => name === 'friction' ? [`${value}/100`, 'Friction'] : [`${item.payload.seconds?.toFixed(1)}s`, 'Mean']} />
+                  <Bar dataKey="friction" fill={dark ? '#fbbf24' : '#f59e0b'} radius={[0, 6, 6, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className={dark ? 'grid h-full place-items-center text-xs text-white/30' : 'grid h-full place-items-center text-xs text-slate-400'}>
+                More observed timings are needed before friction can be scored.
+              </div>
+            )}
+          </div>
+        </Card>
+
+        <Card dark={dark} className="min-w-0 overflow-hidden p-5">
+          <h3 className={dark ? 'text-base font-black text-white' : 'text-base font-bold text-slate-800'}>
+            Path friction heatmap
+          </h3>
+          <p className={dark ? 'mt-1 text-xs text-white/35' : 'mt-1 text-xs text-slate-500'}>
+            Compare the same aligned step across each discovered path group.
+          </p>
+          <div className="mt-5 max-h-72 overflow-auto">
+            <div className="grid min-w-[440px] gap-1" style={{ gridTemplateColumns: `minmax(150px, 1fr) repeat(${workforce.clusters.length}, minmax(74px, .55fr))` }}>
+              <span />
+              {workforce.clusters.map((cluster) => (
+                <span key={cluster.cluster_id} className={dark ? 'px-2 py-1 text-center font-mono text-[8px] uppercase tracking-[0.1em] text-white/35' : 'px-2 py-1 text-center text-[9px] font-bold uppercase text-slate-400'}>
+                  {cluster.label}
+                </span>
+              ))}
+              {populationFriction.map((step) => (
+                <div key={step.group_id} className="contents">
+                  <span className={dark ? 'truncate px-2 py-2 text-[11px] text-white/55' : 'truncate px-2 py-2 text-[11px] font-medium text-slate-600'} title={step.label}>
+                    {step.label}
+                  </span>
+                  {workforce.clusters.map((cluster) => {
+                    const cell = heatmap.get(`${step.group_id}:${cluster.cluster_id}`)
+                    const score = cell?.friction_score
+                    const opacity = score === null || score === undefined ? 0.06 : 0.16 + (score / 100) * 0.7
+                    return (
+                      <span
+                        key={cluster.cluster_id}
+                        title={cell?.present ? `${score ?? 'Unscored'} friction · ${cell.sample_count} timing samples` : 'Step absent from this path'}
+                        className={dark ? 'grid min-h-8 place-items-center rounded-md border border-white/5 text-[10px] font-bold text-white/65' : 'grid min-h-8 place-items-center rounded-md border border-white text-[10px] font-bold text-slate-700'}
+                        style={{ backgroundColor: cell?.present ? `rgba(245, 158, 11, ${opacity})` : dark ? 'rgba(255,255,255,.025)' : 'rgba(148,163,184,.08)' }}
+                      >
+                        {cell?.present ? score ?? '—' : '·'}
+                      </span>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
 function Results({ run, dark }: { run: BackendAnalyticsRun; dark: boolean }) {
   const result = run.result
   if (!result) return null
@@ -320,10 +605,12 @@ function Results({ run, dark }: { run: BackendAnalyticsRun; dark: boolean }) {
     : { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }
   const textColour = dark ? '#8d8d8d' : '#64748b'
   const gridColour = dark ? 'rgba(255,255,255,.08)' : '#e2e8f0'
-  const rankingData = result.completion_ranking.map((item) => ({
-    name: item.label,
-    seconds: Number((item.total_duration_ms / 1000).toFixed(1))
-  }))
+  const rankingData = result.completion_ranking
+    .slice(0, result.workforce ? 12 : 5)
+    .map((item) => ({
+      name: item.label,
+      seconds: Number((item.total_duration_ms / 1000).toFixed(1))
+    }))
   const comparisonData = [...result.fastest_vs_average]
     .sort((left, right) => {
       const leftDifference = Math.abs((left.fastest_duration_ms ?? 0) - left.average_duration_ms)
@@ -345,7 +632,13 @@ function Results({ run, dark }: { run: BackendAnalyticsRun; dark: boolean }) {
       )
     )
   )
-  const timelineData = result.path_timelines.map((path) => {
+  const representativeIds = new Set(
+    result.workforce?.clusters.map((cluster) => cluster.representative_recording_id) ?? []
+  )
+  const visibleTimelines = result.workforce
+    ? result.path_timelines.filter((path) => representativeIds.has(path.recording_id))
+    : result.path_timelines
+  const timelineData = visibleTimelines.map((path) => {
     const row: Record<string, string | number> = { name: path.label }
     for (const step of path.steps) row[step.group_id] = step.duration_ms / 1000
     row.unallocated = path.unallocated_duration_ms / 1000
@@ -384,10 +677,22 @@ function Results({ run, dark }: { run: BackendAnalyticsRun; dark: boolean }) {
         ))}
       </div>
 
+      {result.workforce && (
+        <WorkforceBreakdown
+          workforce={result.workforce}
+          dark={dark}
+          tooltipStyle={tooltipStyle}
+          textColour={textColour}
+          gridColour={gridColour}
+        />
+      )}
+
       <div className="grid gap-4 xl:grid-cols-2">
         <Card dark={dark} className="min-w-0 p-5">
           <h3 className={dark ? 'text-base font-black text-white' : 'text-base font-bold text-slate-800'}>Completion-time ranking</h3>
-          <p className={dark ? 'mt-1 text-xs text-white/35' : 'mt-1 text-xs text-slate-500'}>Total recorded duration; shortest approved path first.</p>
+          <p className={dark ? 'mt-1 text-xs text-white/35' : 'mt-1 text-xs text-slate-500'}>
+            Total recorded duration; {result.workforce ? '12 fastest approved paths shown.' : 'shortest approved path first.'}
+          </p>
           <div className="mt-5 h-64 min-w-0">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={rankingData} layout="vertical" margin={{ left: 10, right: 22 }}>
@@ -424,7 +729,9 @@ function Results({ run, dark }: { run: BackendAnalyticsRun; dark: boolean }) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className={dark ? 'text-base font-black text-white' : 'text-base font-bold text-slate-800'}>Path comparison timeline</h3>
-            <p className={dark ? 'mt-1 text-xs text-white/35' : 'mt-1 text-xs text-slate-500'}>Aligned SOP steps in execution order. Grey time was recorded outside timed SOP steps.</p>
+            <p className={dark ? 'mt-1 text-xs text-white/35' : 'mt-1 text-xs text-slate-500'}>
+              {result.workforce ? 'One representative timeline per path group.' : 'Aligned SOP steps in execution order.'} Grey time was recorded outside timed SOP steps.
+            </p>
           </div>
           <div className={dark ? 'flex gap-3 font-mono text-[8px] uppercase tracking-[0.1em] text-white/35' : 'flex gap-3 text-[10px] font-bold uppercase text-slate-400'}>
             <span>{result.overview.shared_step_count} shared</span>
@@ -459,6 +766,7 @@ function Results({ run, dark }: { run: BackendAnalyticsRun; dark: boolean }) {
 export function WorkflowAnalyticsPanel({ workflowId, dark }: WorkflowAnalyticsPanelProps) {
   const [eligible, setEligible] = useState<BackendAnalyticsEligibleRecording[]>([])
   const [runs, setRuns] = useState<BackendAnalyticsRun[]>([])
+  const [mode, setMode] = useState<AnalyticsRunMode>('selected_comparison')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [currentRun, setCurrentRun] = useState<BackendAnalyticsRun | null>(null)
   const [loading, setLoading] = useState(true)
@@ -515,14 +823,14 @@ export function WorkflowAnalyticsPanel({ workflowId, dark }: WorkflowAnalyticsPa
       : current.length < 5 ? [...current, recordingId] : current)
   }
 
-  const generate = async () => {
+  const generate = async (runMode: AnalyticsRunMode) => {
     setSubmitting(true)
     setError(null)
     try {
       const run = await window.api.recording.createAnalyticsRun(
         workflowId,
-        'selected_comparison',
-        selectedIds
+        runMode,
+        runMode === 'selected_comparison' ? selectedIds : []
       )
       setCurrentRun(run)
       setRuns((current) => [run, ...current])
@@ -559,14 +867,30 @@ export function WorkflowAnalyticsPanel({ workflowId, dark }: WorkflowAnalyticsPa
         <p className={dark ? 'rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300' : 'rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600'}>{error}</p>
       )}
 
-      <RecordingPicker
-        recordings={eligible}
-        selected={selectedIds}
-        onToggle={toggleRecording}
-        onGenerate={() => void generate()}
-        generating={submitting}
+      <AnalysisModeChooser
+        mode={mode}
+        onChange={setMode}
+        eligibleCount={eligible.length}
         dark={dark}
       />
+
+      {mode === 'selected_comparison' ? (
+        <RecordingPicker
+          recordings={eligible}
+          selected={selectedIds}
+          onToggle={toggleRecording}
+          onGenerate={() => void generate('selected_comparison')}
+          generating={submitting}
+          dark={dark}
+        />
+      ) : (
+        <WorkforceStarter
+          eligibleCount={eligible.length}
+          onGenerate={() => void generate('workforce')}
+          generating={submitting}
+          dark={dark}
+        />
+      )}
 
       {runs.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3">
