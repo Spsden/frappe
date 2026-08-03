@@ -1,0 +1,58 @@
+# docker-compose.prod.yml
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+services:
+  # Disable bundled postgres — using RDS
+  postgres:
+    profiles: ["local-db"]
+
+  # Disable bundled redis — using ElastiCache
+  redis:
+    profiles: ["local-redis"]
+
+  api:
+    restart: always
+    # Clear the base postgres/redis dependency — RDS/ElastiCache are external.
+    # migration_bootstrap.py retries the DB connection on startup.
+    depends_on: !reset
+    # !reset wipes out the dev env_file and environment blocks from the base compose
+    environment: !reset
+    env_file:
+      - /etc/worktrace/prod.env      # secrets file on host, NOT in repo
+    volumes:
+      - /data/recordings:/data       # local path for MVP; swap for S3 later
+      - whisper-cache:/root/.cache
+    ports:
+      - "8000:8000"
+    # Remove --reload for production
+    command:
+      - sh
+      - -c
+      - >
+        python -m worktrace_api.migration_bootstrap &&
+        exec python -m uvicorn worktrace_api.main:app
+        --host 0.0.0.0 --port 8000
+
+  worker:
+    restart: always
+    # Clear the base postgres/redis dependency — same rationale as api.
+    depends_on: !reset
+    environment: !reset
+    env_file:
+      - /etc/worktrace/prod.env
+    volumes:
+      - /data/recordings:/data
+      - whisper-cache:/root/.cache
+    command:
+      - celery
+      - -A
+      - worktrace_api.core.celery_app
+      - worker
+      - --loglevel=info
+      - -P
+      - solo
+      - -Q
+      - default,audio,vision,llm,celery
+      - --without-mingle
+      - --without-gossip
+      - --without-heartbeat

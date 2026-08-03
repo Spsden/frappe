@@ -5,7 +5,7 @@ import type {
   BackendSOPStep,
   RecordedSessionSummary
 } from '../../shared/recording'
-import { StepProgress } from '../components/StepProgress'
+
 import { useRecording } from '../features/recording/useRecording'
 import {
   activeRecordingSummary,

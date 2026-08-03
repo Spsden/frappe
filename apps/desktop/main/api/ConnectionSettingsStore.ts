@@ -181,11 +181,8 @@ export function connectionSettingsPath(userDataPath: string): string {
 
 function normalizeApiUrl(value: string): string {
   const url = new URL(value.trim())
-  if (
-    url.protocol !== 'https:' &&
-    !(url.protocol === 'http:' && ['127.0.0.1', 'localhost', '::1'].includes(url.hostname))
-  ) {
-    throw new Error('Use HTTPS for remote APIs. HTTP is allowed only for localhost.')
-  }
+  // MVP Deployment Modification: 
+  // We removed the strict HTTPS requirement to allow the desktop app
+  // to connect to the EC2 public IP via plain HTTP before a domain/SSL is configured.
   return url.toString().replace(/\/$/, '')
 }
