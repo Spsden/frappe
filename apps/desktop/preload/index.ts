@@ -14,6 +14,7 @@ import {
   recordingIpc,
   type AnnotationInput,
   type AnalyticsRetryTarget,
+  type AnalyticsRunMode,
   type BackendAnalyticsEligibleRecording,
   type BackendAnalyticsRun,
   type AudioRecorderApi,
@@ -128,10 +129,15 @@ contextBridge.exposeInMainWorld('api', {
         recordingIpc.listAnalyticsRuns,
         workflowId
       ) as Promise<BackendAnalyticsRun[]>,
-    createAnalyticsRun: (workflowId: string, recordingIds: string[]) =>
+    createAnalyticsRun: (
+      workflowId: string,
+      mode: AnalyticsRunMode,
+      recordingIds: string[] = []
+    ) =>
       ipcRenderer.invoke(
         recordingIpc.createAnalyticsRun,
         workflowId,
+        mode,
         recordingIds
       ) as Promise<BackendAnalyticsRun>,
     getAnalyticsRun: (runId: string) =>

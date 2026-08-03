@@ -197,6 +197,8 @@ export type AnalyticsRunStatus =
   | 'queued'
   | 'embedding'
   | 'aligning'
+  | 'clustering'
+  | 'scoring_friction'
   | 'calculating'
   | 'summarizing'
   | 'completed'
@@ -204,6 +206,7 @@ export type AnalyticsRunStatus =
   | 'failed'
 
 export type AnalyticsRetryTarget = 'summary' | 'full_run'
+export type AnalyticsRunMode = 'selected_comparison' | 'workforce'
 
 export interface BackendAnalyticsEligibleRecording {
   recording_id: string
@@ -268,6 +271,64 @@ export interface BackendAnalyticsStepComparison {
   fastest_path_has_step: boolean
 }
 
+export interface BackendAnalyticsClusterMember {
+  recording_id: string
+  label: string
+  total_duration_ms: number
+}
+
+export interface BackendAnalyticsClusterSummary {
+  cluster_id: string
+  label: string
+  recording_count: number
+  average_duration_ms: number
+  average_step_count: number
+  representative_recording_id: string
+  path_signature: string
+  members: BackendAnalyticsClusterMember[]
+}
+
+export type AnalyticsMetricConfidence = 'insufficient' | 'low' | 'medium' | 'high'
+
+export interface BackendAnalyticsFrictionMetric {
+  group_id: string
+  label: string
+  cluster_id: string | null
+  sample_count: number
+  population_count: number
+  mean_duration_ms: number | null
+  median_duration_ms: number | null
+  standard_deviation_ms: number | null
+  coefficient_of_variation: number | null
+  presence_frequency: number
+  optional_frequency: number
+  friction_score: number | null
+  confidence: AnalyticsMetricConfidence
+}
+
+export interface BackendAnalyticsHeatmapCell {
+  group_id: string
+  cluster_id: string
+  present: boolean
+  sample_count: number
+  mean_duration_ms: number | null
+  standard_deviation_ms: number | null
+  friction_score: number | null
+  confidence: AnalyticsMetricConfidence
+}
+
+export interface BackendAnalyticsWorkforceResult {
+  overview: {
+    recording_count: number
+    selected_k: number
+    silhouette_score: number | null
+    cluster_quality: 'strong' | 'moderate' | 'weak' | 'insufficient_separation'
+  }
+  clusters: BackendAnalyticsClusterSummary[]
+  friction: BackendAnalyticsFrictionMetric[]
+  heatmap: BackendAnalyticsHeatmapCell[]
+}
+
 export interface BackendAnalyticsResult {
   overview: {
     recording_count: number
@@ -285,6 +346,7 @@ export interface BackendAnalyticsResult {
   path_timelines: BackendAnalyticsPathTimeline[]
   fastest_vs_average: BackendAnalyticsStepComparison[]
   alignment_notes: string[]
+  workforce: BackendAnalyticsWorkforceResult | null
 }
 
 export interface BackendAnalyticsRun {
@@ -293,7 +355,7 @@ export interface BackendAnalyticsRun {
   workflow_id: string
   workflow_name: string
   version: number
-  mode: 'selected_comparison' | 'workforce'
+  mode: AnalyticsRunMode
   status: AnalyticsRunStatus
   input_count: number
   embedding_model: string
@@ -569,7 +631,8 @@ export interface RecordingApi {
   listAnalyticsRuns: (workflowId: string) => Promise<BackendAnalyticsRun[]>
   createAnalyticsRun: (
     workflowId: string,
-    recordingIds: string[]
+    mode: AnalyticsRunMode,
+    recordingIds?: string[]
   ) => Promise<BackendAnalyticsRun>
   getAnalyticsRun: (runId: string) => Promise<BackendAnalyticsRun>
   retryAnalyticsRun: (

@@ -12,6 +12,7 @@ import type {
 import type {
   AnnotationInput,
   AnalyticsRetryTarget,
+  AnalyticsRunMode,
   BackendAnalyticsEligibleRecording,
   BackendAnalyticsRun,
   BackendDashboardSummary,
@@ -209,12 +210,13 @@ export class WorkTraceApiClient {
 
   async createAnalyticsRun(
     workflowId: string,
-    recordingIds: string[]
+    mode: AnalyticsRunMode,
+    recordingIds: string[] = []
   ): Promise<BackendAnalyticsRun> {
     const response = await this.request(`/workflows/${workflowId}/analytics-runs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recording_ids: recordingIds })
+      body: JSON.stringify({ mode, recording_ids: recordingIds })
     })
     return (await response.json()) as BackendAnalyticsRun
   }

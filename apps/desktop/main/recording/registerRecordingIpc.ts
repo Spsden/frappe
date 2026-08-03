@@ -3,6 +3,7 @@ import {
   recordingIpc,
   type AnnotationInput,
   type AnalyticsRetryTarget,
+  type AnalyticsRunMode,
   type RecordingOptions,
   type RecordingRetryTarget,
   type SaveRecordingPayload,
@@ -57,8 +58,8 @@ export function registerRecordingIpc(
   )
   ipcMain.handle(
     recordingIpc.createAnalyticsRun,
-    (_event, workflowId: string, recordingIds: string[]) =>
-      library.createAnalyticsRun(workflowId, recordingIds)
+    (_event, workflowId: string, mode: AnalyticsRunMode, recordingIds: string[]) =>
+      library.createAnalyticsRun(workflowId, mode, recordingIds)
   )
   ipcMain.handle(recordingIpc.getAnalyticsRun, (_event, runId: string) =>
     library.getAnalyticsRun(runId)

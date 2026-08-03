@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type {
   AnnotationInput,
   AnalyticsRetryTarget,
+  AnalyticsRunMode,
   BackendAnalyticsEligibleRecording,
   BackendAnalyticsRun,
   BackendDashboardSummary,
@@ -152,9 +153,10 @@ export class RecordingLibraryService {
 
   async createAnalyticsRun(
     workflowId: string,
-    recordingIds: string[]
+    mode: AnalyticsRunMode,
+    recordingIds: string[] = []
   ): Promise<BackendAnalyticsRun> {
-    return this.apiClient.createAnalyticsRun(workflowId, recordingIds)
+    return this.apiClient.createAnalyticsRun(workflowId, mode, recordingIds)
   }
 
   async getAnalyticsRun(runId: string): Promise<BackendAnalyticsRun> {

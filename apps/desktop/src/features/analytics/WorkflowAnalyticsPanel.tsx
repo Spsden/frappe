@@ -519,7 +519,11 @@ export function WorkflowAnalyticsPanel({ workflowId, dark }: WorkflowAnalyticsPa
     setSubmitting(true)
     setError(null)
     try {
-      const run = await window.api.recording.createAnalyticsRun(workflowId, selectedIds)
+      const run = await window.api.recording.createAnalyticsRun(
+        workflowId,
+        'selected_comparison',
+        selectedIds
+      )
       setCurrentRun(run)
       setRuns((current) => [run, ...current])
       setSelectedIds([])
