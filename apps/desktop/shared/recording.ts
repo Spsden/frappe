@@ -483,11 +483,34 @@ export interface BackendSOP {
   id: string
   source_session_id: string
   version: number
+  revision: number
+  parent_sop_id: string | null
   status: 'draft' | 'approved' | 'archived'
   title: string
   /** Optional supporting narrative (purpose / overview) — never a separate version. */
   document: string | null
   steps: BackendSOPStep[]
+  created_at: string
+  updated_at: string
+  edited_by: string | null
+}
+
+export interface SOPUpdatePayload {
+  expected_revision: number
+  title: string
+  document: string | null
+  steps: BackendSOPStep[]
+  change_summary?: string | null
+}
+
+export interface BackendSOPRevision {
+  id: string
+  tenant_id: string
+  sop_id: string
+  revision: number
+  snapshot: BackendSOP
+  edited_by: string | null
+  change_summary: string | null
   created_at: string
 }
 
@@ -650,6 +673,9 @@ export interface RecordingApi {
   ) => Promise<ArrayBuffer>
   getSessionSops: (backendSessionId: string) => Promise<BackendSOP[]>
   listSops: () => Promise<BackendSOPLibraryItem[]>
+  updateSop: (sopId: string, payload: SOPUpdatePayload) => Promise<BackendSOP>
+  createSopDraft: (sopId: string) => Promise<BackendSOP>
+  listSopRevisions: (sopId: string) => Promise<BackendSOPRevision[]>
   approveSop: (sopId: string, approved: boolean) => Promise<BackendSOP>
   getDashboardSummary: () => Promise<BackendDashboardSummary>
   search: (query: string) => Promise<BackendSearchResponse>
@@ -705,6 +731,9 @@ export const recordingIpc = {
   getSessionScreenshots: 'recording:get-session-screenshots',
   getSessionSops: 'recording:get-session-sops',
   listSops: 'recording:list-sops',
+  updateSop: 'recording:update-sop',
+  createSopDraft: 'recording:create-sop-draft',
+  listSopRevisions: 'recording:list-sop-revisions',
   approveSop: 'recording:approve-sop',
   getDashboardSummary: 'recording:get-dashboard-summary',
   search: 'recording:search',

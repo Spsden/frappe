@@ -13,12 +13,14 @@ import type {
   BackendSearchResponse,
   BackendSOP,
   BackendSOPLibraryItem,
+  BackendSOPRevision,
   BackendWorkflow,
   BackendWorkflowRecording,
   BackendWorkflowSession,
   RecordedSessionSummary,
   RecordingRetryTarget,
-  RecordingSessionManifest
+  RecordingSessionManifest,
+  SOPUpdatePayload
 } from '../../shared/recording'
 import { WorkTraceApiClient } from '../api/WorkTraceApiClient'
 import { RecordingUploader } from './RecordingUploader'
@@ -270,6 +272,18 @@ export class RecordingLibraryService {
 
   async listSops(): Promise<BackendSOPLibraryItem[]> {
     return this.apiClient.listSops()
+  }
+
+  async updateSop(sopId: string, payload: SOPUpdatePayload): Promise<BackendSOP> {
+    return this.apiClient.updateSop(sopId, payload)
+  }
+
+  async createSopDraft(sopId: string): Promise<BackendSOP> {
+    return this.apiClient.createSopDraft(sopId)
+  }
+
+  async listSopRevisions(sopId: string): Promise<BackendSOPRevision[]> {
+    return this.apiClient.listSopRevisions(sopId)
   }
 
   async approveSop(sopId: string, approved: boolean): Promise<BackendSOP> {

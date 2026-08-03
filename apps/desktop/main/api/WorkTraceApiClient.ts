@@ -23,10 +23,12 @@ import type {
   BackendSearchResponse,
   BackendSOP,
   BackendSOPLibraryItem,
+  BackendSOPRevision,
   BackendWorkflow,
   BackendWorkflowRecording,
   BackendWorkflowSession,
-  RecordingRetryTarget
+  RecordingRetryTarget,
+  SOPUpdatePayload
 } from '../../shared/recording'
 import { ConnectionSettingsStore } from './ConnectionSettingsStore'
 
@@ -346,6 +348,27 @@ export class WorkTraceApiClient {
     // default; bump the limit when the library grows.
     const response = await this.request('/sops?limit=500')
     return (await response.json()) as BackendSOPLibraryItem[]
+  }
+
+  async updateSop(sopId: string, payload: SOPUpdatePayload): Promise<BackendSOP> {
+    const response = await this.request(`/sops/${sopId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    return (await response.json()) as BackendSOP
+  }
+
+  async createSopDraft(sopId: string): Promise<BackendSOP> {
+    const response = await this.request(`/sops/${sopId}/new-draft`, {
+      method: 'POST'
+    })
+    return (await response.json()) as BackendSOP
+  }
+
+  async listSopRevisions(sopId: string): Promise<BackendSOPRevision[]> {
+    const response = await this.request(`/sops/${sopId}/revisions`)
+    return (await response.json()) as BackendSOPRevision[]
   }
 
   async approveSop(sopId: string, approved: boolean): Promise<BackendSOP> {

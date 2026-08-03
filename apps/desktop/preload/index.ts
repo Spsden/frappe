@@ -24,6 +24,7 @@ import {
   type BackendSearchResponse,
   type BackendSOP,
   type BackendSOPLibraryItem,
+  type BackendSOPRevision,
   type BackendWorkflow,
   type BackendWorkflowRecording,
   type RecordingOptions,
@@ -31,6 +32,7 @@ import {
   type RecordedSessionSummary,
   type RecordingState,
   type SaveRecordingPayload,
+  type SOPUpdatePayload,
   type BackendWorkflowSession
 } from '../shared/recording'
 import {
@@ -179,6 +181,12 @@ contextBridge.exposeInMainWorld('api', {
       ) as Promise<BackendSOP[]>,
     listSops: () =>
       ipcRenderer.invoke(recordingIpc.listSops) as Promise<BackendSOPLibraryItem[]>,
+    updateSop: (sopId: string, payload: SOPUpdatePayload) =>
+      ipcRenderer.invoke(recordingIpc.updateSop, sopId, payload) as Promise<BackendSOP>,
+    createSopDraft: (sopId: string) =>
+      ipcRenderer.invoke(recordingIpc.createSopDraft, sopId) as Promise<BackendSOP>,
+    listSopRevisions: (sopId: string) =>
+      ipcRenderer.invoke(recordingIpc.listSopRevisions, sopId) as Promise<BackendSOPRevision[]>,
     approveSop: (sopId: string, approved: boolean) =>
       ipcRenderer.invoke(recordingIpc.approveSop, sopId, approved) as Promise<BackendSOP>,
     getDashboardSummary: () =>
