@@ -1,16 +1,22 @@
 import hashlib
+import io
 from collections.abc import Iterable
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from worktrace_api.schemas import ChunkContentType
 
+if TYPE_CHECKING:
+    from worktrace_api.settings import Settings
 
-class StoredChunk:
-    storage_key: str
+
+# ---------------------------------------------------------------------------
+# Local filesystem backend (original implementation, renamed)
+# ---------------------------------------------------------------------------
 
 
-class ChunkStorage:
+class LocalChunkStorage:
     def __init__(self, root: Path, max_chunk_bytes: int):
         self.root = root
         self.max_chunk_bytes = max_chunk_bytes
@@ -81,7 +87,7 @@ class ChunkStorage:
         self,
         tenant_id: UUID,
         recording_id: UUID,
-        chunks: Iterable[StoredChunk],
+        chunks: Iterable,
         filename: str,
     ) -> tuple[str, int, str]:
         directory = self.root / str(tenant_id) / str(recording_id) / "assembled"
@@ -100,6 +106,205 @@ class ChunkStorage:
 
         temporary.replace(destination)
         return destination.relative_to(self.root).as_posix(), payload_size, digest.hexdigest()
+
+    def write_bytes(
+        self, storage_key: str, payload: bytes, content_type: str = "application/octet-stream"
+    ) -> None:
+        """Atomic write of raw bytes to a storage key.
+
+        Provided for call-site symmetry with S3ChunkStorage.write_bytes().
+        Uses the same tmp-then-rename pattern as the rest of this backend.
+        """
+        destination = self.resolve_storage_key(storage_key)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_suffix(f"{destination.suffix}.tmp")
+        temporary.write_bytes(payload)
+        temporary.replace(destination)
+
+
+# ---------------------------------------------------------------------------
+# S3 backend
+# ---------------------------------------------------------------------------
+
+
+class S3ChunkStorage:
+    """S3-backed storage.
+
+    Storage key format: ``<tenant_id>/<recording_id>/<filename>`` — identical
+    to LocalChunkStorage so all keys stored in the database are backend-agnostic
+    and can be moved between backends without a migration.
+
+    Authentication uses the standard boto3 credential chain (environment
+    variables, ~/.aws/credentials, or — on EC2/ECS — the instance/task IAM
+    role). Do NOT hardcode credentials.
+    """
+
+    def __init__(
+        self,
+        bucket: str,
+        max_chunk_bytes: int,
+        region: str | None = None,
+        endpoint_url: str | None = None,
+    ):
+        import boto3
+
+        self.bucket = bucket
+        self.max_chunk_bytes = max_chunk_bytes
+        self._s3 = boto3.client(
+            "s3",
+            region_name=region,
+            endpoint_url=endpoint_url,  # None = real AWS; set for MiniStack/LocalStack
+        )
+
+    # ------------------------------------------------------------------
+    # Public interface (mirrors LocalChunkStorage)
+    # ------------------------------------------------------------------
+
+    def validate(self, payload: bytes, expected_checksum: str) -> int:
+        if not payload:
+            raise ValueError("Chunk payload cannot be empty")
+        if len(payload) > self.max_chunk_bytes:
+            raise ValueError(f"Chunk exceeds maximum size of {self.max_chunk_bytes} bytes")
+        actual_checksum = hashlib.sha256(payload).hexdigest()
+        if actual_checksum != expected_checksum:
+            raise ValueError("Chunk checksum does not match payload")
+        return len(payload)
+
+    def write(
+        self,
+        tenant_id: UUID,
+        recording_id: UUID,
+        chunk_index: int,
+        content_type: ChunkContentType,
+        media_type: str,
+        original_filename: str | None,
+        payload: bytes,
+        expected_checksum: str,
+    ) -> tuple[str, int]:
+        payload_size = self.validate(payload, expected_checksum)
+        key = (
+            f"{tenant_id}/{recording_id}/"
+            f"{chunk_index:08d}-{content_type.value}"
+            f"{chunk_extension(content_type, media_type, original_filename)}"
+        )
+        self._s3.put_object(Bucket=self.bucket, Key=key, Body=payload, ContentType=media_type)
+        return key, payload_size
+
+    def read(self, storage_key: str) -> bytes:
+        resp = self._s3.get_object(Bucket=self.bucket, Key=storage_key)
+        return resp["Body"].read()
+
+    def exists(self, storage_key: str) -> bool:
+        from botocore.exceptions import ClientError
+
+        try:
+            self._s3.head_object(Bucket=self.bucket, Key=storage_key)
+            return True
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] in {"404", "NoSuchKey"}:
+                return False
+            raise
+
+    def delete(self, storage_key: str) -> None:
+        # S3 delete_object on a missing key is a no-op — inherently idempotent.
+        self._s3.delete_object(Bucket=self.bucket, Key=storage_key)
+
+    def delete_recording(self, tenant_id: UUID, recording_id: UUID) -> None:
+        prefix = f"{tenant_id}/{recording_id}/"
+        paginator = self._s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+            if objects:
+                self._s3.delete_objects(Bucket=self.bucket, Delete={"Objects": objects})
+
+    def assemble(
+        self,
+        tenant_id: UUID,
+        recording_id: UUID,
+        chunks: Iterable,
+        filename: str,
+    ) -> tuple[str, int, str]:
+        """Download all chunks, concatenate in memory, upload the assembled file."""
+        buffer = io.BytesIO()
+        digest = hashlib.sha256()
+        total = 0
+        for chunk in chunks:
+            data = self.read(chunk.storage_key)
+            buffer.write(data)
+            digest.update(data)
+            total += len(data)
+        buffer.seek(0)
+        dest_key = f"{tenant_id}/{recording_id}/assembled/{filename}"
+        self._s3.put_object(Bucket=self.bucket, Key=dest_key, Body=buffer.read())
+        return dest_key, total, digest.hexdigest()
+
+    def write_bytes(
+        self, storage_key: str, payload: bytes, content_type: str = "application/octet-stream"
+    ) -> None:
+        """Write raw bytes directly to a storage key.
+
+        This is the S3 equivalent of the tmp→rename atomic write pattern used
+        by LocalChunkStorage. S3 put_object is inherently atomic.
+        """
+        self._s3.put_object(
+            Bucket=self.bucket, Key=storage_key, Body=payload, ContentType=content_type
+        )
+
+    def generate_presigned_get_url(self, storage_key: str, media_type: str, ttl: int) -> str:
+        """Return a short-lived presigned GET URL for the object.
+
+        Used by the media-serving endpoint so the API redirects the client
+        directly to S3 instead of proxying the bytes through the API process.
+        """
+        return self._s3.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": self.bucket,
+                "Key": storage_key,
+                "ResponseContentType": media_type,
+            },
+            ExpiresIn=ttl,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Union type alias — keeps all existing `ChunkStorage` type hints valid
+# ---------------------------------------------------------------------------
+
+type ChunkStorage = LocalChunkStorage | S3ChunkStorage
+
+
+# ---------------------------------------------------------------------------
+# Factory — the single place that decides which backend to use
+# ---------------------------------------------------------------------------
+
+
+def get_chunk_storage(settings: "Settings") -> ChunkStorage:
+    """Return the configured storage backend.
+
+    - ``WORKTRACE_STORAGE_BACKEND=local`` (default) → LocalChunkStorage
+    - ``WORKTRACE_STORAGE_BACKEND=s3``              → S3ChunkStorage
+
+    Import this function and call it instead of constructing storage directly.
+    """
+    if settings.storage_backend == "s3":
+        if not settings.s3_bucket:
+            raise RuntimeError(
+                "WORKTRACE_S3_BUCKET must be set when WORKTRACE_STORAGE_BACKEND=s3"
+            )
+        return S3ChunkStorage(
+            bucket=settings.s3_bucket,
+            max_chunk_bytes=settings.max_chunk_bytes,
+            region=settings.s3_region,
+            endpoint_url=settings.s3_endpoint_url,
+        )
+    return LocalChunkStorage(settings.recording_storage_path, settings.max_chunk_bytes)
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers (unchanged from original)
+# ---------------------------------------------------------------------------
+
 
 def chunk_extension(
     content_type: ChunkContentType,
