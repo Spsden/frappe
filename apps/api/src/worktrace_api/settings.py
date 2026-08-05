@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     CELERY_TASK_TIME_LIMIT: int = 300
     CELERY_TASK_SOFT_TIME_LIMIT: int = 250
     max_chunk_bytes: int = 10 * 1024 * 1024
+    # Storage backend: "local" (default, uses recording_storage_path) or "s3".
+    # Setting this to "s3" also requires WORKTRACE_S3_BUCKET.
+    storage_backend: str = "local"
+    s3_bucket: str | None = None
+    s3_region: str | None = None
+    # Override the S3 endpoint — used for MiniStack / LocalStack local testing.
+    # Leave unset (None) to use real AWS.
+    s3_endpoint_url: str | None = None
     media_token_secret: str = "worktrace-dev-media-token-secret-change-me"
     media_token_ttl_seconds: int = Field(default=10 * 60, ge=30, le=24 * 60 * 60)
     access_token_ttl_hours: int = Field(default=24 * 30, ge=1, le=24 * 365)
@@ -60,7 +68,10 @@ class Settings(BaseSettings):
         if self.database_url.startswith("sqlite:///"):
             database_path = Path(self.database_url.removeprefix("sqlite:///"))
             database_path.parent.mkdir(parents=True, exist_ok=True)
-        self.recording_storage_path.mkdir(parents=True, exist_ok=True)
+        # Only create the local recording directory when using the local backend.
+        # When storage_backend="s3", the path is unused and should not be created.
+        if self.storage_backend == "local":
+            self.recording_storage_path.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache
