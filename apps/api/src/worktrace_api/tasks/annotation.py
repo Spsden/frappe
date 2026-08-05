@@ -2,7 +2,7 @@ from uuid import UUID
 
 from worktrace_api.annotation_render import render_annotated_png
 from worktrace_api.core.celery_app import celery_app
-from worktrace_api.recordings import ChunkStorage
+from worktrace_api.recordings import get_chunk_storage
 from worktrace_api.schemas import RecordingStatus
 from worktrace_api.settings import get_settings
 from worktrace_api.tasks._repo import make_repo
@@ -12,10 +12,7 @@ from worktrace_api.tasks._repo import make_repo
 def annotate_screenshots(self, recording_id: str, session_id: str, tenant_id: str) -> None:
     settings = get_settings()
     repo = make_repo(tenant_id)
-    storage = ChunkStorage(
-        root=settings.recording_storage_path,
-        max_chunk_bytes=settings.max_chunk_bytes
-    )
+    storage = get_chunk_storage(settings)
 
     try:
         repo.set_recording_status(UUID(recording_id), RecordingStatus.PROCESSING_SCREENSHOTS)
@@ -69,11 +66,9 @@ def annotate_screenshots(self, recording_id: str, session_id: str, tenant_id: st
 
  
                 annotated_key = f"{screenshot.storage_key.rsplit('.', 1)[0]}-annotated.png"
-                annotated_path = storage.resolve_storage_key(annotated_key)
-                annotated_path.parent.mkdir(parents=True, exist_ok=True)
-                temporary = annotated_path.with_suffix(".tmp")
-                temporary.write_bytes(annotated_bytes)
-                temporary.replace(annotated_path)
+                # write_bytes() is backend-agnostic: local backend uses atomic
+                # tmp→rename; S3 backend uses put_object (inherently atomic).
+                storage.write_bytes(annotated_key, annotated_bytes, content_type="image/png")
 
                 # Update database
                 repo.update_screenshot_annotation(screenshot.id, annotated_key, "redacted")
