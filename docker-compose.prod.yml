@@ -20,7 +20,6 @@ services:
     env_file:
       - /etc/worktrace/prod.env      # secrets file on host, NOT in repo
     volumes:
-      - /data/recordings:/data       # local path for MVP; swap for S3 later
       - whisper-cache:/root/.cache
     ports:
       - "8000:8000"
@@ -41,7 +40,6 @@ services:
     env_file:
       - /etc/worktrace/prod.env
     volumes:
-      - /data/recordings:/data
       - whisper-cache:/root/.cache
     command:
       - celery
