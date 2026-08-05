@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import UUID
 
 from worktrace_api.annotation_render import render_annotated_png
-from worktrace_api.recordings import ChunkStorage
+from worktrace_api.recordings import ChunkStorage, get_chunk_storage
 from worktrace_api.redaction import PrivacyRedactor
 from worktrace_api.repository import Repository
 from worktrace_api.schemas import Screenshot, WorkflowSession
@@ -17,11 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 def _atomic_write(storage: ChunkStorage, storage_key: str, payload: bytes) -> None:
-    destination = storage.resolve_storage_key(storage_key)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_suffix(f"{destination.suffix}.tmp")
-    temporary.write_bytes(payload)
-    temporary.replace(destination)
+    """Write bytes to a storage key using the appropriate atomic strategy.
+
+    - Local backend: tmp-file rename (same pattern as ChunkStorage.write).
+    - S3 backend: put_object, which is inherently atomic.
+    """
+    storage.write_bytes(storage_key, payload, content_type="image/png")
 
 
 def _redacted_key(storage_key: str) -> str:
@@ -67,10 +68,7 @@ class RecordingRedactionProcessor:
         redactor: PrivacyRedactor | None = None,
     ):
         self.repo = repo
-        self.storage = ChunkStorage(
-            root=settings.recording_storage_path,
-            max_chunk_bytes=settings.max_chunk_bytes,
-        )
+        self.storage = get_chunk_storage(settings)
         self.redactor = redactor or PrivacyRedactor(
             model=settings.redaction_model,
             hf_token=settings.hf_token,

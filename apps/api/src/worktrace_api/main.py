@@ -44,7 +44,7 @@ from worktrace_api.media_tokens import (
 )
 from worktrace_api.privacy import sanitize_session
 from worktrace_api.processing import RecordingProcessor
-from worktrace_api.recordings import ChunkStorage
+from worktrace_api.recordings import ChunkStorage, S3ChunkStorage, get_chunk_storage
 from worktrace_api.redaction import redaction_model_ready
 from worktrace_api.repository import (
     Repository,
@@ -155,7 +155,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["Authorization", "Content-Type", "X-Tenant-ID"],
 )
-chunk_storage = ChunkStorage(settings.recording_storage_path, settings.max_chunk_bytes)
+chunk_storage = get_chunk_storage(settings)
 recording_processor = RecordingProcessor(chunk_storage, settings.allowed_domains)
 processing_stages = [
     RecordingStatus.RECORDING,
@@ -359,7 +359,7 @@ def health_services(repo: Repository = Depends(repository)) -> dict[str, Any]:
 
 
 @app.get("/media/{token}", name="get_media_file", tags=["sessions"])
-def get_media_file(token: str) -> FileResponse:
+def get_media_file(token: str):
     try:
         payload = parse_media_token(token, secret=settings.media_token_secret)
     except MediaTokenError as exc:
@@ -368,13 +368,22 @@ def get_media_file(token: str) -> FileResponse:
             detail="Media not found",
         ) from exc
 
-    storage = ChunkStorage(
-        root=settings.recording_storage_path,
-        max_chunk_bytes=settings.max_chunk_bytes,
-    )
-    path = storage.resolve_storage_key(payload.storage_key)
-    if not path.exists() or not path.is_file():
+    storage = get_chunk_storage(settings)
+    if not storage.exists(payload.storage_key):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
+
+    if isinstance(storage, S3ChunkStorage):
+        # Redirect the client directly to a presigned S3 URL so media bytes
+        # are served by S3 rather than proxied through the API process.
+        presigned_url = storage.generate_presigned_get_url(
+            payload.storage_key,
+            payload.media_type,
+            settings.media_token_ttl_seconds,
+        )
+        return RedirectResponse(presigned_url, status_code=307)
+
+    # Local backend: serve the file directly.
+    path = storage.resolve_storage_key(payload.storage_key)
     return FileResponse(path, media_type=payload.media_type)
 
 
@@ -1283,17 +1292,12 @@ async def replace_screenshot_annotations(
     stored = [annotation.model_dump(mode="json") for annotation in normalized]
     repo.set_screenshot_annotations(screenshot_id, stored)
 
-    storage = ChunkStorage(
-        root=settings.recording_storage_path,
-        max_chunk_bytes=settings.max_chunk_bytes,
-    )
+    storage = get_chunk_storage(settings)
     try:
         annotated_key = f"{screenshot.storage_key.rsplit('.', 1)[0]}-annotated.png"
-        annotated_path = storage.resolve_storage_key(annotated_key)
-        annotated_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = annotated_path.with_suffix(".tmp")
-        temporary.write_bytes(annotated_bytes)
-        temporary.replace(annotated_path)
+        # write_bytes() is backend-agnostic: LocalChunkStorage uses atomic
+        # tmp→rename; S3ChunkStorage uses put_object (inherently atomic).
+        storage.write_bytes(annotated_key, annotated_bytes, content_type="image/png")
         repo.update_screenshot_annotation(screenshot_id, annotated_key, "redacted")
     except Exception as exc:
         repo.update_screenshot_annotation(screenshot_id, None, "failed")
@@ -1331,10 +1335,7 @@ def delete_session_screenshot(
     if screenshot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
 
-    storage = ChunkStorage(
-        root=settings.recording_storage_path,
-        max_chunk_bytes=settings.max_chunk_bytes,
-    )
+    storage = get_chunk_storage(settings)
     storage.delete(screenshot.storage_key)
     if screenshot.annotated_storage_key:
         storage.delete(screenshot.annotated_storage_key)
@@ -1355,10 +1356,7 @@ def get_session_screenshot_image(
     screenshot = repo.get_screenshot(session_id, screenshot_id)
     if screenshot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
-    storage = ChunkStorage(
-        root=settings.recording_storage_path,
-        max_chunk_bytes=settings.max_chunk_bytes,
-    )
+    storage = get_chunk_storage(settings)
     if type == "annotated" and screenshot.annotated_storage_key:
         key_to_serve = screenshot.annotated_storage_key
         media_type = "image/png"
