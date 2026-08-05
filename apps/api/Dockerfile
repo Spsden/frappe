@@ -46,6 +46,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
       "torch==2.10.0+cpu" && \
     uv pip install --system -e . && \
     uv pip install --system "debugpy>=1.8,<2" && \
+    sed -i 's/\r$//' ./docker-entrypoint.sh && \
     chmod +x ./docker-entrypoint.sh
 
 EXPOSE 8000
