@@ -59,8 +59,8 @@ def create_celery_app() -> Celery:
     settings = get_settings()
     # AWS ElastiCache / Redis TLS requires ssl_cert_reqs=CERT_NONE 
     redis_url = settings.redis_url
-    if redis_url.startswith("rediss://") and "ssl_cert_reqs" not in redis_url:
-        redis_url += "&ssl_cert_reqs=CERT_NONE" if "?" in redis_url else "?ssl_cert_reqs=CERT_NONE"
+    # if redis_url.startswith("rediss://") and "ssl_cert_reqs" not in redis_url:
+    #     redis_url += "&ssl_cert_reqs=CERT_NONE" if "?" in redis_url else "?ssl_cert_reqs=CERT_NONE"
 
     app = Celery(
         "worktrace",
@@ -68,11 +68,11 @@ def create_celery_app() -> Celery:
         backend=redis_url,
     )
     app.conf.update(
-        # Forces AWS ElastiCache Serverless to put all Celery keys 
-        # in one cluster slot, avoiding the CROSSSLOT error.
-        broker_transport_options={"global_keyprefix": "{worktrace}"},
-        result_backend_transport_options={"global_keyprefix": "{worktrace}"},
-        worker_enable_remote_control=False,
+        # # Forces AWS ElastiCache Serverless to put all Celery keys 
+        # # in one cluster slot, avoiding the CROSSSLOT error.
+        # broker_transport_options={"global_keyprefix": "{worktrace}"},
+        # result_backend_transport_options={"global_keyprefix": "{worktrace}"},
+        # worker_enable_remote_control=False,
         task_serializer="json",
         result_serializer="json",
         accept_content=["json"],
