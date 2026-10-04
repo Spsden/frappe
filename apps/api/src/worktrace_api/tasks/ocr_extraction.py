@@ -26,7 +26,7 @@ from uuid import UUID
 
 from worktrace_api.core.celery_app import celery_app
 from worktrace_api.ocr import OCRUnavailable, extract_text
-from worktrace_api.recordings import ChunkStorage
+from worktrace_api.recordings import get_chunk_storage
 from worktrace_api.settings import get_settings
 from worktrace_api.tasks._repo import make_repo
 
@@ -43,10 +43,7 @@ def run_ocr_for_recording(recording_id: str, tenant_id: str) -> dict[str, int]:
     the CLI entry point) so it can run with no broker/worker at all."""
     settings = get_settings()
     repo = make_repo(tenant_id)
-    storage = ChunkStorage(
-        root=settings.recording_storage_path,
-        max_chunk_bytes=settings.max_chunk_bytes,
-    )
+    storage = get_chunk_storage(settings)
 
     processed = 0
     skipped = 0
@@ -57,19 +54,19 @@ def run_ocr_for_recording(recording_id: str, tenant_id: str) -> dict[str, int]:
         for screenshot in screenshots:
             try:
                 sidecar_key = _txt_sidecar_key(screenshot.storage_key)
-                sidecar_path = storage.resolve_storage_key(sidecar_key)
 
-                if sidecar_path.exists():
+                # Use storage.exists() so the skip-check is backend-agnostic
+                # (LocalChunkStorage checks the filesystem; S3 does a HEAD request).
+                if storage.exists(sidecar_key):
                     skipped += 1
                     continue
 
                 image_bytes = storage.read(screenshot.storage_key)
                 text = extract_text(image_bytes)
 
-                sidecar_path.parent.mkdir(parents=True, exist_ok=True)
-                temporary = sidecar_path.with_suffix(".tmp")
-                temporary.write_text(text, encoding="utf-8")
-                temporary.replace(sidecar_path)
+                # write_bytes() is backend-agnostic: local backend uses atomic
+                # tmp→rename; S3 backend uses put_object (inherently atomic).
+                storage.write_bytes(sidecar_key, text.encode("utf-8"), content_type="text/plain")
                 processed += 1
             except OCRUnavailable:
                 raise

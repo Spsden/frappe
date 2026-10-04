@@ -24,7 +24,7 @@ import logging
 from uuid import UUID
 
 from worktrace_api.core.celery_app import celery_app
-from worktrace_api.recordings import ChunkStorage
+from worktrace_api.recordings import get_chunk_storage
 from worktrace_api.schemas import SOP_LIMIT_FIELDS, RecordingStatus
 from worktrace_api.settings import get_settings
 from worktrace_api.sop_provider import (
@@ -84,10 +84,7 @@ def generate_sop_with_ai(self, recording_id: str, session_id: str, tenant_id: st
     repo = make_repo(tenant_id)
     recording_uuid = UUID(recording_id)
     session_uuid = UUID(session_id)
-    storage = ChunkStorage(
-        root=settings.recording_storage_path,
-        max_chunk_bytes=settings.max_chunk_bytes,
-    )
+    storage = get_chunk_storage(settings)
 
     try:
         repo.set_recording_status(recording_uuid, RecordingStatus.GENERATING_SOP)
