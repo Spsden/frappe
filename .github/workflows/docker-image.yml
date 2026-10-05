@@ -7,15 +7,19 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
+# Minimal token scope — read source code only.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
 
@@ -29,3 +33,55 @@ jobs:
 
       - name: Build API Docker image
         run: docker build ./apps/api --file ./apps/api/Dockerfile --tag worktrace-api:ci
+
+      # Risk: known OS-package and Python CVEs baked into the worktrace-api image.
+      - name: Scan API image for CVEs (Trivy)
+        # Report-only: exit-code 0 so a finding never breaks the build at this stage.
+        # The image was built in the previous step and is available in the local daemon.
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: worktrace-api:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 0
+          format: json
+          output: trivy-image-report.json
+
+      - name: Upload Trivy image report
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: trivy-image-report
+          path: trivy-image-report.json
+          if-no-files-found: ignore
+
+  # Risk: Python code-quality regressions and style violations that can hide bugs.
+  lint:
+    name: Python lint (Ruff)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Ruff
+        run: pip install ruff==0.16.10
+
+      - name: Run Ruff
+        working-directory: apps/api
+        # Uses the [tool.ruff] config in pyproject.toml.
+        # --exit-zero keeps the job green in report-only mode.
+        run: |
+          ruff check --output-format json --output-file ruff-report.json . || true
+          ruff check . --exit-zero
+
+      - name: Upload Ruff report
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ruff-report
+          path: apps/api/ruff-report.json
+          if-no-files-found: ignore

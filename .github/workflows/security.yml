@@ -1,0 +1,160 @@
+# security.yml — Report-only DevSecOps baseline.
+# All jobs upload findings as artifacts; none fail the build (exit-code: 0).
+# Run on every PR and every push to main so issues are visible immediately.
+# Make individual jobs blocking by switching their continue-on-error / exit-code
+# values once the team has triaged the initial findings.
+
+name: Security Baseline
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+# Minimal token scope — this workflow only reads source code.
+permissions:
+  contents: read
+
+jobs:
+  # Risk: leaked secrets / credentials committed to the repository.
+  gitleaks:
+    name: Secret scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      # Full history required so Gitleaks can scan all commits, not just HEAD.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Report-only: do not fail the workflow on findings.
+          GITLEAKS_ENABLE_COMMENTS: false
+        continue-on-error: true
+
+      - name: Upload Gitleaks report
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: gitleaks-report
+          path: results.sarif
+          if-no-files-found: ignore
+
+  # Risk: Dockerfile misconfigurations (root user, unpinned base, ADD vs COPY, etc.).
+  hadolint:
+    name: Dockerfile lint (Hadolint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run Hadolint
+        uses: hadolint/hadolint-action@v3.5.0
+        with:
+          dockerfile: apps/api/Dockerfile
+          # Write a machine-readable report for the artifact.
+          format: json
+          output-file: hadolint-report.json
+          # Report-only: never fail the build at this stage.
+          no-fail: true
+
+      - name: Upload Hadolint report
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: hadolint-report
+          path: hadolint-report.json
+          if-no-files-found: ignore
+
+  # Risk: known security flaws in Python source code (hardcoded secrets, unsafe calls, etc.).
+  bandit:
+    name: Python SAST (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Bandit
+        run: pip install bandit==1.9.4
+
+      - name: Run Bandit
+        # -ll = medium+ severity only (LOW excluded to reduce noise at first).
+        # exit-code 0 so the job is always green in report-only mode.
+        run: |
+          bandit -r apps/api/src/worktrace_api \
+            -ll \
+            --format json \
+            --output bandit-report.json \
+            || true
+
+      - name: Upload Bandit report
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: bandit-report
+          path: bandit-report.json
+          if-no-files-found: ignore
+
+  # Risk: known CVEs in Python packages declared in apps/api/pyproject.toml.
+  trivy-fs:
+    name: Dependency CVE scan (Trivy filesystem)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run Trivy filesystem scan
+        # Scans pyproject.toml and any lock files in apps/api for HIGH/CRITICAL CVEs.
+        # exit-code: 0 keeps the job green in report-only mode.
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: apps/api
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 0
+          format: json
+          output: trivy-fs-report.json
+
+      - name: Upload Trivy filesystem report
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: trivy-fs-report
+          path: trivy-fs-report.json
+          if-no-files-found: ignore
+
+  # Risk: known CVEs and audit advisories in Electron desktop npm dependencies.
+  npm-audit:
+    name: npm dependency audit (desktop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install desktop dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Run npm audit
+        working-directory: apps/desktop
+        # --audit-level=high: surface HIGH and CRITICAL advisories.
+        # The `|| true` keeps the step green (report-only).
+        run: |
+          npm audit --audit-level=high --json > npm-audit-report.json || true
+
+      - name: Upload npm audit report
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: npm-audit-report
+          path: apps/desktop/npm-audit-report.json
+          if-no-files-found: ignore

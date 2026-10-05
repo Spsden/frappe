@@ -52,6 +52,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def production_settings_are_fail_closed(self) -> "Settings":
+        if self.env != "development" and self.media_token_secret == "worktrace-dev-media-token-secret-change-me":  # nosec B105  # development-only default, rejected in production by the settings validator
+            raise ValueError("Production requires a strong media_token_secret")
         if self.env != "development" and not self.allowed_domains:
             raise ValueError("Production requires an explicit recording-domain allowlist")
         return self

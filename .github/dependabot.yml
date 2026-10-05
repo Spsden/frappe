@@ -1,0 +1,41 @@
+version: 2
+
+updates:
+  # Keep GitHub Actions themselves up to date (all workflow files under .github/).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  # Keep the API Docker base image (python:3.12-slim, uv, etc.) up to date.
+  - package-ecosystem: "docker"
+    directory: "/apps/api"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # Keep Electron / Node.js desktop dependencies up to date.
+  - package-ecosystem: "npm"
+    directory: "/apps/desktop"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "javascript"
+
+  # Keep Python API dependencies (pyproject.toml) up to date.
+  # Uses the uv ecosystem (natively supported by Dependabot when uv.lock exists).
+  # Note: generate a uv.lock first with `cd apps/api && uv lock` to activate
+  # Dependabot's lock-file update capability.
+  - package-ecosystem: "uv"
+    directory: "/apps/api"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "python"

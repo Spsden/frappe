@@ -11,6 +11,9 @@ services:
     profiles: ["local-redis"]
 
   api:
+    build:
+      args:
+        DEBUG: "false"
     restart: always
     # Clear the base postgres/redis dependency — RDS/ElastiCache are external.
     # migration_bootstrap.py retries the DB connection on startup.

@@ -17,6 +17,7 @@ x-db-env: &db-env
 # Shared env so the api and worker services can never disagree on broker/db.
 x-api-env: &api-env
   WORKTRACE_ENV: development
+  UVICORN_RELOAD: 1
   # Redis is the celery broker AND result backend (core/celery_app.py).
   WORKTRACE_REDIS_URL: redis://redis:6379/0
   # psycopg3 driver (psycopg[binary] in apps/api/pyproject.toml). The host
@@ -75,7 +76,7 @@ services:
         condition: service_completed_successfully
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -87,6 +88,8 @@ services:
   api:
     build:
       context: ./apps/api
+      args:
+        DEBUG: "true"
     image: worktrace-api:dev
     depends_on:
       redis:
@@ -159,7 +162,9 @@ services:
       # audio/vision/llm/default tasks will sit unconsumed.
       - -Q
       - default,audio,vision,llm,celery
-
+    # The worker has no HTTP endpoint; disable the inherited HEALTHCHECK.
+    healthcheck:
+      disable: true
 volumes:
   redis-data:
   pg-data:
